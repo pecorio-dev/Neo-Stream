@@ -1,0 +1,162 @@
+name: 🚀 NEO STREAM - iOS Build
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: 'Force rebuild even if no changes'
+        required: false
+        default: 'false'
+
+env:
+  FLUTTER_VERSION: '3.24.5'
+  IOS_VERSION: '12.0'
+  APP_NAME: 'NEO STREAM'
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: 🔧 Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: ${{ env.FLUTTER_VERSION }}
+        channel: 'stable'
+        cache: true
+        
+    - name: 📦 Install dependencies
+      run: |
+        flutter pub get
+        flutter pub deps
+        
+    - name: 🧪 Run tests
+      run: flutter test --coverage
+      
+    - name: 🍎 Setup Xcode
+      uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: latest-stable
+        
+    - name: 🔢 Update version
+      run: |
+        # Mise à jour automatique de la version
+        BUILD_NUMBER=${{ github.run_number }}
+        VERSION="1.0.0"
+        
+        # Mise à jour pubspec.yaml
+        sed -i '' "s/version: .*/version: $VERSION+$BUILD_NUMBER/" pubspec.yaml
+        
+        # Mise à jour iOS
+        cd ios
+        agvtool new-marketing-version $VERSION
+        agvtool new-version -all $BUILD_NUMBER
+        
+        echo "📱 Version mise à jour: $VERSION+$BUILD_NUMBER"
+        
+    - name: 🏗️ Build iOS (unsigned)
+      run: |
+        echo "🏗️ Construction de l'application iOS (non signée)..."
+        
+        # Build Flutter sans signature
+        flutter build ios --release --no-codesign
+        
+        echo "✅ Build terminée"
+        
+    - name: 📦 Create unsigned IPA
+      run: |
+        echo "📦 Création de l'IPA non signée..."
+        
+        cd build/ios/iphoneos
+        
+        # Créer la structure IPA
+        mkdir -p Payload
+        cp -r Runner.app Payload/
+        
+        # Créer l'IPA
+        zip -r NEO-STREAM-v1.0.0-${{ github.run_number }}-UNSIGNED.ipa Payload/
+        
+        # Déplacer vers le répertoire de build
+        mkdir -p $RUNNER_TEMP/build
+        mv NEO-STREAM-v1.0.0-${{ github.run_number }}-UNSIGNED.ipa $RUNNER_TEMP/build/
+        
+        echo "✅ IPA non signée créée"
+        
+    - name: 📤 Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: neostream-ios-signed-${{ github.run_number }}
+        path: ${{ runner.temp }}/build/*.ipa
+        retention-days: 30
+        
+    - name: 🚀 Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v1.0.0-unsigned-${{ github.run_number }}
+        name: 🚀 NEO STREAM v1.0.0 (Unsigned Build ${{ github.run_number }})
+        body: |
+          # 🚀 NEO STREAM - L'avenir du streaming est maintenant
+          
+          ## ✨ Version non signée - Prête pour ESign
+          
+          ### 📱 Installation avec ESign (Recommandé)
+          1. **Téléchargez** le fichier IPA non signé ci-dessous
+          2. **Installez ESign** depuis [esign.yyyue.xyz](https://esign.yyyue.xyz)
+          3. **Importez l'IPA** dans ESign
+          4. **Signez et installez** automatiquement
+          5. **Profitez** de NEO STREAM sans limite de temps !
+          
+          ### 🔐 Avantages ESign
+          - ✅ **Signature permanente** - Pas d'expiration
+          - 🔄 **Pas de renouvellement** nécessaire
+          - 📱 **Installation directe** sur l'appareil
+          - 🎯 **Build** #${{ github.run_number }}
+          
+          ### 🎮 Fonctionnalités
+          - 🎨 **Interface cyberpunk** immersive
+          - 👤 **12 avatars uniques** personnalisables
+          - 📺 **Streaming optimisé** haute qualité
+          - 🔒 **Profils utilisateurs** sécurisés
+          - 🌐 **Configuration DNS** automatique
+          
+          ### 🛠️ Informations techniques
+          - **Version**: 1.0.0+${{ github.run_number }}
+          - **Commit**: ${{ github.sha }}
+          - **Flutter**: ${{ env.FLUTTER_VERSION }}
+          - **Build date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          - **Type**: IPA non signée (prête pour ESign)
+          
+          ### 📋 Guide d'installation détaillé
+          
+          Consultez le **README.md** pour le guide complet d'installation avec ESign.
+          
+          ### 🆕 Alternatives d'installation
+          - **ESign** (Recommandé) - Signature permanente
+          - **AltStore** - Gratuit, renouvellement nécessaire
+          - **Sideloadly** - Gratuit, renouvellement nécessaire
+          
+          ---
+          
+          **🤖 Build automatique généré par GitHub Actions**
+          
+          *NEO STREAM - Où le cyberpunk rencontre le streaming* ⚡
+        files: ${{ runner.temp }}/build/*.ipa
+        draft: false
+        prerelease: false
+        make_latest: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: 📊 Build summary
+      run: |
+        echo "## 🎉 Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ **Build réussi**: NEO STREAM v1.0.0+${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+        echo "- 📦 **Type**: IPA non signée (prête pour ESign)" >> $GITHUB_STEP_SUMMARY
+        echo "- 📱 **Compatibilité**: iOS ${{ env.IOS_VERSION }}+" >> $GITHUB_STEP_SUMMARY
+        echo "- 🔐 **Installation**: Via ESign (signature permanente)" >> $GITHUB_STEP_SUMMARY
+        echo "- 📦 **IPA disponible**: Dans les artifacts et releases" >> $GITHUB_STEP_SUMMARY

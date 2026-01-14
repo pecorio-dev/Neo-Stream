@@ -1,0 +1,27 @@
+@echo off
+REM Script de génération de code pour NEO STREAM
+REM Génère automatiquement tous les fichiers nécessaires
+
+echo 🚀 NEO STREAM - Génération de code professionnel
+echo ================================================
+
+REM Nettoie les anciens fichiers générés
+echo 🧹 Nettoyage des anciens fichiers...
+flutter packages pub run build_runner clean
+
+REM Récupère les dépendances
+echo 📦 Récupération des dépendances...
+flutter pub get
+
+REM Génère tous les fichiers
+echo ⚡ Génération du code...
+flutter packages pub run build_runner build --delete-conflicting-outputs
+
+REM Vérifie que tout est OK
+echo ✅ Vérification du code...
+flutter analyze
+
+echo.
+echo 🎉 Génération terminée avec succès !
+echo Vous pouvez maintenant lancer l'application avec: flutter run
+pause

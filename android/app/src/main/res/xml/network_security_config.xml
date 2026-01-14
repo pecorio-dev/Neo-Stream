@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Configuration de base pour accepter TOUTES les connexions -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <!-- Faire confiance à TOUTES les autorités de certification -->
+            <certificates src="system"/>
+            <certificates src="user"/>
+        </trust-anchors>
+    </base-config>
+
+    <!-- Configuration spécifique pour tous les domaines Uqload -->
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- Tous les domaines Uqload et leurs sous-domaines -->
+        <domain includeSubdomains="true">uqload.net</domain>
+        <domain includeSubdomains="true">uqload.bz</domain>
+        <domain includeSubdomains="true">uqload.co</domain>
+        <domain includeSubdomains="true">uqload.io</domain>
+        <domain includeSubdomains="true">uqload.xyz</domain>
+        <domain includeSubdomains="true">uqload.biz</domain>
+        <domain includeSubdomains="true">uqload.org</domain>
+        <domain includeSubdomains="true">uqload.com</domain>
+        <domain includeSubdomains="true">uqload.vip</domain>
+        <domain includeSubdomains="true">uqload.life</domain>
+        <domain includeSubdomains="true">uqload.cz</domain>
+        <domain includeSubdomains="true">uqload.to</domain>
+        <domain includeSubdomains="true">uqload.cx</domain>
+        <domain includeSubdomains="true">uqload.se</domain>
+        <domain includeSubdomains="true">uqload.sx</domain>
+        <domain includeSubdomains="true">uqload.download</domain>
+        <domain includeSubdomains="true">uqload.cc</domain>
+        <domain includeSubdomains="true">uqload.club</domain>
+        <domain includeSubdomains="true">uqload.pw</domain>
+        <domain includeSubdomains="true">uqload.stream</domain>
+        <domain includeSubdomains="true">uqload.site</domain>
+        <domain includeSubdomains="true">uqload.fun</domain>
+        <domain includeSubdomains="true">uqload.online</domain>
+        <domain includeSubdomains="true">uqload.space</domain>
+        <domain includeSubdomains="true">uqload.bid</domain>
+        <domain includeSubdomains="true">uqload.win</domain>
+    </domain-config>
+
+    <!-- Réseau de confiance pour les connexions IP directes (comme 45.3.63.47) -->
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="system"/>
+            <certificates src="user"/>
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>

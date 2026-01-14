@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- NOTE: This logo file has been replaced with logo.png -->
+  <!-- Use logo.png instead of this SVG file -->
+  <!-- This SVG is maintained for compatibility but logo.png is the primary logo asset -->
+
+  <!-- Placeholder SVG showing reference to PNG -->
+  <rect x="0" y="0" width="512" height="512" fill="#0a0a0a" />
+
+  <text x="256" y="256" font-family="Arial, sans-serif" font-size="24"
+        fill="#00ffff" text-anchor="middle" dominant-baseline="middle">
+    Logo PNG Asset
+  </text>
+
+  <text x="256" y="290" font-family="Arial, sans-serif" font-size="16"
+        fill="#0088ff" text-anchor="middle" dominant-baseline="middle">
+    Use logo.png instead
+  </text>
+</svg>
