@@ -28,7 +28,7 @@ workflows:
     environment:
       flutter: stable
       ios_signing:
-        distribution_type: ad_hoc
+        distribution_type: development
         bundle_identifier: com.neostream.app
       vars:
         PACKAGE_NAME: com.neostream.app
@@ -41,9 +41,6 @@ workflows:
     scripts:
       - name: Get Flutter packages
         script: flutter pub get
-      - name: Set up code signing
-        script: |
-          echo "Setting up code signing..."
       - name: Build IPA
         script: |
           flutter build ipa --release \
