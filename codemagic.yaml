@@ -4,7 +4,7 @@ workflows:
     environment:
       flutter: stable
       vars:
-        PACKAGE_NAME: com.neostream.app
+        PACKAGE_NAME: eu.neostream.neo_stream
     triggering:
       events:
         - push
@@ -24,14 +24,13 @@ workflows:
           - stream2free.pecorio@gmail.com
 
   ios-workflow:
-    name: iOS Release
+    name: iOS Development
     environment:
       flutter: stable
       ios_signing:
         distribution_type: development
-        bundle_identifier: com.neostream.app
-      vars:
-        PACKAGE_NAME: com.neostream.app
+        bundle_identifier: eu.neostream.neoStream
+        team_id: PERSONAL_TEAM
     triggering:
       events:
         - push
@@ -41,6 +40,10 @@ workflows:
     scripts:
       - name: Get Flutter packages
         script: flutter pub get
+      - name: Set up code signing
+        script: |
+          xcode-project use-profiles \
+            --project ios/Runner.xcodeproj
       - name: Build IPA
         script: |
           flutter build ipa --release \
