@@ -1,0 +1,56 @@
+workflows:
+  android-workflow:
+    name: Android Release
+    environment:
+      flutter: stable
+      vars:
+        PACKAGE_NAME: com.neostream.app
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+    scripts:
+      - name: Get Flutter packages
+        script: flutter pub get
+      - name: Build APK
+        script: flutter build apk --release
+    artifacts:
+      - build/**/outputs/**/*.apk
+    publishing:
+      email:
+        recipients:
+          - stream2free.pecorio@gmail.com
+
+  ios-workflow:
+    name: iOS Release
+    environment:
+      flutter: stable
+      ios_signing:
+        distribution_type: ad_hoc
+        bundle_identifier: com.neostream.app
+      vars:
+        PACKAGE_NAME: com.neostream.app
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+    scripts:
+      - name: Get Flutter packages
+        script: flutter pub get
+      - name: Set up code signing
+        script: |
+          echo "Setting up code signing..."
+      - name: Build IPA
+        script: |
+          flutter build ipa --release \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+    publishing:
+      email:
+        recipients:
+          - stream2free.pecorio@gmail.com
