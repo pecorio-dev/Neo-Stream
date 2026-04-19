@@ -30,7 +30,6 @@ workflows:
       ios_signing:
         distribution_type: development
         bundle_identifier: eu.neostream.neoStream
-        team_id: PERSONAL_TEAM
     triggering:
       events:
         - push
