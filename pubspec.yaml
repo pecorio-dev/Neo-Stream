@@ -1,0 +1,56 @@
+name: neo_stream
+description: "Neo-Stream - Application de streaming premium"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.3
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  
+  # UI Components
+  shimmer: ^3.0.0
+  cached_network_image: ^3.3.0
+  carousel_slider: ^5.0.0
+  
+  # Video Player - media_kit (stable cross-platform solution)
+  media_kit: ^1.2.6
+  media_kit_video: ^2.0.1
+  media_kit_libs_video: ^1.0.7
+  
+  # Networking
+  http: ^1.2.0
+  
+  # State Management
+  provider: ^6.1.0
+  
+  # Local Storage
+  shared_preferences: ^2.2.0
+  flutter_secure_storage: ^9.0.0
+  
+  # Utils
+  intl: ^0.19.0
+  flutter_inappwebview: ^6.1.5
+  flutter_staggered_grid_view: ^0.7.0
+  flutter_animate: ^4.5.2
+  wakelock_plus: ^1.5.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.3
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon.png"
+  adaptive_icon_background: "#050508"
+  adaptive_icon_foreground: "assets/icon.png"
+  min_sdk_android: 21
+
+flutter:
+  uses-material-design: true

@@ -1,0 +1,39 @@
+[ÔêÜ] Flutter (Channel stable, 3.38.4, on Microsoft Windows [version 10.0.26200.8117], locale fr-FR) [515ms]
+    ÔÇó Flutter version 3.38.4 on channel stable at C:\flutter
+    ÔÇó Upstream repository https://github.com/flutter/flutter.git
+    ÔÇó Framework revision 66dd93f9a2 (4 months ago), 2025-12-03 14:56:10 -0800
+    ÔÇó Engine revision a5cb96369e
+    ÔÇó Dart version 3.10.3
+    ÔÇó DevTools version 2.51.1
+    ÔÇó Feature flags: enable-web, enable-linux-desktop, enable-macos-desktop, enable-windows-desktop, enable-android, enable-ios, cli-animations, enable-native-assets, omit-legacy-version-file, enable-lldb-debugging
+
+[ÔêÜ] Windows Version (11 Famille 64-bit, 25H2, 2009) [2,4s]
+
+[!] Android toolchain - develop for Android devices (Android SDK version 36.1.0) [585ms]
+    ÔÇó Android SDK at C:\Users\pecor\AppData\Local\Android\sdk
+    ÔÇó Emulator version 36.4.9.0 (build_id 14788078) (CL:N/A)
+    X cmdline-tools component is missing.
+      Try installing or updating Android Studio.
+      Alternatively, download the tools from https://developer.android.com/studio#command-line-tools-only and make sure to set the ANDROID_HOME environment variable.
+      See https://developer.android.com/studio/command-line for more details.
+    X Android license status unknown.
+      Run `flutter doctor --android-licenses` to accept the SDK licenses.
+      See https://flutter.dev/to/windows-android-setup for more details.
+
+[ÔêÜ] Chrome - develop for the web [169ms]
+    ÔÇó Chrome at C:\Program Files\Google\Chrome\Application\chrome.exe
+
+[ÔêÜ] Visual Studio - develop Windows apps (Visual Studio Build Tools┬á2019 16.11.54) [167ms]
+    ÔÇó Visual Studio at C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools
+    ÔÇó Visual Studio Build Tools┬á2019 version 16.11.37027.11
+    ÔÇó Windows 10 SDK version 10.0.22621.0
+
+[ÔêÜ] Connected device (3 available) [418ms]
+    ÔÇó Windows (desktop) ÔÇó windows ÔÇó windows-x64    ÔÇó Microsoft Windows [version 10.0.26200.8117]
+    ÔÇó Chrome (web)      ÔÇó chrome  ÔÇó web-javascript ÔÇó Google Chrome 146.0.7680.178
+    ÔÇó Edge (web)        ÔÇó edge    ÔÇó web-javascript ÔÇó Microsoft Edge 146.0.3856.97
+
+[ÔêÜ] Network resources [723ms]
+    ÔÇó All expected network resources are available.
+
+! Doctor found issues in 1 category.
