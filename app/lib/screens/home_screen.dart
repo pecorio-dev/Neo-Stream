@@ -622,6 +622,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final recommendedItems = content.recommended.take(10).toList();
     final popularFilms = content.popularFilms.take(12).toList();
     final popularSeries = content.popularSeries.take(12).toList();
+    final popularAnime = content.popularAnime.take(12).toList();
+    final recentAnime = content.recentAnime.take(12).toList();
 
     if (content.isLoadingHome) {
       return const ShimmerHomeLoading();
@@ -832,6 +834,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   'Les séries qui méritent un vrai coup d\'œil.',
                   popularSeries,
                   icon: Icons.tv_outlined,
+                ),
+              if (popularAnime.isNotEmpty)
+                _buildHorizontalSection(
+                  'Anime populaires',
+                  'Les séries animées les plus complètes sur Neo-Stream.',
+                  popularAnime,
+                  icon: Icons.animation,
+                ),
+              if (recentAnime.isNotEmpty)
+                _buildHorizontalSection(
+                  'Anime récents',
+                  'Les derniers anime ajoutés ou mis à jour.',
+                  recentAnime,
+                  icon: Icons.fiber_new_outlined,
                 ),
               const SliverToBoxAdapter(child: SizedBox(height: 40)),
             ],

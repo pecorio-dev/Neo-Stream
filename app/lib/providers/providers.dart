@@ -109,6 +109,8 @@ class ContentProvider extends ChangeNotifier {
   List<Content> _popularSeries = [];
   List<Content> _recentFilms = [];
   List<Content> _recentSeries = [];
+  List<Content> _popularAnime = [];
+  List<Content> _recentAnime = [];
   List<Map<String, dynamic>> _byGenre = [];
   List<Map<String, dynamic>> _myLibrary = [];
   bool _isPremium = false;
@@ -129,6 +131,8 @@ class ContentProvider extends ChangeNotifier {
   List<Content> get popularSeries => _popularSeries;
   List<Content> get recentFilms => _recentFilms;
   List<Content> get recentSeries => _recentSeries;
+  List<Content> get popularAnime => _popularAnime;
+  List<Content> get recentAnime => _recentAnime;
   List<Map<String, dynamic>> get byGenre => _byGenre;
   List<Map<String, dynamic>> get myLibrary => _myLibrary;
   bool get isPremium => _isPremium;
@@ -176,6 +180,8 @@ class ContentProvider extends ChangeNotifier {
       _popularSeries = _parseContentList(data['popular_series']);
       _recentFilms = _parseContentList(data['recent_films']);
       _recentSeries = _parseContentList(data['recent_series']);
+      _popularAnime = _parseContentList(data['popular_anime']);
+      _recentAnime = _parseContentList(data['recent_anime']);
       _byGenre =
           (data['by_genre'] as List?)?.cast<Map<String, dynamic>>() ?? [];
       _myLibrary =
