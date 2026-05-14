@@ -1,0 +1,55 @@
+name: Build iOS IPA (Unsigned)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'app/**'
+      - '.github/workflows/ios-build.yml'
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.10.3'
+        channel: 'stable'
+    
+    - name: Install dependencies
+      run: |
+        cd app
+        flutter pub get
+    
+    - name: Build iOS (unsigned)
+      run: |
+        cd app
+        flutter build ios --release --no-codesign
+    
+    - name: Create IPA
+      run: |
+        cd app/build/ios/iphoneos
+        mkdir Payload
+        cp -r Runner.app Payload/
+        zip -r neo_stream_unsigned.ipa Payload
+        mv neo_stream_unsigned.ipa ../../..
+    
+    - name: Upload IPA artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: neo-stream-ios-unsigned
+        path: app/neo_stream_unsigned.ipa
+        retention-days: 30
+    
+    - name: Get IPA info
+      run: |
+        cd app
+        ls -lh neo_stream_unsigned.ipa
+        echo "✅ IPA créé avec succès!"
+        echo "📦 Taille: $(du -h neo_stream_unsigned.ipa | cut -f1)"

@@ -1,0 +1,103 @@
+# ─── OS ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Éditeurs ─────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+.history/
+
+# ─── Python ───────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+
+# ─── Flutter / Dart ───────────────────────────────────────────────────
+app/.dart_tool/
+app/.flutter-plugins-dependencies
+app/.pub-cache/
+app/.pub/
+app/build/
+app/coverage/
+app/**/*.g.dart
+app/**/*.freezed.dart
+app/app.*.symbols
+app/app.*.map.json
+
+# ─── Android build ────────────────────────────────────────────────────
+app/android/app/debug/
+app/android/app/profile/
+app/android/app/release/
+app/android/.gradle/
+app/android/local.properties
+app/android/captures/
+app/android/**/*.apk
+
+# ─── iOS build ────────────────────────────────────────────────────────
+app/ios/Flutter/.last_build_id
+app/ios/Pods/
+app/ios/.symlinks/
+app/ios/Runner.xcworkspace/xcuserdata/
+
+# ─── Windows build ────────────────────────────────────────────────────
+app/windows/flutter/generated_plugin_registrant.cc
+app/windows/flutter/generated_plugin_registrant.h
+app/windows/flutter/generated_plugins.cmake
+
+# ─── Logs & artefacts temporaires ─────────────────────────────────────
+*.log
+*.tmp
+build_log.txt
+doctor_v.txt
+
+# ─── API serveur (code backend — ne pas publier) ──────────────────────
+api/
+
+# ─── Secrets & credentials ────────────────────────────────────────────
+ai/.env
+*.key
+*.pem
+gcp-key.json
+*-key.json
+workspace/
+
+# ─── Claude Code / outils locaux ──────────────────────────────────────
+.claude/
+.codex/
+
+# ─── Base de données locale ───────────────────────────────────────────
+api/database.db
+*.sqlite
+*.db
+
+# ─── Fichiers compressés (builds exportés) ────────────────────────────
+*.zip
+*.tar.gz
+*.rar
+app/lib.zip
+
+# ─── Cache AI / données générées ──────────────────────────────────────
+ai/__pycache__/
+ai/data/content_index.faiss
+ai/data/content_metadata.json
+ai/data/index_stats.json
+ai/models/*.gguf
+ai/llama/
+
+# ─── Fichiers Inno Setup (installer Windows) ──────────────────────────
+# app/setup.iss → garder (config de l'installeur)
+# Output de l'installeur
+app/Output/
+installer/
+dist/
+
+# ─── Node.js ──────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log

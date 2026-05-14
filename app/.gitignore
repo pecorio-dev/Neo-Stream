@@ -1,0 +1,47 @@
+# ─── OS ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─── Flutter / Dart ───────────────────────────────────────────────────
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+build/
+coverage/
+*.g.dart
+*.freezed.dart
+app.*.symbols
+app.*.map.json
+
+# ─── Android ──────────────────────────────────────────────────────────
+android/app/debug/
+android/app/profile/
+android/app/release/
+android/.gradle/
+android/local.properties
+android/captures/
+
+# ─── iOS ──────────────────────────────────────────────────────────────
+ios/Flutter/.last_build_id
+ios/Pods/
+ios/.symlinks/
+ios/Runner.xcworkspace/xcuserdata/
+
+# ─── Windows (générés au build) ───────────────────────────────────────
+windows/flutter/generated_plugin_registrant.cc
+windows/flutter/generated_plugin_registrant.h
+windows/flutter/generated_plugins.cmake
+
+# ─── Logs & temporaires ───────────────────────────────────────────────
+*.log
+*.tmp
+build_log.txt
+doctor_v.txt
+lib.zip
+
+# ─── IntelliJ / Android Studio ────────────────────────────────────────
+*.iml
+*.ipr
+*.iws
+.idea/
