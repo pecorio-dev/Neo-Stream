@@ -45,6 +45,7 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
 
   int _playbackRetryCount = 0;
   static const int _maxPlaybackRetries = 3;
+  Duration? _resumePosition;
 
   @override
   void initState() {
@@ -66,7 +67,9 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
       if (!mounted) return;
       if (_playbackRetryCount < _maxPlaybackRetries) {
         _playbackRetryCount++;
-        debugPrint('Anime retry $_playbackRetryCount/$_maxPlaybackRetries...');
+        final pos = _player.state.position;
+        if (pos.inSeconds > 0) _resumePosition = pos;
+        debugPrint('Anime retry $_playbackRetryCount/$_maxPlaybackRetries — position sauvée: ${pos.inSeconds}s');
         Future.delayed(const Duration(seconds: 1), () {
           if (mounted) _extractVideo();
         });
@@ -154,7 +157,14 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
     if (!mounted) return;
     _player.play();
     _playbackRetryCount = 0;
-    await _restoreProgress();
+
+    if (_resumePosition != null && _resumePosition!.inSeconds > 0) {
+      debugPrint('↩ Reprise à ${_resumePosition!.inSeconds}s (URL refresh)');
+      await _player.seek(_resumePosition!);
+      _resumePosition = null;
+    } else {
+      await _restoreProgress();
+    }
     _startProgressTimer();
   }
 

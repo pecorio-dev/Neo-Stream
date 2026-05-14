@@ -61,6 +61,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // Retry automatique sur erreur réseau pendant la lecture
   int _playbackRetryCount = 0;
   static const int _maxPlaybackRetries = 3;
+  Duration? _resumePosition; // position sauvée avant ré-extraction
 
   StreamSubscription<String>? _playerErrorSub;
   StreamSubscription<bool>? _playerCompletedSub;
@@ -687,7 +688,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
         if (_playbackRetryCount < _maxPlaybackRetries) {
           _playbackRetryCount++;
-          debugPrint('Player error — re-extraction auto (tentative $_playbackRetryCount/$_maxPlaybackRetries)...');
+          // Mémoriser la position exacte avant de ré-extraire
+          final pos = thisPlayer.state.position;
+          if (pos.inSeconds > 0) _resumePosition = pos;
+          debugPrint('Player error — position sauvée: ${pos.inSeconds}s — re-extraction auto (tentative $_playbackRetryCount/$_maxPlaybackRetries)...');
           Future.delayed(const Duration(seconds: 1), () {
             if (mounted) {
               _startExtractionPipeline(startIndex: _currentServerIndex);
@@ -717,10 +721,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
       
       debugPrint('✓ Player opened, ensuring playback...');
       _player!.play();
-      
+
       debugPrint('✓ Player initialized successfully');
-      
-      await _restoreProgress();
+
+      // Si on reprend après expiration URL → seek direct sans passer par l'API
+      if (_resumePosition != null && _resumePosition!.inSeconds > 0) {
+        debugPrint('↩ Reprise à ${_resumePosition!.inSeconds}s (URL refresh)');
+        await _player!.seek(_resumePosition!);
+        _resumePosition = null;
+      } else {
+        await _restoreProgress();
+      }
 
       _startProgressTimer();
       _showControlsBriefly();
