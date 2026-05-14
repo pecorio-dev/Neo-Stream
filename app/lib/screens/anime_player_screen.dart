@@ -48,6 +48,11 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
   Duration? _resumePosition;
 
   Timer? _urlRefreshTimer;
+  Timer? _prefetchTimer;
+  Map<String, dynamic>? _prefetchedResult;
+
+  static const Duration _defaultSwapDelay = Duration(minutes: 9);
+  static const Duration _prefetchLeadTime = Duration(minutes: 2);
 
   @override
   void initState() {
@@ -71,10 +76,16 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
         _playbackRetryCount++;
         final pos = _player.state.position;
         if (pos.inSeconds > 0) _resumePosition = pos;
-        debugPrint('Anime retry $_playbackRetryCount/$_maxPlaybackRetries — position sauvée: ${pos.inSeconds}s');
-        Future.delayed(const Duration(seconds: 1), () {
-          if (mounted) _extractVideo();
-        });
+        debugPrint('Anime erreur ($_playbackRetryCount/$_maxPlaybackRetries) — position: ${pos.inSeconds}s');
+
+        if (_prefetchedResult != null) {
+          debugPrint('⚡ URL pré-extraite disponible → swap immédiat');
+          Future.microtask(() { if (mounted) _doSilentRefresh(); });
+        } else {
+          Future.delayed(const Duration(seconds: 1), () {
+            if (mounted) _extractVideo();
+          });
+        }
       } else if (_errorMessage == null) {
         setState(() {
           _errorMessage = 'Erreur de lecture: $error';
@@ -96,6 +107,7 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
     _progressTimer?.cancel();
     _controlsTimer?.cancel();
     _urlRefreshTimer?.cancel();
+    _prefetchTimer?.cancel();
     _errorSub?.cancel();
     _completedSub?.cancel();
     WakelockPlus.disable();
@@ -169,42 +181,98 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
       await _restoreProgress();
     }
     _startProgressTimer();
-    _scheduleUrlRefresh();
+    _scheduleUrlRefresh(videoUrl);
   }
 
-  void _scheduleUrlRefresh() {
+  Duration _detectSwapDelay(String videoUrl) {
+    final uri = Uri.tryParse(videoUrl);
+    if (uri == null) return _defaultSwapDelay;
+    final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    for (final key in ['expires', 'expiry', 'exp', 'end', 'Expires']) {
+      final val = uri.queryParameters[key];
+      if (val == null) continue;
+      final ts = int.tryParse(val);
+      if (ts != null && ts > nowSeconds) {
+        final swapAt = ts - nowSeconds - 90;
+        if (swapAt > 60) {
+          debugPrint('🔎 Anime expiry CDN: ${DateTime.fromMillisecondsSinceEpoch(ts * 1000)} — swap dans ${swapAt}s');
+          return Duration(seconds: swapAt);
+        }
+      }
+    }
+    return _defaultSwapDelay;
+  }
+
+  Future<Map<String, dynamic>?> _extractNewUrl() async {
+    try {
+      final result = await AnimeExtractor.extractFromMultipleSources(widget.sources);
+      if (result['success'] == true && result['video_url'] != null) return result;
+    } catch (_) {}
+    return null;
+  }
+
+  void _scheduleUrlRefresh(String videoUrl) {
     _urlRefreshTimer?.cancel();
-    _urlRefreshTimer = Timer(const Duration(minutes: 8), () {
+    _prefetchTimer?.cancel();
+    _prefetchedResult = null;
+
+    final swapDelay = _detectSwapDelay(videoUrl);
+    final prefetchDelay = swapDelay > _prefetchLeadTime
+        ? swapDelay - _prefetchLeadTime
+        : Duration.zero;
+
+    if (prefetchDelay > Duration.zero) {
+      _prefetchTimer = Timer(prefetchDelay, () async {
+        if (!mounted) return;
+        debugPrint('🔍 Anime pré-extraction URL (phase 1)...');
+        _prefetchedResult = await _extractNewUrl();
+        debugPrint(_prefetchedResult != null
+            ? '✓ Anime URL pré-extraite — prête pour le swap'
+            : '⚠ Anime pré-extraction échouée — on-demand au swap');
+      });
+    }
+
+    _urlRefreshTimer = Timer(swapDelay, () {
       if (mounted) _doSilentRefresh();
     });
-    debugPrint('🕐 Anime refresh silencieux planifié dans 8 min');
+
+    final mins = swapDelay.inMinutes;
+    final secs = swapDelay.inSeconds.remainder(60);
+    debugPrint('🕐 Anime swap planifié dans ${mins}m${secs}s');
   }
 
   Future<void> _doSilentRefresh() async {
     if (!mounted) return;
-    debugPrint('🔄 Anime refresh silencieux URL en cours...');
-    try {
-      final result = await AnimeExtractor.extractFromMultipleSources(widget.sources);
-      if (result['success'] != true || result['video_url'] == null) return;
-      if (!mounted) return;
 
-      final newUrl = result['video_url'] as String;
-      final extractor = result['extractor'] as String?;
-      final headers = _getHeadersForExtractor(extractor, newUrl);
+    Map<String, dynamic>? result = _prefetchedResult;
+    _prefetchedResult = null;
 
-      final pos = _player.state.position;
-      debugPrint('✓ Anime nouveau URL prêt — swap silencieux à ${pos.inSeconds}s');
-
-      await _player.open(Media(newUrl, httpHeaders: headers), play: false);
-      if (!mounted) return;
-      if (pos.inSeconds > 0) await _player.seek(pos);
-      _player.play();
-
-      debugPrint('✓ Anime refresh silencieux OK — lecture continue');
-      _scheduleUrlRefresh();
-    } catch (e) {
-      debugPrint('Anime refresh silencieux échoué: $e');
+    if (result == null) {
+      debugPrint('🔄 Anime extraction on-demand...');
+      result = await _extractNewUrl();
+    } else {
+      debugPrint('🔄 Anime swap avec URL pré-extraite (instantané)...');
     }
+
+    if (result == null || !mounted) {
+      debugPrint('⚠ Anime refresh échoué — error handler prendra le relais');
+      return;
+    }
+
+    final newUrl = result['video_url'] as String;
+    final extractor = result['extractor'] as String?;
+    final headers = _getHeadersForExtractor(extractor, newUrl);
+
+    final pos = _player.state.position;
+    debugPrint('✓ Anime swap à ${pos.inSeconds}s → nouvelle URL active');
+
+    await _player.open(Media(newUrl, httpHeaders: headers), play: false);
+    if (!mounted) return;
+    if (pos.inSeconds > 0) await _player.seek(pos);
+    _player.play();
+
+    debugPrint('✓ Anime lecture continue sans interruption');
+    _scheduleUrlRefresh(newUrl);
   }
 
   void _startProgressTimer() {

@@ -66,9 +66,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
   StreamSubscription<String>? _playerErrorSub;
   StreamSubscription<bool>? _playerCompletedSub;
 
-  // Refresh silencieux pré-emptif
+  // Gestion session CDN — refresh pré-emptif en deux phases
   Timer? _urlRefreshTimer;
+  Timer? _prefetchTimer;
   WatchLink? _currentSource;
+  Map<String, dynamic>? _prefetchedResult; // URL pré-extraite prête au swap
+
+  static const Duration _defaultSwapDelay = Duration(minutes: 9);
+  static const Duration _prefetchLeadTime = Duration(minutes: 2);
 
   @override
   void initState() {
@@ -116,6 +121,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _progressTimer?.cancel();
     _controlsTimer?.cancel();
     _urlRefreshTimer?.cancel();
+    _prefetchTimer?.cancel();
     _playerErrorSub?.cancel();
     _playerCompletedSub?.cancel();
     _player?.dispose();
@@ -655,60 +661,127 @@ class _PlayerScreenState extends State<PlayerScreen> {
     };
   }
 
-  // Planifie un refresh silencieux avant expiration de l'URL
-  void _scheduleUrlRefresh(WatchLink source) {
-    _urlRefreshTimer?.cancel();
-    _currentSource = source;
-    // La plupart des CDN expirent à ~10 min → refresh à 8 min
-    _urlRefreshTimer = Timer(const Duration(minutes: 8), () {
-      if (mounted) _doSilentRefresh();
-    });
-    debugPrint('🕐 Refresh silencieux planifié dans 8 min');
+  /// Détecte l'expiration réelle depuis les query params CDN (expires, expiry, exp…).
+  /// Retourne le délai avant swap (90s avant expiry). Défaut : 9 min.
+  Duration _detectSwapDelay(String videoUrl) {
+    final uri = Uri.tryParse(videoUrl);
+    if (uri == null) return _defaultSwapDelay;
+    final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    for (final key in ['expires', 'expiry', 'exp', 'end', 'Expires']) {
+      final val = uri.queryParameters[key];
+      if (val == null) continue;
+      final ts = int.tryParse(val);
+      if (ts != null && ts > nowSeconds) {
+        final swapAt = ts - nowSeconds - 90;
+        if (swapAt > 60) {
+          debugPrint('🔎 Expiry CDN: ${DateTime.fromMillisecondsSinceEpoch(ts * 1000)} — swap dans ${swapAt}s');
+          return Duration(seconds: swapAt);
+        }
+      }
+    }
+    return _defaultSwapDelay;
   }
 
+  /// Extrait une nouvelle URL en lançant local + serveur en parallèle.
+  /// Retourne le premier résultat valide ou null si les deux échouent.
+  Future<Map<String, dynamic>?> _extractNewUrl(WatchLink source) async {
+    final completer = Completer<Map<String, dynamic>?>();
+    var pending = 2;
+
+    void settle(Map<String, dynamic> result) {
+      if (completer.isCompleted) return;
+      if (result['success'] == true && result['video_url'] != null) {
+        completer.complete(result);
+      } else {
+        pending--;
+        if (pending == 0) completer.complete(null);
+      }
+    }
+
+    void onError(Object _) {
+      if (completer.isCompleted) return;
+      pending--;
+      if (pending == 0) completer.complete(null);
+    }
+
+    VideoExtractor.extract(source.url).then(settle).catchError(onError);
+    ApiService().extractVideoUrlServer(source.url).then(settle).catchError(onError);
+
+    return completer.future;
+  }
+
+  /// Planifie le refresh en deux phases :
+  ///   Phase 1 (swapDelay − 2min) : pré-extraction silencieuse en arrière-plan
+  ///   Phase 2 (swapDelay)        : swap instantané avec l'URL déjà prête
+  void _scheduleUrlRefresh(WatchLink source, String videoUrl) {
+    _urlRefreshTimer?.cancel();
+    _prefetchTimer?.cancel();
+    _currentSource = source;
+    _prefetchedResult = null;
+
+    final swapDelay = _detectSwapDelay(videoUrl);
+    final prefetchDelay = swapDelay > _prefetchLeadTime
+        ? swapDelay - _prefetchLeadTime
+        : Duration.zero;
+
+    if (prefetchDelay > Duration.zero) {
+      _prefetchTimer = Timer(prefetchDelay, () async {
+        if (!mounted || _currentSource == null) return;
+        debugPrint('🔍 Pré-extraction URL (phase 1)...');
+        _prefetchedResult = await _extractNewUrl(_currentSource!);
+        debugPrint(_prefetchedResult != null
+            ? '✓ URL pré-extraite — prête pour le swap'
+            : '⚠ Pré-extraction échouée — on-demand au swap');
+      });
+    }
+
+    _urlRefreshTimer = Timer(swapDelay, () {
+      if (mounted) _doSilentRefresh();
+    });
+
+    final mins = swapDelay.inMinutes;
+    final secs = swapDelay.inSeconds.remainder(60);
+    debugPrint('🕐 Swap planifié dans ${mins}m${secs}s');
+  }
+
+  /// Swap silencieux : utilise l'URL pré-extraite si disponible,
+  /// sinon extrait en parallèle à la demande.
   Future<void> _doSilentRefresh() async {
     final source = _currentSource;
     if (!mounted || _player == null || source == null) return;
-    debugPrint('🔄 Refresh silencieux URL en cours...');
 
-    try {
-      // Extraction en arrière-plan
-      Map<String, dynamic>? result;
-      final local = await VideoExtractor.extract(source.url);
-      if (local['success'] == true && local['video_url'] != null) {
-        result = local;
-      } else {
-        final server = await ApiService().extractVideoUrlServer(source.url);
-        if (server['success'] == true && server['video_url'] != null) {
-          result = server;
-        }
-      }
+    Map<String, dynamic>? result = _prefetchedResult;
+    _prefetchedResult = null;
 
-      if (result == null || !mounted || _player == null) return;
-
-      final newUrl = result['video_url'] as String;
-      final headers = _buildPlaybackHeaders(source);
-      // Merge headers éventuels de l'extraction
-      final extractHeaders = result['headers'];
-      if (extractHeaders is Map) {
-        extractHeaders.forEach((k, v) => headers[k.toString()] = v.toString());
-      }
-
-      final pos = _player!.state.position;
-      debugPrint('✓ Nouveau URL prêt — swap silencieux à ${pos.inSeconds}s');
-
-      await _player!.open(Media(newUrl, httpHeaders: headers), play: false);
-      if (!mounted || _player == null) return;
-      if (pos.inSeconds > 0) await _player!.seek(pos);
-      _player!.play();
-
-      debugPrint('✓ Refresh silencieux OK — lecture continue');
-
-      // Replanifier pour la prochaine expiration
-      _scheduleUrlRefresh(source);
-    } catch (e) {
-      debugPrint('Refresh silencieux échoué: $e — le error handler prendra le relais');
+    if (result == null) {
+      debugPrint('🔄 Extraction on-demand (pré-extraction manquante)...');
+      result = await _extractNewUrl(source);
+    } else {
+      debugPrint('🔄 Swap avec URL pré-extraite (instantané)...');
     }
+
+    if (result == null || !mounted || _player == null) {
+      debugPrint('⚠ Refresh échoué — error handler prendra le relais');
+      return;
+    }
+
+    final newUrl = result['video_url'] as String;
+    final headers = _buildPlaybackHeaders(source);
+    final extractHeaders = result['headers'];
+    if (extractHeaders is Map) {
+      extractHeaders.forEach((k, v) => headers[k.toString()] = v.toString());
+    }
+
+    final pos = _player!.state.position;
+    debugPrint('✓ Swap à ${pos.inSeconds}s → nouvelle URL active');
+
+    await _player!.open(Media(newUrl, httpHeaders: headers), play: false);
+    if (!mounted || _player == null) return;
+    if (pos.inSeconds > 0) await _player!.seek(pos);
+    _player!.play();
+
+    debugPrint('✓ Lecture continue sans interruption');
+    _scheduleUrlRefresh(source, newUrl);
   }
 
   Future<void> _initializePlayer(
@@ -749,15 +822,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
         if (_playbackRetryCount < _maxPlaybackRetries) {
           _playbackRetryCount++;
-          // Mémoriser la position exacte avant de ré-extraire
           final pos = thisPlayer.state.position;
           if (pos.inSeconds > 0) _resumePosition = pos;
-          debugPrint('Player error — position sauvée: ${pos.inSeconds}s — re-extraction auto (tentative $_playbackRetryCount/$_maxPlaybackRetries)...');
-          Future.delayed(const Duration(seconds: 1), () {
-            if (mounted) {
-              _startExtractionPipeline(startIndex: _currentServerIndex);
-            }
-          });
+          debugPrint('Erreur lecture ($_playbackRetryCount/$_maxPlaybackRetries) — position: ${pos.inSeconds}s');
+
+          if (_prefetchedResult != null) {
+            // URL déjà pré-extraite → swap immédiat sans délai
+            debugPrint('⚡ URL pré-extraite disponible → swap immédiat');
+            Future.microtask(() { if (mounted) _doSilentRefresh(); });
+          } else {
+            Future.delayed(const Duration(seconds: 1), () {
+              if (mounted) _startExtractionPipeline(startIndex: _currentServerIndex);
+            });
+          }
           return;
         }
 
@@ -796,7 +873,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       _startProgressTimer();
       _showControlsBriefly();
-      _scheduleUrlRefresh(source);
+      _scheduleUrlRefresh(source, videoUrl);
 
       if (!mounted) {
         return;
@@ -909,6 +986,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void _cancelExtractionSession() {
     _extractionSessionId++;
     _urlRefreshTimer?.cancel();
+    _prefetchTimer?.cancel();
+    _prefetchedResult = null;
     _disposeActiveWebViews();
   }
 
