@@ -61,10 +61,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // Retry automatique sur erreur réseau pendant la lecture
   int _playbackRetryCount = 0;
   static const int _maxPlaybackRetries = 3;
-  Duration? _resumePosition; // position sauvée avant ré-extraction
+  Duration? _resumePosition;
 
   StreamSubscription<String>? _playerErrorSub;
   StreamSubscription<bool>? _playerCompletedSub;
+
+  // Refresh silencieux pré-emptif
+  Timer? _urlRefreshTimer;
+  WatchLink? _currentSource;
 
   @override
   void initState() {
@@ -111,6 +115,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     _progressTimer?.cancel();
     _controlsTimer?.cancel();
+    _urlRefreshTimer?.cancel();
     _playerErrorSub?.cancel();
     _playerCompletedSub?.cancel();
     _player?.dispose();
@@ -630,6 +635,82 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _initializePlayer(url, type, source);
   }
 
+  Map<String, String> _buildPlaybackHeaders(WatchLink source) {
+    final sourceUri = Uri.tryParse(source.url);
+    final referer = sourceUri != null ? '${sourceUri.scheme}://${sourceUri.host}/' : '';
+    return {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      'Accept': '*/*',
+      'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+      'Accept-Encoding': 'identity',
+      'Connection': 'keep-alive',
+      'Sec-Fetch-Dest': 'video',
+      'Sec-Fetch-Mode': 'no-cors',
+      'Sec-Fetch-Site': 'cross-site',
+      'Sec-Ch-Ua': '"Not A(Brand";v="8", "Chromium";v="131", "Google Chrome";v="131"',
+      'Sec-Ch-Ua-Mobile': '?0',
+      'Sec-Ch-Ua-Platform': '"Windows"',
+      if (referer.isNotEmpty) 'Referer': referer,
+      if (referer.isNotEmpty) 'Origin': referer.substring(0, referer.length - 1),
+    };
+  }
+
+  // Planifie un refresh silencieux avant expiration de l'URL
+  void _scheduleUrlRefresh(WatchLink source) {
+    _urlRefreshTimer?.cancel();
+    _currentSource = source;
+    // La plupart des CDN expirent à ~10 min → refresh à 8 min
+    _urlRefreshTimer = Timer(const Duration(minutes: 8), () {
+      if (mounted) _doSilentRefresh();
+    });
+    debugPrint('🕐 Refresh silencieux planifié dans 8 min');
+  }
+
+  Future<void> _doSilentRefresh() async {
+    final source = _currentSource;
+    if (!mounted || _player == null || source == null) return;
+    debugPrint('🔄 Refresh silencieux URL en cours...');
+
+    try {
+      // Extraction en arrière-plan
+      Map<String, dynamic>? result;
+      final local = await VideoExtractor.extract(source.url);
+      if (local['success'] == true && local['video_url'] != null) {
+        result = local;
+      } else {
+        final server = await ApiService().extractVideoUrlServer(source.url);
+        if (server['success'] == true && server['video_url'] != null) {
+          result = server;
+        }
+      }
+
+      if (result == null || !mounted || _player == null) return;
+
+      final newUrl = result['video_url'] as String;
+      final headers = _buildPlaybackHeaders(source);
+      // Merge headers éventuels de l'extraction
+      final extractHeaders = result['headers'];
+      if (extractHeaders is Map) {
+        extractHeaders.forEach((k, v) => headers[k.toString()] = v.toString());
+      }
+
+      final pos = _player!.state.position;
+      debugPrint('✓ Nouveau URL prêt — swap silencieux à ${pos.inSeconds}s');
+
+      await _player!.open(Media(newUrl, httpHeaders: headers), play: false);
+      if (!mounted || _player == null) return;
+      if (pos.inSeconds > 0) await _player!.seek(pos);
+      _player!.play();
+
+      debugPrint('✓ Refresh silencieux OK — lecture continue');
+
+      // Replanifier pour la prochaine expiration
+      _scheduleUrlRefresh(source);
+    } catch (e) {
+      debugPrint('Refresh silencieux échoué: $e — le error handler prendra le relais');
+    }
+  }
+
   Future<void> _initializePlayer(
     String videoUrl,
     String type,
@@ -645,27 +726,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       debugPrint('Type: $type');
       debugPrint('Platform: ${Platform.operatingSystem}');
 
-      // Headers complets qui imitent un navigateur Chrome
-      final headers = <String, String>{
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        'Accept': '*/*',
-        'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept-Encoding': 'identity',
-        'Connection': 'keep-alive',
-        'Sec-Fetch-Dest': 'video',
-        'Sec-Fetch-Mode': 'no-cors',
-        'Sec-Fetch-Site': 'cross-site',
-        'Sec-Ch-Ua': '"Not A(Brand";v="8", "Chromium";v="131", "Google Chrome";v="131"',
-        'Sec-Ch-Ua-Mobile': '?0',
-        'Sec-Ch-Ua-Platform': '"Windows"',
-      };
-
-      // Ajouter Referer et Origin depuis la source
-      final sourceUri = Uri.parse(source.url);
-      final referer = '${sourceUri.scheme}://${sourceUri.host}/';
-      headers['Referer'] = referer;
-      headers['Origin'] = referer.substring(0, referer.length - 1);
-
+      final headers = _buildPlaybackHeaders(source);
       debugPrint('Headers: $headers');
 
       // Créer le Player et VideoController
@@ -735,6 +796,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       _startProgressTimer();
       _showControlsBriefly();
+      _scheduleUrlRefresh(source);
 
       if (!mounted) {
         return;
@@ -742,7 +804,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       setState(() {
         _isInitializing = false;
       });
-      
+
       debugPrint('✓ Player fully initialized');
       debugPrint('=== PLAYER INIT END ===');
     } catch (e, stackTrace) {
@@ -846,6 +908,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _cancelExtractionSession() {
     _extractionSessionId++;
+    _urlRefreshTimer?.cancel();
     _disposeActiveWebViews();
   }
 

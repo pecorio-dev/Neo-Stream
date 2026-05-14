@@ -47,6 +47,8 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
   static const int _maxPlaybackRetries = 3;
   Duration? _resumePosition;
 
+  Timer? _urlRefreshTimer;
+
   @override
   void initState() {
     super.initState();
@@ -93,6 +95,7 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
     _saveProgressSync();
     _progressTimer?.cancel();
     _controlsTimer?.cancel();
+    _urlRefreshTimer?.cancel();
     _errorSub?.cancel();
     _completedSub?.cancel();
     WakelockPlus.disable();
@@ -166,6 +169,42 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
       await _restoreProgress();
     }
     _startProgressTimer();
+    _scheduleUrlRefresh();
+  }
+
+  void _scheduleUrlRefresh() {
+    _urlRefreshTimer?.cancel();
+    _urlRefreshTimer = Timer(const Duration(minutes: 8), () {
+      if (mounted) _doSilentRefresh();
+    });
+    debugPrint('🕐 Anime refresh silencieux planifié dans 8 min');
+  }
+
+  Future<void> _doSilentRefresh() async {
+    if (!mounted) return;
+    debugPrint('🔄 Anime refresh silencieux URL en cours...');
+    try {
+      final result = await AnimeExtractor.extractFromMultipleSources(widget.sources);
+      if (result['success'] != true || result['video_url'] == null) return;
+      if (!mounted) return;
+
+      final newUrl = result['video_url'] as String;
+      final extractor = result['extractor'] as String?;
+      final headers = _getHeadersForExtractor(extractor, newUrl);
+
+      final pos = _player.state.position;
+      debugPrint('✓ Anime nouveau URL prêt — swap silencieux à ${pos.inSeconds}s');
+
+      await _player.open(Media(newUrl, httpHeaders: headers), play: false);
+      if (!mounted) return;
+      if (pos.inSeconds > 0) await _player.seek(pos);
+      _player.play();
+
+      debugPrint('✓ Anime refresh silencieux OK — lecture continue');
+      _scheduleUrlRefresh();
+    } catch (e) {
+      debugPrint('Anime refresh silencieux échoué: $e');
+    }
   }
 
   void _startProgressTimer() {
