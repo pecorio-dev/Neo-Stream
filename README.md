@@ -1,5 +1,5 @@
 <div align="center">
-
+##windows gratuit pour l'instant##
 <img src="app/assets/icon.png" width="96" alt="Neo-Stream logo"/>
 
 # NEO-STREAM
