@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Zone temporaire (d'où l'APK téléchargé sera lu). -->
+    <cache-path name="apk_cache" path="." />
+    <!-- Répertoire externe de l'application. -->
+    <external-files-path name="downloads" path="." />
+    <!-- Zone interne. -->
+    <files-path name="internal" path="." />
+</paths>

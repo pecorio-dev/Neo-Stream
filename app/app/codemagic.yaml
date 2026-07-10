@@ -1,0 +1,55 @@
+workflows:
+  android-workflow:
+    name: Android Release
+    environment:
+      flutter: stable
+      vars:
+        PACKAGE_NAME: eu.neostream.neo_stream
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+    scripts:
+      - name: Get Flutter packages
+        script: flutter pub get
+      - name: Build APK
+        script: flutter build apk --release
+    artifacts:
+      - build/**/outputs/**/*.apk
+    publishing:
+      email:
+        recipients:
+          - stream2free.pecorio@gmail.com
+
+  ios-workflow:
+    name: iOS Development
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      vars:
+        PACKAGE_NAME: eu.neostream.neoStream
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+    scripts:
+      - name: Get Flutter packages
+        script: flutter pub get
+      - name: Install CocoaPods
+        script: |
+          cd ios && pod install
+      - name: Build IPA without signing
+        script: |
+          flutter build ipa --release --no-codesign
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /Users/builder/ios/Runner.ipa
+    publishing:
+      email:
+        recipients:
+          - stream2free.pecorio@gmail.com

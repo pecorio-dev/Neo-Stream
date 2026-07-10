@@ -1,0 +1,624 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:provider/provider.dart';
+
+import '../../config/tv_config.dart';
+import '../../providers/providers.dart';
+import '../../providers/theme_provider.dart';
+import '../iptv_screen.dart';
+import 'tv_anime_screen.dart';
+import 'tv_history_screen.dart';
+import 'tv_home_screen.dart';
+import 'tv_search_screen.dart';
+import 'tv_settings_screen.dart';
+
+/// Coquille TV unifiée : sidebar de navigation persistante à gauche +
+/// zone de contenu qui change selon l'onglet sélectionné (style Android TV).
+///
+/// Les écrans de détail / lecteur continuent d'être poussés en plein écran
+/// par-dessus la coquille via Navigator.push.
+class TVShell extends StatefulWidget {
+  const TVShell({super.key});
+
+  @override
+  State<TVShell> createState() => _TVShellState();
+}
+
+class _TVNavItemData {
+  final IconData icon;
+  final String label;
+  const _TVNavItemData(this.icon, this.label);
+}
+
+class _TVShellState extends State<TVShell> {
+  int _index = 0;
+
+  // Liste des onglets sans la "Recherche" qui est intégrée directement sous forme de champ de saisie
+  static const List<_TVNavItemData> _items = [
+    _TVNavItemData(Icons.home_rounded, 'Accueil'),
+    _TVNavItemData(Icons.animation_rounded, 'Anime'),
+    _TVNavItemData(Icons.live_tv_rounded, 'Direct'),
+    _TVNavItemData(Icons.history_rounded, 'Historique'),
+    _TVNavItemData(Icons.settings_rounded, 'Paramètres'),
+  ];
+
+  late final List<FocusNode> _navNodes =
+      List.generate(_items.length, (_) => FocusNode());
+
+  late final FocusScopeNode _contentFocusScopeNode = FocusScopeNode();
+
+  // Contrôleurs de focus pour la recherche
+  late final FocusNode _searchFocusNode = FocusNode();
+  late final FocusNode _searchTextFieldNode = FocusNode();
+
+  // Contrôleur de recherche
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  // Suivi du focus sur la barre latérale
+  bool _isSidebarFocused = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<ContentProvider>().loadHome();
+    });
+  }
+
+  /// Indice de contenu « virtuel » pour la recherche (pas d'onglet sidebar).
+  static const int _searchContentIndex = -1;
+
+  int get _activeContentIndex =>
+      _searchQuery.isNotEmpty ? _searchContentIndex : _index;
+
+  Widget _buildContent(int contentIndex) {
+    switch (contentIndex) {
+      case 0:
+        return const TVHomeScreen(embedded: true);
+      case 1:
+        return const TVAnimeScreen(embedded: true);
+      case 2:
+        return const IptvScreen();
+      case 3:
+        return const TVHistoryScreen(embedded: true);
+      case 4:
+        return const TVSettingsScreen(embedded: true);
+      case _searchContentIndex:
+        return TVSearchScreen(query: _searchQuery);
+      default:
+        return const TVHomeScreen(embedded: true);
+    }
+  }
+
+  void _select(int contentIndex) {
+    if (contentIndex == _searchContentIndex) {
+      // Basculer vers la recherche : on garde l'index sidebar courant mais
+      // on active le mode recherche via _searchQuery non vide.
+      return;
+    }
+    if (contentIndex != _index) {
+      setState(() {
+        _index = contentIndex;
+        _searchQuery = '';
+        _searchController.clear();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final n in _navNodes) {
+      n.dispose();
+    }
+    _searchFocusNode.dispose();
+    _searchTextFieldNode.dispose();
+    _searchController.dispose();
+    _contentFocusScopeNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (!_isSidebarFocused) {
+          _navNodes[_index.clamp(0, _items.length - 1)].requestFocus();
+        }
+      },
+      child: Focus(
+        autofocus: true,
+        onKeyEvent: (node, event) {
+          if (event is! KeyDownEvent) return KeyEventResult.ignored;
+          if (event.logicalKey == LogicalKeyboardKey.goBack ||
+              event.logicalKey == LogicalKeyboardKey.backspace) {
+            if (!_isSidebarFocused) {
+              _navNodes[_index.clamp(0, _items.length - 1)].requestFocus();
+              return KeyEventResult.handled;
+            }
+          }
+          return KeyEventResult.ignored;
+        },
+        child: Scaffold(
+          backgroundColor: TVTheme.backgroundDark,
+          body: Row(
+            children: [
+              _buildSidebar(),
+              Expanded(
+                child: FocusScope(
+                  node: _contentFocusScopeNode,
+                  onKeyEvent: (node, event) {
+                    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+
+                    if (event.logicalKey == LogicalKeyboardKey.escape ||
+                        event.logicalKey == LogicalKeyboardKey.goBack ||
+                        event.logicalKey == LogicalKeyboardKey.backspace) {
+                      _navNodes[_index.clamp(0, _items.length - 1)].requestFocus();
+                      return KeyEventResult.handled;
+                    }
+
+                    if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+                      final focusedChild = FocusManager.instance.primaryFocus;
+                      if (focusedChild == null) {
+                        _navNodes[_index.clamp(0, _items.length - 1)].requestFocus();
+                        return KeyEventResult.handled;
+                      }
+                      final moved = FocusTraversalGroup.of(context).inDirection(
+                        focusedChild, TraversalDirection.left,
+                      );
+                      if (!moved) {
+                        _navNodes[_index.clamp(0, _items.length - 1)].requestFocus();
+                      }
+                      return KeyEventResult.handled;
+                    }
+
+                    return KeyEventResult.ignored;
+                  },
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
+                    transitionBuilder: (child, animation) {
+                      return FadeTransition(
+                        opacity: animation,
+                        child: SlideTransition(
+                          position: Tween<Offset>(
+                            begin: const Offset(0.02, 0),
+                            end: Offset.zero,
+                          ).animate(animation),
+                          child: child,
+                        ),
+                      );
+                    },
+                    child: KeyedSubtree(
+                      key: ValueKey(_activeContentIndex),
+                      child: _buildContent(_activeContentIndex),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSidebar() {
+    return Focus(
+      onFocusChange: (focused) {
+        setState(() {
+          _isSidebarFocused = focused;
+        });
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeInOut,
+        width: _isSidebarFocused ? 240 : 72,
+        decoration: const BoxDecoration(
+          color: Color(0xFF111014),
+          border: Border(
+            right: BorderSide(color: Color(0x22FFFFFF), width: 1),
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              const SizedBox(height: 24),
+              _buildLogo(_isSidebarFocused),
+              const SizedBox(height: 24),
+              _buildSearchField(_isSidebarFocused),
+              const SizedBox(height: 16),
+              for (var i = 0; i < _items.length; i++) _buildNavItem(i, _isSidebarFocused),
+              const Spacer(),
+              _buildThemeToggle(_isSidebarFocused),
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Bouton bascule Clair/Sombre en bas du sidebar TV.
+  Widget _buildThemeToggle(bool expanded) {
+    final themeProvider = context.watch<ThemeProvider>();
+    final isLight = themeProvider.isLight;
+    return GestureDetector(
+      onTap: () => themeProvider.toggleTheme(),
+      behavior: HitTestBehavior.opaque,
+      child: Focus(
+        onKeyEvent: (node, event) {
+          if (event is! KeyDownEvent) return KeyEventResult.ignored;
+          if (event.logicalKey == LogicalKeyboardKey.enter ||
+              event.logicalKey == LogicalKeyboardKey.select ||
+              event.logicalKey == LogicalKeyboardKey.space) {
+            themeProvider.toggleTheme();
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: Builder(
+          builder: (ctx) {
+            final focused = Focus.of(ctx).hasFocus;
+            return AnimatedContainer(
+              duration: TVConfig.focusAnimationDuration,
+              margin: const EdgeInsets.symmetric(horizontal: 10),
+              padding: EdgeInsets.symmetric(
+                horizontal: expanded ? 16 : 0,
+                vertical: 10,
+              ),
+              decoration: BoxDecoration(
+                color: focused ? const Color(0x33E50914) : Colors.transparent,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: focused ? TVTheme.accentRed : Colors.transparent,
+                  width: 1.5,
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment:
+                    expanded ? MainAxisAlignment.start : MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    isLight ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
+                    size: 20,
+                    color: focused
+                        ? Colors.white
+                        : (isLight ? TVTheme.accentGold : TVTheme.textSecondary),
+                  ),
+                  if (expanded) ...[
+                    const SizedBox(width: 14),
+                    Text(
+                      isLight ? 'Thème sombre' : 'Thème clair',
+                      style: TextStyle(
+                        color: focused ? Colors.white : TVTheme.textSecondary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLogo(bool expanded) {
+    return AnimatedCrossFade(
+      duration: const Duration(milliseconds: 250),
+      firstCurve: Curves.easeInOut,
+      secondCurve: Curves.easeInOut,
+      crossFadeState: expanded ? CrossFadeState.showFirst : CrossFadeState.showSecond,
+      firstChild: Column(
+        children: [
+          Container(
+            width: 54,
+            height: 54,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [TVTheme.accentRed, Color(0xFF7A0A12)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: TVTheme.accentRed.withValues(alpha: 0.4),
+                  blurRadius: 16,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+            child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 36),
+          ).animate(onPlay: (c) => c.repeat(reverse: true))
+           .shimmer(duration: 2500.ms, color: Colors.white.withValues(alpha: 0.15)),
+          const SizedBox(height: 8),
+          const Text(
+            'NEO',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+              fontSize: 14,
+              letterSpacing: 4,
+            ),
+          ),
+          const Text(
+            'STREAM',
+            style: TextStyle(
+              color: TVTheme.accentRed,
+              fontWeight: FontWeight.w900,
+              fontSize: 10,
+              letterSpacing: 4,
+            ),
+          ),
+        ],
+      ),
+      secondChild: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [TVTheme.accentRed, Color(0xFF7A0A12)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: [
+            BoxShadow(
+              color: TVTheme.accentRed.withValues(alpha: 0.4),
+              blurRadius: 12,
+              spreadRadius: 1,
+            ),
+          ],
+        ),
+        child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 28),
+      ),
+    );
+  }
+
+  Widget _buildSearchField(bool expanded) {
+    return Focus(
+      focusNode: _searchFocusNode,
+      canRequestFocus: true,
+      onKeyEvent: (node, event) {
+        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        final key = event.logicalKey;
+        if (key == LogicalKeyboardKey.arrowDown) {
+          _navNodes[0].requestFocus();
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.arrowUp) {
+          _navNodes[_items.length - 1].requestFocus();
+          return KeyEventResult.handled;
+        }
+        // Enter/OK : activer le TextField pour taper
+        if (key == LogicalKeyboardKey.enter || key == LogicalKeyboardKey.select) {
+          _searchTextFieldNode.requestFocus();
+          return KeyEventResult.handled;
+        }
+        // Flèche droite : aller dans les résultats (si recherche en cours)
+        if (key == LogicalKeyboardKey.arrowRight && _searchQuery.isNotEmpty) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _contentFocusScopeNode.requestFocus();
+          });
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Builder(
+        builder: (ctx) {
+          final isFocused = Focus.of(ctx).hasFocus;
+          return AnimatedContainer(
+            duration: TVConfig.focusAnimationDuration,
+            margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            padding: EdgeInsets.symmetric(
+              horizontal: expanded ? 12 : 0,
+              vertical: expanded ? 4 : 8,
+            ),
+            decoration: BoxDecoration(
+              color: isFocused
+                  ? const Color(0xFF1E1C22)
+                  : (expanded ? const Color(0xFF151419) : Colors.transparent),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isFocused ? TVTheme.accentRed : Colors.transparent,
+                width: 1.5,
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: expanded ? MainAxisAlignment.start : MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.search_rounded,
+                  size: 22,
+                  color: isFocused ? Colors.white : TVTheme.textSecondary,
+                ),
+                if (expanded) ...[
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Focus(
+                      onKeyEvent: (node, event) {
+                        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+                        final key = event.logicalKey;
+                        if (key == LogicalKeyboardKey.escape) {
+                          _searchTextFieldNode.unfocus();
+                          _searchFocusNode.requestFocus();
+                          return KeyEventResult.handled;
+                        }
+                        if (key == LogicalKeyboardKey.arrowDown) {
+                          _searchTextFieldNode.unfocus();
+                          _navNodes[0].requestFocus();
+                          return KeyEventResult.handled;
+                        }
+                        if (key == LogicalKeyboardKey.arrowUp) {
+                          _searchTextFieldNode.unfocus();
+                          _navNodes[_items.length - 1].requestFocus();
+                          return KeyEventResult.handled;
+                        }
+                        if (key == LogicalKeyboardKey.arrowRight && _searchQuery.isNotEmpty) {
+                          _searchTextFieldNode.unfocus();
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            _contentFocusScopeNode.requestFocus();
+                          });
+                          return KeyEventResult.handled;
+                        }
+                        return KeyEventResult.ignored;
+                      },
+                      child: TextField(
+                        controller: _searchController,
+                        focusNode: _searchTextFieldNode,
+                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                        decoration: const InputDecoration(
+                          hintText: 'Rechercher...',
+                          hintStyle: TextStyle(color: TVTheme.textDisabled, fontSize: 13),
+                          border: InputBorder.none,
+                          isDense: true,
+                        ),
+                        onChanged: (val) {
+                          setState(() {
+                            _searchQuery = val;
+                          });
+                        },
+                        onSubmitted: (_) {
+                          if (_searchQuery.isNotEmpty) {
+                            _searchTextFieldNode.unfocus();
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              _contentFocusScopeNode.requestFocus();
+                            });
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                  if (_searchQuery.isNotEmpty)
+                    GestureDetector(
+                      onTap: () {
+                        _searchController.clear();
+                        setState(() {
+                          _searchQuery = '';
+                        });
+                      },
+                      child: const Padding(
+                        padding: EdgeInsets.all(4.0),
+                        child: Icon(Icons.close_rounded, color: TVTheme.textSecondary, size: 16),
+                      ),
+                    ),
+                ],
+              ],
+            ),
+          );
+        }
+      ),
+    );
+  }
+
+  Widget _buildNavItem(int index, bool expanded) {
+    final item = _items[index];
+    final selected = index == _index && _searchQuery.isEmpty;
+    return Focus(
+      focusNode: _navNodes[index],
+      onKeyEvent: (node, event) {
+        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        final key = event.logicalKey;
+        if (key == LogicalKeyboardKey.arrowUp) {
+          if (index > 0) {
+            _navNodes[index - 1].requestFocus();
+          } else {
+            _searchFocusNode.requestFocus();
+          }
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.arrowDown) {
+          if (index < _items.length - 1) {
+            _navNodes[index + 1].requestFocus();
+          } else {
+            _searchFocusNode.requestFocus();
+          }
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.enter ||
+            key == LogicalKeyboardKey.select ||
+            key == LogicalKeyboardKey.space) {
+          _select(index);
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.arrowRight) {
+          _select(index);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _contentFocusScopeNode.requestFocus();
+          });
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Builder(
+        builder: (ctx) {
+          final focused = Focus.of(ctx).hasFocus;
+          final highlight = focused || selected;
+          return GestureDetector(
+            onTap: () => _select(index),
+            behavior: HitTestBehavior.opaque,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: AnimatedContainer(
+                duration: TVConfig.focusAnimationDuration,
+                margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: EdgeInsets.symmetric(
+                  horizontal: expanded ? 16 : 0,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  gradient: focused
+                      ? const LinearGradient(
+                          colors: [TVTheme.accentRed, Color(0xFF7A0A12)],
+                        )
+                      : null,
+                  color: !focused && selected ? const Color(0x22E50914) : null,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: selected && !focused
+                        ? TVTheme.accentRed
+                        : Colors.transparent,
+                    width: 1.5,
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: expanded ? MainAxisAlignment.start : MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      item.icon,
+                      size: 22,
+                      color: highlight ? Colors.white : TVTheme.textSecondary,
+                    ),
+                    if (expanded) ...[
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Text(
+                          item.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: highlight ? Colors.white : TVTheme.textSecondary,
+                            fontSize: 15,
+                            fontWeight: highlight ? FontWeight.w700 : FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}

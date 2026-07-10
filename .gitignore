@@ -1,0 +1,57 @@
+# Backend / API (not in this repo)
+api/
+iptv/
+build.sh
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+
+# Flutter
+.dart_tool/
+.pub-cache/
+.pub/
+build/
+.flutter-plugins-dependencies
+pubspec.lock
+
+# Android
+.gradle/
+local.properties
+app/debug/
+app/profile/
+app/release/
+
+# iOS
+Pods/
+.symlinks/
+
+# Builds
+*.tar.xz
+*.zip
+*.deb
+*.AppImage
+installer/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Claude/agents
+.agents/
+.claude/
+skills-lock.json
+
+# Secrets
+*.jks
+key.properties
+
+# Java heap dumps
+*.hprof
+
+# Flutter SDK
+flutter/
+flutter.tar.xz
+app.zip

@@ -1,0 +1,179 @@
+name: Release
+
+# Build & publish a release for Linux (.deb), Android (.apk) and Windows (.exe + setup).
+#
+# Déclencheur : on pousse un tag `v*` (ex. `v1.2.0`).
+# Le tag devient le nom de la release GitHub ; les artifacts sont uploadés en assets.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version (sans le v), ex. 1.2.0'
+        required: true
+        default: '1.2.0'
+      prerelease:
+        description: 'Marquer comme pré-version'
+        type: boolean
+        default: false
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────
+  # Android (.apk)
+  # ─────────────────────────────────────────────────────────────────────
+  build-android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Decode keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEY_PROPERTIES: ${{ secrets.ANDROID_KEY_PROPERTIES }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > android/app/keystore.jks
+            echo "$KEY_PROPERTIES" > android/key.properties
+          fi
+
+      - run: flutter pub get
+      - run: flutter build apk --release
+
+      - name: Rename APK
+        run: |
+          cp build/app/outputs/flutter-apk/app-release.apk \
+             Neo-Stream-${{ github.ref_name }}-android.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: app/app/Neo-Stream-*-android.apk
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Linux (.deb)
+  # ─────────────────────────────────────────────────────────────────────
+  build-linux:
+    name: Linux AppImage
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: app/app
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ninja-build libgtk-3-dev liblzma-dev \
+            libstdc++-12-dev clang cmake pkg-config libmpv-dev
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter build linux --release
+
+      - name: Create AppImage
+        run: |
+          wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" -O /tmp/appimagetool
+          chmod +x /tmp/appimagetool
+          APPDIR="/tmp/NeoStream.AppDir"
+          BUNDLE="build/linux/x64/release/bundle"
+          mkdir -p "$APPDIR/usr/bin"
+          cp -r "$BUNDLE"/* "$APPDIR/usr/bin/"
+          cat > "$APPDIR/neo-stream.desktop" << 'DEOF'
+          [Desktop Entry]
+          Name=Neo Stream
+          Exec=neo_stream
+          Icon=neo-stream
+          Type=Application
+          Categories=AudioVideo;Video;Player;
+          DEOF
+          sed -i 's/^          //' "$APPDIR/neo-stream.desktop"
+          cat > "$APPDIR/AppRun" << 'AEOF'
+          #!/bin/bash
+          HERE="$(dirname "$(readlink -f "$0")")"
+          export LD_LIBRARY_PATH="$HERE/usr/bin/lib:$HERE/usr/lib:$LD_LIBRARY_PATH"
+          exec "$HERE/usr/bin/neo_stream" "$@"
+          AEOF
+          sed -i 's/^          //' "$APPDIR/AppRun"
+          chmod +x "$APPDIR/AppRun"
+          cp web/favicon.png "$APPDIR/neo-stream.png" 2>/dev/null || touch "$APPDIR/neo-stream.png"
+          ARCH=x86_64 /tmp/appimagetool --appimage-extract-and-run "$APPDIR" Neo-Stream-x86_64.AppImage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-appimage
+          path: app/app/Neo-Stream-x86_64.AppImage
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Windows (.exe + setup Inno Setup)
+  # ─────────────────────────────────────────────────────────────────────
+  build-windows:
+    name: Windows Setup
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: app/app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter build windows --release
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      - name: Compile installer
+        working-directory: app
+        run: iscc neo_stream_setup.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-setup
+          path: app/installer/NeoStream-Setup-*.exe
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Publish GitHub Release
+  # ─────────────────────────────────────────────────────────────────────
+  release:
+    name: Publish Release
+    needs: [build-android, build-linux, build-windows]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Neo-Stream ${{ github.ref_name }}
+          prerelease: ${{ github.event.inputs.prerelease == 'true' }}
+          generate_release_notes: true
+          files: |
+            artifacts/android-apk/*.apk
+            artifacts/linux-appimage/*.AppImage
+            artifacts/windows-setup/*.exe

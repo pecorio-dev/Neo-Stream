@@ -1,0 +1,52 @@
+name: Build Windows Installer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/app/lib/**'
+      - 'app/app/pubspec.yaml'
+      - 'app/neo_stream_setup.iss'
+      - '.github/workflows/build-windows.yml'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.32.4'
+          channel: stable
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Get dependencies
+        working-directory: app/app
+        run: flutter pub get
+
+      - name: Build Windows release
+        working-directory: app/app
+        run: flutter build windows --release
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      - name: Compile installer
+        working-directory: app
+        run: iscc neo_stream_setup.iss
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: NeoStream-Windows-Setup
+          path: app/installer/NeoStream-Setup-*.exe
+
+      - name: Upload portable
+        uses: actions/upload-artifact@v4
+        with:
+          name: NeoStream-Windows-Portable
+          path: app/app/build/windows/x64/runner/Release/
