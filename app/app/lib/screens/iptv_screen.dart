@@ -798,37 +798,29 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
     _openStream();
   }
 
-  /// Démarre un watchdog : si le buffering dure > 12s, on considère que le
+  /// Démarre un watchdog : si le buffering dure > 20s, on considère que le
   /// flux est mort et on lance une reconnexion silencieuse.
   void _startBufferingWatchdog() {
     _bufferingWatchdog?.cancel();
-    _bufferingWatchdog = Timer(const Duration(seconds: 12), () {
+    _bufferingWatchdog = Timer(const Duration(seconds: 20), () {
       if (!mounted) return;
       if (!_isReconnecting) {
-        debugPrint('⏳ IPTV stall détecté (buffering > 12s) — reconnexion');
+        debugPrint('⏳ IPTV stall détecté (buffering > 20s) — reconnexion');
         _attemptReconnect(reason: 'stall');
       }
     });
   }
 
   /// Gestion d'une erreur du lecteur.
+  /// Toutes les erreurs sont traitées comme transitoires tant qu'on n'a pas
+  /// épuisé les tentatives de reconnexion — pas d'affichage d'erreur prématuré.
   void _onStreamError(String e) {
-    final errorStr = e.toLowerCase();
-    final isTransient = errorStr.contains('network') ||
-        errorStr.contains('timeout') ||
-        errorStr.contains('connection') ||
-        errorStr.contains('unreachable') ||
-        errorStr.contains('eof') ||
-        errorStr.contains('read') ||
-        errorStr.contains('broken pipe') ||
-        errorStr.contains('reset');
-
-    if (isTransient) {
+    if (_reconnectAttempts < _maxReconnectAttempts) {
       _attemptReconnect(reason: 'error: $e');
     } else {
-      // Erreur non-réseau : on l'affiche (problème auth/format/etc.).
       setState(() {
         _loading = false;
+        _isReconnecting = false;
         _error = e;
       });
     }

@@ -800,21 +800,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
         errorHandled = true;
 
-        // Erreur non-réseau ou max retries atteint : tentative de changement de source
+        // Erreur non-réseau : tenter une reprise sur la même URL d'abord
+        // Ne re-extraire que si la reprise échoue après tous les retries
         if (_playbackRetryCount < _maxPlaybackRetries) {
           _playbackRetryCount++;
           final pos = thisPlayer.state.position;
           if (pos.inSeconds > 0) _resumePosition = pos;
-          debugPrint('Erreur lecture ($_playbackRetryCount/$_maxPlaybackRetries) — changement de source');
+          debugPrint('Erreur lecture ($_playbackRetryCount/$_maxPlaybackRetries) — tentative de reprise sans re-extraction');
 
-          if (_prefetchedResult != null) {
-            debugPrint('⚡ URL pré-extraite disponible → swap immédiat');
-            Future.microtask(() { if (mounted) _doSilentRefresh(); });
-          } else {
-            Future.delayed(Duration(seconds: 1), () {
-              if (mounted) _startExtractionPipeline(startIndex: _currentServerIndex);
-            });
-          }
+          setState(() => _isWaitingForNetwork = true);
+          thisPlayer.pause();
+
+          final retryDelay = Duration(seconds: 2 * _playbackRetryCount);
+          _networkRetryTimer?.cancel();
+          _networkRetryTimer = Timer(retryDelay, () {
+            if (!mounted) return;
+            setState(() => _isWaitingForNetwork = false);
+            thisPlayer.play();
+            if (_resumePosition != null && _resumePosition!.inSeconds > 0) {
+              _seekWhenReady(_resumePosition!);
+            }
+          });
           return;
         }
 

@@ -39,7 +39,7 @@ installer/
 .vscode/
 *.iml
 
-# Claude/agents
+# Dev tools / agents
 .agents/
 .claude/
 skills-lock.json
