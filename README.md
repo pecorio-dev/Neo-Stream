@@ -9,7 +9,7 @@ Films, Series, Animes — sur tous vos appareils.
 [![Android](https://img.shields.io/badge/Android-APK-3DDC84?logo=android&logoColor=white)](https://github.com/pecorio-dev/Neo-Stream/releases/latest)
 [![Windows](https://img.shields.io/badge/Windows-Installer-0078D4?logo=windows&logoColor=white)](https://github.com/pecorio-dev/Neo-Stream/releases/latest)
 [![Linux](https://img.shields.io/badge/Linux-AppImage-FCC624?logo=linux&logoColor=black)](https://github.com/pecorio-dev/Neo-Stream/releases/latest)
-[![Build](https://github.com/pecorio-dev/Neo-Stream/actions/workflows/build-all.yml/badge.svg)](https://github.com/pecorio-dev/Neo-Stream/actions)
+
 
 </div>
 
@@ -88,5 +88,3 @@ flutter build windows --release
 ## Licence
 
 Projet prive — usage personnel.
-</div>
-</content>
