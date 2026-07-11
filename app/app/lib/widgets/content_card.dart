@@ -80,11 +80,11 @@ class _ContentCardState extends State<ContentCard> {
             canRequestFocus: false,
             autofocus: false,
             focusColor: useFocus
-                ? NeoTheme.primaryRed.withValues(alpha: 0.3)
+                ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)
                 : Colors.transparent,
             borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
-            splashColor: NeoTheme.primaryRed.withValues(alpha: 0.1),
-            highlightColor: NeoTheme.primaryRed.withValues(alpha: 0.05),
+            splashColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+            highlightColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.05),
             child: AnimatedScale(
               scale: (_isFocused && useFocus) ? focusedScale : 1,
               duration: NeoTheme.durationFast,
@@ -97,13 +97,13 @@ class _ContentCardState extends State<ContentCard> {
                         borderRadius:
                             BorderRadius.circular(NeoTheme.radiusLg),
                         border: Border.all(
-                          color: NeoTheme.primaryRed,
+                          color: Theme.of(context).colorScheme.primary,
                           width: focusBorderWidth,
                         ),
                         boxShadow: [
                           BoxShadow(
                             color:
-                                NeoTheme.primaryRed.withValues(alpha: 0.6),
+                                Theme.of(context).colorScheme.primary.withValues(alpha: 0.6),
                             blurRadius: 24,
                             spreadRadius: 4,
                           ),
@@ -247,7 +247,7 @@ class _ContentCardState extends State<ContentCard> {
                       child: _buildInfoPill(
                         context,
                         widget.content.languageTag,
-                        color: NeoTheme.primaryRed,
+                        color: Theme.of(context).colorScheme.primary,
                       ),
                     ),
                   Text(
@@ -295,7 +295,7 @@ class _ContentCardState extends State<ContentCard> {
                         Icons.play_circle_fill_rounded,
                         size: 15,
                         color: _isFocused
-                            ? NeoTheme.primaryRed
+                            ? Theme.of(context).colorScheme.primary
                             : Neo.textSecondary(context),
                       ),
                       SizedBox(width: 6),
@@ -308,7 +308,7 @@ class _ContentCardState extends State<ContentCard> {
                           overflow: TextOverflow.ellipsis,
                           style: Neo.labelSmall(context).copyWith(
                             color: _isFocused
-                                ? NeoTheme.primaryRed
+                                ? Theme.of(context).colorScheme.primary
                                 : Neo.textSecondary(context),
                           ),
                         ),
@@ -354,7 +354,7 @@ class _ContentCardState extends State<ContentCard> {
                   ),
                 shadows: [
                   Shadow(
-                    color: NeoTheme.primaryRed.withValues(alpha: 0.3),
+                    color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
                     blurRadius: 12,
                     offset: Offset(0, 2),
                   ),
@@ -480,7 +480,7 @@ class _ContentCardState extends State<ContentCard> {
                     _buildInfoPill(
                       context,
                       widget.content.languageTag,
-                      color: NeoTheme.primaryRed,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
                     SizedBox(height: 8),
                   ],
@@ -603,13 +603,13 @@ class _ContentCardState extends State<ContentCard> {
                           Icon(
                             Icons.play_circle_fill_rounded,
                             size: 16,
-                            color: NeoTheme.primaryRed.withValues(alpha: 0.9),
+                            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.9),
                           ),
                           SizedBox(width: 5),
                           Text(
                             'Reprendre',
                             style: Neo.labelMedium(context).copyWith(
-                              color: NeoTheme.primaryRed.withValues(alpha: 0.9),
+                              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.9),
                             ),
                           ),
                         ],
@@ -695,7 +695,7 @@ class _ContentCardState extends State<ContentCard> {
                         _buildInfoPill(
                           context,
                           widget.content.languageTag,
-                          color: NeoTheme.primaryRed,
+                          color: Theme.of(context).colorScheme.primary,
                         ),
                       if (widget.content.releaseDate != null)
                         _buildInfoPill(
@@ -777,7 +777,7 @@ class _ContentCardState extends State<ContentCard> {
     } else if (widget.content.isSerie) {
       color = NeoTheme.infoCyan;
     } else {
-      color = NeoTheme.primaryRed;
+      color = Theme.of(context).colorScheme.primary;
     }
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 9, vertical: 4),
@@ -891,11 +891,11 @@ class _ContentCardState extends State<ContentCard> {
               Container(
                 width: fillWidth,
                 decoration: BoxDecoration(
-                  color: NeoTheme.primaryRed,
+                  color: Theme.of(context).colorScheme.primary,
                   borderRadius: BorderRadius.circular(999),
                   boxShadow: [
                     BoxShadow(
-                      color: NeoTheme.primaryRed.withValues(alpha: 0.45),
+                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.45),
                       blurRadius: 6,
                       offset: Offset(0, 1),
                     ),
@@ -957,7 +957,7 @@ class _ContentCardState extends State<ContentCard> {
           _buildInfoPill(
             context,
             '${widget.content.matchPercent}% match',
-            color: NeoTheme.primaryRed,
+            color: Theme.of(context).colorScheme.primary,
           ),
         );
       }

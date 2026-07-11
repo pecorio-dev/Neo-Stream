@@ -168,7 +168,7 @@ class _AnimeScreenState extends State<AnimeScreen> {
           policy: ReadingOrderTraversalPolicy(),
           child: RefreshIndicator(
             onRefresh: _loadContent,
-            color: NeoTheme.primaryRed,
+            color: Theme.of(context).colorScheme.primary,
             backgroundColor: Neo.bgElevated(context),
             child: CustomScrollView(
               controller: _scrollController,
@@ -180,7 +180,7 @@ class _AnimeScreenState extends State<AnimeScreen> {
                 backgroundColor: Neo.bgBase(context).withValues(alpha: 0.94),
                 title: Row(
                   children: [
-                    Icon(Icons.animation, color: NeoTheme.primaryRed, size: 28),
+                    Icon(Icons.animation, color: Theme.of(context).colorScheme.primary, size: 28),
                     SizedBox(width: 12),
                     Text(
                       'Anime',
@@ -317,7 +317,7 @@ class _AnimeScreenState extends State<AnimeScreen> {
                           height: 28,
                           child: CircularProgressIndicator(
                             strokeWidth: 2.5,
-                            color: NeoTheme.primaryRed.withValues(alpha: 0.7),
+                            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.7),
                           ),
                         ),
                       ),
@@ -345,13 +345,13 @@ class _AnimeScreenState extends State<AnimeScreen> {
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              NeoTheme.primaryRed.withValues(alpha: 0.15),
+              Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
               NeoTheme.infoCyan.withValues(alpha: 0.1),
             ],
           ),
           borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
           border: Border.all(
-            color: NeoTheme.primaryRed.withValues(alpha: 0.2),
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.2),
             width: 0.5,
           ),
         ),

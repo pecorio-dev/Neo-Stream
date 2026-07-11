@@ -186,7 +186,7 @@ class _SplashScreenState extends State<SplashScreen>
                             Text(
                               'NEO',
                               style: Neo.displayLarge(context).copyWith(
-                                color: NeoTheme.primaryRed,
+                                color: Theme.of(context).colorScheme.primary,
                                 fontSize: 44 * NeoTheme.scaleFactor(context),
                                 fontWeight: FontWeight.w900,
                                 letterSpacing: 3,
@@ -231,12 +231,12 @@ class _SplashScreenState extends State<SplashScreen>
                     borderRadius: BorderRadius.circular(1),
                     boxShadow: [
                       BoxShadow(
-                        color: NeoTheme.primaryRed.withValues(alpha: 0.5),
+                        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
                         blurRadius: 16,
                         spreadRadius: 1,
                       ),
                       BoxShadow(
-                        color: NeoTheme.primaryRed.withValues(alpha: 0.2),
+                        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.2),
                         blurRadius: 40,
                         spreadRadius: 4,
                       ),
@@ -259,7 +259,7 @@ class _SplashScreenState extends State<SplashScreen>
                         height: 14,
                         child: CircularProgressIndicator(
                           strokeWidth: 1.5,
-                          color: NeoTheme.primaryRed.withValues(
+                          color: Theme.of(context).colorScheme.primary.withValues(
                             alpha: 0.4 + (_pulseController.value * 0.4),
                           ),
                         ),

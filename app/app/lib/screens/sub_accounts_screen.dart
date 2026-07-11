@@ -123,7 +123,7 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
                     SwitchListTile.adaptive(
                       value: requirePassword,
                       contentPadding: EdgeInsets.zero,
-                      activeTrackColor: NeoTheme.primaryRed,
+                      activeTrackColor: Theme.of(context).colorScheme.primary,
                       title: Text(
                         'Mot de passe requis a la connexion',
                         style: NeoTheme.bodyMedium(
@@ -228,7 +228,7 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
                     existing == null ? 'Creer' : 'Enregistrer',
                     style: NeoTheme.labelLarge(
                       context,
-                    ).copyWith(color: NeoTheme.primaryRed),
+                    ).copyWith(color: Theme.of(context).colorScheme.primary),
                   ),
                 ),
               ],
@@ -305,7 +305,7 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: error ? NeoTheme.errorRed : NeoTheme.primaryRed,
+        backgroundColor: error ? NeoTheme.errorRed : Theme.of(context).colorScheme.primary,
       ),
     );
   }
@@ -355,7 +355,7 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
                 icon: Icon(Icons.add_rounded),
                 label: Text('Ajouter'),
                 style: FilledButton.styleFrom(
-                  backgroundColor: NeoTheme.primaryRed,
+                  backgroundColor: Theme.of(context).colorScheme.primary,
                   foregroundColor: Colors.white,
                 ),
               ),
@@ -366,7 +366,7 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
           auth.isPremium && canAddMore && !NeoTheme.isTV(context)
           ? FloatingActionButton.extended(
               onPressed: _showCreateDialog,
-              backgroundColor: NeoTheme.primaryRed,
+              backgroundColor: Theme.of(context).colorScheme.primary,
               foregroundColor: Colors.white,
               icon: Icon(Icons.add_rounded),
               label: Text('Ajouter un profil'),
@@ -376,13 +376,13 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
           ? _buildPremiumGate(context)
           : _isLoading
           ? Center(
-              child: CircularProgressIndicator(color: NeoTheme.primaryRed),
+              child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary),
             )
           : _error != null
           ? _buildErrorState(context)
           : RefreshIndicator(
               onRefresh: _loadSubAccounts,
-              color: NeoTheme.primaryRed,
+              color: Theme.of(context).colorScheme.primary,
               child: CustomScrollView(
                 physics: AlwaysScrollableScrollPhysics(),
                 slivers: [
@@ -536,7 +536,7 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
               icon: Icons.people_outline_rounded,
               label: 'Profils actifs',
               value: '${_subAccounts.length}/$maxSubs',
-              color: NeoTheme.primaryRed,
+              color: Theme.of(context).colorScheme.primary,
             ),
             _SummaryStat(
               icon: Icons.person_add_alt_1_rounded,
@@ -623,7 +623,7 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
                 FilledButton.icon(
                   onPressed: _showCreateDialog,
                   style: FilledButton.styleFrom(
-                    backgroundColor: NeoTheme.primaryRed,
+                    backgroundColor: Theme.of(context).colorScheme.primary,
                     foregroundColor: Colors.white,
                   ),
                   icon: Icon(Icons.add_rounded),

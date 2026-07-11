@@ -201,7 +201,7 @@ class _LoginScreenState extends State<LoginScreen>
         ),
         borderRadius: BorderRadius.circular(NeoTheme.radiusXl),
         border: Border.all(
-          color: NeoTheme.primaryRed.withValues(alpha: 0.15),
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
           width: 0.5,
         ),
         boxShadow: NeoTheme.shadowLevel2,
@@ -218,7 +218,7 @@ class _LoginScreenState extends State<LoginScreen>
               Text(
                 'NEO',
                 style: Neo.displayLarge(context).copyWith(
-                  color: NeoTheme.primaryRed,
+                  color: Theme.of(context).colorScheme.primary,
                   fontWeight: FontWeight.w900,
                   letterSpacing: 3,
                 ),
@@ -292,14 +292,14 @@ class _LoginScreenState extends State<LoginScreen>
           width: 40,
           height: 40,
           decoration: BoxDecoration(
-            color: NeoTheme.primaryRed.withValues(alpha: 0.1),
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
             border: Border.all(
-              color: NeoTheme.primaryRed.withValues(alpha: 0.15),
+              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
               width: 0.5,
             ),
           ),
-          child: Icon(icon, color: NeoTheme.primaryRed, size: 20),
+          child: Icon(icon, color: Theme.of(context).colorScheme.primary, size: 20),
         ),
         SizedBox(width: 14),
         Expanded(
@@ -366,7 +366,7 @@ class _LoginScreenState extends State<LoginScreen>
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
                       border: Border.all(
-                        color: isFocused ? NeoTheme.primaryRed : Colors.transparent,
+                        color: isFocused ? Theme.of(context).colorScheme.primary : Colors.transparent,
                         width: isFocused ? 2.0 : 0.0,
                       ),
                       boxShadow: isFocused ? NeoTheme.shadowLevel1 : null,
@@ -404,7 +404,7 @@ class _LoginScreenState extends State<LoginScreen>
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
                         border: Border.all(
-                          color: isFocused ? NeoTheme.primaryRed : Colors.transparent,
+                          color: isFocused ? Theme.of(context).colorScheme.primary : Colors.transparent,
                           width: isFocused ? 2.0 : 0.0,
                         ),
                         boxShadow: isFocused ? NeoTheme.shadowLevel1 : null,
@@ -444,7 +444,7 @@ class _LoginScreenState extends State<LoginScreen>
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
                       border: Border.all(
-                        color: isFocused ? NeoTheme.primaryRed : Colors.transparent,
+                        color: isFocused ? Theme.of(context).colorScheme.primary : Colors.transparent,
                         width: isFocused ? 2.0 : 0.0,
                       ),
                       boxShadow: isFocused ? NeoTheme.shadowLevel1 : null,
@@ -540,7 +540,7 @@ class _LoginScreenState extends State<LoginScreen>
                       child: ElevatedButton(
                         onPressed: auth.isLoading ? null : _submit,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: isFocused ? NeoTheme.primaryRedHover : NeoTheme.primaryRed,
+                          backgroundColor: isFocused ? NeoTheme.primaryRedHover : Theme.of(context).colorScheme.primary,
                           foregroundColor: Colors.white,
                           elevation: 0,
                           shape: RoundedRectangleBorder(
@@ -550,8 +550,8 @@ class _LoginScreenState extends State<LoginScreen>
                               width: isFocused ? 2.0 : 0.0,
                             ),
                           ),
-                          shadowColor: NeoTheme.primaryRed.withValues(alpha: 0.3),
-                          overlayColor: NeoTheme.primaryRed.withValues(alpha: 0.3),
+                          shadowColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+                          overlayColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
                         ),
                         child: auth.isLoading
                             ? SizedBox(
@@ -599,7 +599,7 @@ class _LoginScreenState extends State<LoginScreen>
                         padding: EdgeInsets.symmetric(vertical: 16),
                         backgroundColor: isFocused ? Neo.bgHover(context) : Colors.transparent,
                         side: BorderSide(
-                          color: isFocused ? NeoTheme.primaryRed : Neo.bgBorder(context).withValues(alpha: 0.25),
+                          color: isFocused ? Theme.of(context).colorScheme.primary : Neo.bgBorder(context).withValues(alpha: 0.25),
                           width: isFocused ? 2.0 : 0.5,
                         ),
                         shape: RoundedRectangleBorder(

@@ -164,12 +164,12 @@ class _HeroBannerState extends State<HeroBanner> {
                   ? BoxDecoration(
                       borderRadius: BorderRadius.circular(NeoTheme.focusBorderRadius(context)),
                       border: Border.all(
-                        color: NeoTheme.primaryRed, 
+                        color: Theme.of(context).colorScheme.primary, 
                         width: NeoTheme.focusBorderWidth(context),
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: NeoTheme.primaryRed.withValues(alpha: 0.4),
+                          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
                           blurRadius: 16,
                           spreadRadius: 2,
                         ),
@@ -219,7 +219,7 @@ class _HeroBannerState extends State<HeroBanner> {
                                           ? [
                                               ...NeoTheme.shadowLevel3,
                                               BoxShadow(
-                                                color: NeoTheme.primaryRed
+                                                color: Theme.of(context).colorScheme.primary
                                                     .withValues(alpha: 0.12),
                                                 blurRadius: 28,
                                                 offset: Offset(0, 16),
@@ -351,7 +351,7 @@ class _HeroBannerState extends State<HeroBanner> {
                               height: 6,
                               decoration: BoxDecoration(
                                 color: isActive
-                                    ? NeoTheme.primaryRed
+                                    ? Theme.of(context).colorScheme.primary
                                     : Neo.textDisabled(context).withValues(
                                         alpha: 0.25,
                                       ),
@@ -359,7 +359,7 @@ class _HeroBannerState extends State<HeroBanner> {
                                 boxShadow: isActive
                                     ? [
                                         BoxShadow(
-                                          color: NeoTheme.primaryRed.withValues(alpha: 0.4),
+                                          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
                                           blurRadius: 8,
                                         ),
                                       ]
@@ -392,7 +392,7 @@ class _HeroBannerState extends State<HeroBanner> {
         ),
         borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
         border: Border.all(
-          color: (item.isSerie ? NeoTheme.infoCyan : NeoTheme.primaryRed)
+          color: (item.isSerie ? NeoTheme.infoCyan : Theme.of(context).colorScheme.primary)
               .withValues(alpha: 0.2),
           width: 0.5,
         ),
@@ -413,7 +413,7 @@ class _HeroBannerState extends State<HeroBanner> {
               _heroChip(
                 context,
                 item.isSerie ? 'Serie' : 'Film',
-                color: item.isSerie ? NeoTheme.infoCyan : NeoTheme.primaryRed,
+                color: item.isSerie ? NeoTheme.infoCyan : Theme.of(context).colorScheme.primary,
               ),
               SizedBox(width: 6),
               if (item.rating > 0)
@@ -440,7 +440,7 @@ class _HeroBannerState extends State<HeroBanner> {
               Expanded(
                 child: ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: NeoTheme.primaryRed,
+                    backgroundColor: Theme.of(context).colorScheme.primary,
                     foregroundColor: Colors.white,
                     minimumSize: Size(0, 48 * NeoTheme.scaleFactor(context)),
                     padding: EdgeInsets.symmetric(horizontal: 16 * NeoTheme.scaleFactor(context)),
@@ -448,7 +448,7 @@ class _HeroBannerState extends State<HeroBanner> {
                       borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
                     ),
                     elevation: 4,
-                    shadowColor: NeoTheme.primaryRed.withValues(alpha: 0.5),
+                    shadowColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
                   ),
                   onPressed: () => widget.onTap(item),
                   icon: Icon(Icons.play_circle_fill_rounded, color: Colors.white, size: 22 * NeoTheme.scaleFactor(context)),

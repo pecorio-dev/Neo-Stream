@@ -142,7 +142,7 @@ class _ProfileSelectionScreenState extends State<ProfileSelectionScreen>
                 ),
                 borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
                 border: Border.all(
-                  color: NeoTheme.primaryRed.withValues(alpha: 0.15),
+                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
                   width: 0.5,
                 ),
                 boxShadow: NeoTheme.shadowLevel2,
@@ -289,7 +289,7 @@ class _ProfileSelectionScreenState extends State<ProfileSelectionScreen>
                 child: _isLoading
                     ? Center(
                         child: CircularProgressIndicator(
-                          color: NeoTheme.primaryRed,
+                          color: Theme.of(context).colorScheme.primary,
                           strokeWidth: 2,
                         ),
                       )
@@ -428,7 +428,7 @@ class _ProfileTileState extends State<_ProfileTile>
     final useFocus = NeoTheme.needsFocusNavigation(context);
     final isMain = widget.data.kind == _TileKind.main;
     final isAdd = widget.data.kind == _TileKind.add;
-    final accent = isMain ? NeoTheme.prestigeGold : NeoTheme.primaryRed;
+    final accent = isMain ? NeoTheme.prestigeGold : Theme.of(context).colorScheme.primary;
 
     return FadeTransition(
       opacity: _enterOpacity,

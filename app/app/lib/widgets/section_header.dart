@@ -43,7 +43,7 @@ class SectionHeader extends StatelessWidget {
                     borderRadius: BorderRadius.circular(2),
                     boxShadow: [
                       BoxShadow(
-                        color: NeoTheme.primaryRed.withValues(alpha: 0.35),
+                        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),
                         blurRadius: 8,
                         offset: Offset(0, 0),
                       ),
@@ -109,12 +109,12 @@ class SectionHeader extends StatelessWidget {
                       ),
                       decoration: BoxDecoration(
                         color: focused
-                            ? NeoTheme.primaryRed.withValues(alpha: 0.15)
+                            ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.15)
                             : Neo.bgElevated(context).withValues(alpha: 0.6),
                         borderRadius: BorderRadius.circular(999),
                         border: Border.all(
                           color: focused
-                              ? NeoTheme.primaryRed
+                              ? Theme.of(context).colorScheme.primary
                               : Neo.bgBorder(context).withValues(alpha: 0.18),
                           width: focused ? 2 : 0.5,
                         ),
@@ -125,7 +125,7 @@ class SectionHeader extends StatelessWidget {
                           Text(
                             'Tout voir',
                             style: Neo.labelSmall(context).copyWith(
-                              color: focused ? NeoTheme.primaryRed : Neo.textTertiary(context),
+                              color: focused ? Theme.of(context).colorScheme.primary : Neo.textTertiary(context),
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -133,7 +133,7 @@ class SectionHeader extends StatelessWidget {
                           Icon(
                             Icons.chevron_right_rounded,
                             size: 14 * scale,
-                            color: focused ? NeoTheme.primaryRed : Neo.textDisabled(context),
+                            color: focused ? Theme.of(context).colorScheme.primary : Neo.textDisabled(context),
                           ),
                         ],
                       ),

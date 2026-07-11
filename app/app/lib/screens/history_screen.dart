@@ -148,7 +148,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Historique supprime'),
-          backgroundColor: NeoTheme.primaryRed,
+          backgroundColor: Theme.of(context).colorScheme.primary,
         ),
       );
     } catch (error) {
@@ -208,11 +208,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
       ),
       body: _isLoading
           ? Center(
-              child: CircularProgressIndicator(color: NeoTheme.primaryRed),
+              child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary),
             )
           : RefreshIndicator(
               onRefresh: _loadHistory,
-              color: NeoTheme.primaryRed,
+              color: Theme.of(context).colorScheme.primary,
               child: CustomScrollView(
                 physics: AlwaysScrollableScrollPhysics(),
                 slivers: [
@@ -252,7 +252,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         ),
         borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
         border: Border.all(
-          color: NeoTheme.primaryRed.withValues(alpha: 0.15),
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
           width: 0.5,
         ),
         boxShadow: NeoTheme.shadowLevel2,
@@ -263,13 +263,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
             width: 52,
             height: 52,
             decoration: BoxDecoration(
-              color: NeoTheme.primaryRed.withValues(alpha: 0.12),
+              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: NeoTheme.primaryRed.withValues(alpha: 0.2), width: 0.5),
+              border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.2), width: 0.5),
             ),
             child: Icon(
               Icons.history_rounded,
-              color: NeoTheme.primaryRed,
+              color: Theme.of(context).colorScheme.primary,
             ),
           ),
           SizedBox(width: 14),
@@ -476,7 +476,7 @@ class _HistoryListCard extends StatelessWidget {
                           label: type == 'serie' ? 'Serie' : 'Film',
                           color: type == 'serie'
                               ? NeoTheme.infoCyan
-                              : NeoTheme.primaryRed,
+                              : Theme.of(context).colorScheme.primary,
                         ),
                         if (episodeId.isNotEmpty)
                           _MetaPill(
@@ -506,10 +506,10 @@ class _HistoryListCard extends StatelessWidget {
                               child: Container(
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(999),
-                                  color: NeoTheme.primaryRed,
+                                  color: Theme.of(context).colorScheme.primary,
                                   boxShadow: [
                                     BoxShadow(
-                                      color: NeoTheme.primaryRed.withValues(alpha: 0.5),
+                                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
                                       blurRadius: 8,
                                       offset: Offset(0, 0),
                                     ),
@@ -599,7 +599,7 @@ class _HistoryGridCard extends StatelessWidget {
                       label: type == 'serie' ? 'Serie' : 'Film',
                       color: type == 'serie'
                           ? NeoTheme.infoCyan
-                          : NeoTheme.primaryRed,
+                          : Theme.of(context).colorScheme.primary,
                     ),
                   ),
                   if (rating != null)
@@ -652,10 +652,10 @@ class _HistoryGridCard extends StatelessWidget {
                         child: Container(
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(999),
-                            color: NeoTheme.primaryRed,
+                            color: Theme.of(context).colorScheme.primary,
                             boxShadow: [
                               BoxShadow(
-                                color: NeoTheme.primaryRed.withValues(alpha: 0.5),
+                                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
                                 blurRadius: 8,
                                 offset: Offset(0, 0),
                               ),

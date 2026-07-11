@@ -209,7 +209,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
         top: !NeoTheme.isTV(context),
         child: RefreshIndicator(
           onRefresh: _loadContent,
-          color: NeoTheme.primaryRed,
+          color: Theme.of(context).colorScheme.primary,
           backgroundColor: Neo.bgElevated(context),
           child: CustomScrollView(
             controller: _scrollController,
@@ -447,7 +447,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
                           height: 28,
                           child: CircularProgressIndicator(
                             strokeWidth: 2.5,
-                            color: NeoTheme.primaryRed.withValues(alpha: 0.7),
+                            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.7),
                           ),
                         ),
                       ),
@@ -483,7 +483,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
               selectedColorForItem: (type) => type == 'serie'
                   ? NeoTheme.infoCyan
                   : (type == 'film'
-                        ? NeoTheme.primaryRed
+                        ? Theme.of(context).colorScheme.primary
                         : NeoTheme.prestigeGold),
               onTap: (type) {
                 setState(() {

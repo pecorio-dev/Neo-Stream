@@ -1026,11 +1026,11 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(
+            SizedBox(
               width: 44,
               height: 44,
               child: CircularProgressIndicator(
-                  color: NeoTheme.primaryRed, strokeWidth: 2.5),
+                  color: Theme.of(context).colorScheme.primary, strokeWidth: 2.5),
             ),
             const SizedBox(height: 16),
             Text(
@@ -1075,7 +1075,7 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
                 icon: const Icon(Icons.refresh_rounded),
                 label: const Text('Réessayer'),
                 style: ElevatedButton.styleFrom(
-                    backgroundColor: NeoTheme.primaryRed,
+                    backgroundColor: Theme.of(context).colorScheme.primary,
                     foregroundColor: Colors.white),
               ),
             ],
@@ -1115,7 +1115,7 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
               padding:
                   const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: NeoTheme.primaryRed.withValues(alpha: 0.85),
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.85),
                 borderRadius: BorderRadius.circular(NeoTheme.radiusSm),
               ),
               child: const Row(

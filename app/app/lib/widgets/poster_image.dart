@@ -56,7 +56,7 @@ class PosterImage extends StatelessWidget {
                 child: Center(
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(NeoTheme.primaryRed),
+                    valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).colorScheme.primary),
                   ),
                 ),
               ),

@@ -316,7 +316,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context,
       title: 'Lecteur video',
       icon: Icons.play_circle_outline_rounded,
-      accent: NeoTheme.primaryRed,
+      accent: Theme.of(context).colorScheme.primary,
       children: [
         _buildToggleRow(
           context,
@@ -763,7 +763,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     Color? color,
     Widget? trailing,
   }) {
-    final accent = color ?? NeoTheme.primaryRed;
+    final accent = color ?? Theme.of(context).colorScheme.primary;
     return _PressableRow(
       onTap: onTap,
       child: Padding(
@@ -818,7 +818,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Switch.adaptive(
             value: value,
             onChanged: onChanged,
-            activeTrackColor: NeoTheme.primaryRed.withValues(alpha: 0.35),
+            activeTrackColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),
             inactiveThumbColor: Neo.textDisabled(context),
             inactiveTrackColor: Neo.bgBorder(context).withValues(alpha: 0.3),
           ),
@@ -864,7 +864,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (mounted) {
         setState(() {});
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Session de securite rafraichie'), backgroundColor: NeoTheme.primaryRed),
+          SnackBar(content: Text('Session de securite rafraichie'), backgroundColor: Theme.of(context).colorScheme.primary),
         );
       }
     } catch (e) {
@@ -1014,7 +1014,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 await _api.changePassword(oldCtrl.text, newCtrl.text);
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Mot de passe modifie'), backgroundColor: NeoTheme.primaryRed),
+                    SnackBar(content: Text('Mot de passe modifie'), backgroundColor: Theme.of(context).colorScheme.primary),
                   );
                 }
               } catch (e) {
@@ -1055,7 +1055,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 await _api.deleteHistory();
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Historique supprime'), backgroundColor: NeoTheme.primaryRed),
+                    SnackBar(content: Text('Historique supprime'), backgroundColor: Theme.of(context).colorScheme.primary),
                   );
                 }
               } catch (e) {
@@ -1096,7 +1096,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 await _api.clearLibrary();
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Favoris vides'), backgroundColor: NeoTheme.primaryRed),
+                    SnackBar(content: Text('Favoris vides'), backgroundColor: Theme.of(context).colorScheme.primary),
                   );
                 }
               } catch (e) {
@@ -1204,17 +1204,17 @@ class _ThemeOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isSelected ? NeoTheme.primaryRed : Neo.textTertiary(context);
+    final color = isSelected ? Theme.of(context).colorScheme.primary : Neo.textTertiary(context);
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
         duration: NeoTheme.durationFast,
         padding: EdgeInsets.symmetric(vertical: 14, horizontal: 16),
         decoration: BoxDecoration(
-          color: isSelected ? NeoTheme.primaryRed.withValues(alpha: 0.08) : Neo.bgSurface(context).withValues(alpha: 0.5),
+          color: isSelected ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.08) : Neo.bgSurface(context).withValues(alpha: 0.5),
           borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
           border: Border.all(
-            color: isSelected ? NeoTheme.primaryRed.withValues(alpha: 0.4) : Neo.bgBorder(context).withValues(alpha: 0.12),
+            color: isSelected ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.4) : Neo.bgBorder(context).withValues(alpha: 0.12),
             width: isSelected ? 1.5 : 0.5,
           ),
         ),
@@ -1232,7 +1232,7 @@ class _ThemeOption extends StatelessWidget {
             ),
             if (isSelected) ...[
               SizedBox(width: 8),
-              Icon(Icons.check_circle_rounded, size: 16, color: NeoTheme.primaryRed),
+              Icon(Icons.check_circle_rounded, size: 16, color: Theme.of(context).colorScheme.primary),
             ],
           ],
         ),

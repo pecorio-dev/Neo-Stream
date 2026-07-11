@@ -143,12 +143,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text('Code copie.'),
-                    backgroundColor: NeoTheme.primaryRed,
+                    backgroundColor: Theme.of(context).colorScheme.primary,
                   ),
                 );
               },
               style: FilledButton.styleFrom(
-                backgroundColor: NeoTheme.primaryRed,
+                backgroundColor: Theme.of(context).colorScheme.primary,
                 foregroundColor: Colors.white,
               ),
               icon: Icon(Icons.copy_all_rounded),
@@ -364,7 +364,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           style: FilledButton.styleFrom(
                             backgroundColor: hasAffiliateCode && isCodeValid
                                 ? NeoTheme.prestigeGold
-                                : NeoTheme.primaryRed,
+                                : Theme.of(context).colorScheme.primary,
                             foregroundColor: hasAffiliateCode && isCodeValid
                                 ? Colors.black
                                 : Colors.white,
@@ -595,7 +595,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         icon: Icons.favorite_outline_rounded,
         title: 'Bibliotheque',
         subtitle: 'Voir tous vos favoris',
-        color: NeoTheme.primaryRed,
+        color: Theme.of(context).colorScheme.primary,
         onTap: _openFavoritesPage,
       ),
       _ActionItem(
@@ -675,7 +675,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         top: false,
         child: RefreshIndicator(
           onRefresh: _loadFavorites,
-          color: NeoTheme.primaryRed,
+          color: Theme.of(context).colorScheme.primary,
           child: ListView(
             padding: EdgeInsets.fromLTRB(padding.left, 18, padding.right, 32),
             children: [
@@ -685,7 +685,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     gradient: Neo.glassGradient(context),
                     borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
                     border: Border.all(
-                      color: (auth.isPremium ? NeoTheme.prestigeGold : NeoTheme.primaryRed).withValues(alpha: 0.15),
+                      color: (auth.isPremium ? NeoTheme.prestigeGold : Theme.of(context).colorScheme.primary).withValues(alpha: 0.15),
                       width: 0.5,
                     ),
                     boxShadow: NeoTheme.shadowLevel2,
@@ -706,7 +706,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   : NeoTheme.heroGradient,
                               boxShadow: [
                                 BoxShadow(
-                                  color: (auth.isPremium ? NeoTheme.prestigeGold : NeoTheme.primaryRed).withValues(alpha: 0.3),
+                                  color: (auth.isPremium ? NeoTheme.prestigeGold : Theme.of(context).colorScheme.primary).withValues(alpha: 0.3),
                                   blurRadius: isTV ? 24 : 16,
                                   spreadRadius: isTV ? 4 : 2,
                                 ),
@@ -787,7 +787,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               : _showUpgradeSheet,
                           style: FilledButton.styleFrom(
                             backgroundColor: auth.isPremium
-                                ? NeoTheme.primaryRed
+                                ? Theme.of(context).colorScheme.primary
                                 : NeoTheme.prestigeGold,
                             foregroundColor: auth.isPremium
                                 ? Colors.white
@@ -817,7 +817,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       icon: Icons.favorite_outline_rounded,
                       label: 'Favoris',
                       value: '${_favorites.length}',
-                      color: NeoTheme.primaryRed,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
                     _stat(
                       context,
@@ -879,7 +879,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 decoration: BoxDecoration(
                   gradient: Neo.surfaceGradient,
                   borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
-                  border: Border.all(color: NeoTheme.primaryRed.withValues(alpha: 0.15), width: 0.5),
+                  border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15), width: 0.5),
                   boxShadow: NeoTheme.shadowLevel1,
                 ),
                 child: Column(
@@ -889,7 +889,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       children: [
                         Icon(
                           Icons.favorite_rounded,
-                          color: NeoTheme.primaryRed,
+                          color: Theme.of(context).colorScheme.primary,
                         ),
                         SizedBox(width: 10),
                         Expanded(
@@ -917,7 +917,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         height: 180,
                         child: Center(
                           child: CircularProgressIndicator(
-                            color: NeoTheme.primaryRed,
+                            color: Theme.of(context).colorScheme.primary,
                           ),
                         ),
                       )
@@ -1148,7 +1148,7 @@ class _FavoriteTileState extends State<_FavoriteTile> {
               borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
               border: Border.all(
                 color: _pressed
-                    ? NeoTheme.primaryRed.withValues(alpha: 0.4)
+                    ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.4)
                     : Neo.bgBorder(context).withValues(alpha: 0.15),
                 width: 0.5,
               ),
@@ -1303,7 +1303,7 @@ class _FavoritesPageState extends State<_FavoritesPage> {
                           onPressed: () => _remove(item),
                           icon: Icon(
                             Icons.delete_outline_rounded,
-                            color: NeoTheme.primaryRed,
+                            color: Theme.of(context).colorScheme.primary,
                           ),
                         ),
                       ),

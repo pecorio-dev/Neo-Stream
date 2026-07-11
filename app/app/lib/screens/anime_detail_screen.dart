@@ -500,7 +500,7 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
   }
 
   Widget _chip(String label, IconData icon, {bool accent = false}) {
-    final color = accent ? NeoTheme.primaryRed : Neo.textSecondary(context);
+    final color = accent ? Theme.of(context).colorScheme.primary : Neo.textSecondary(context);
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
@@ -549,7 +549,7 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
           isActive: _inLibrary,
           activeIcon: Icons.check_rounded,
           inactiveIcon: Icons.add_rounded,
-          activeColor: NeoTheme.primaryRed,
+          activeColor: Theme.of(context).colorScheme.primary,
           tooltip: _inLibrary ? 'Dans ma liste' : 'Ajouter à ma liste',
           onTap: () async {
             final messenger = ScaffoldMessenger.of(context);
@@ -566,7 +566,7 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                 if (!mounted) return;
                 messenger.showSnackBar(SnackBar(
                   content: Text('Ajouté à votre liste'),
-                  backgroundColor: NeoTheme.primaryRed,
+                  backgroundColor: Theme.of(context).colorScheme.primary,
                 ));
               }
               if (!mounted) return;
@@ -628,7 +628,7 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                   boxShadow: isSelected
                       ? [
                           BoxShadow(
-                            color: NeoTheme.primaryRed.withValues(alpha: 0.3),
+                            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
                             blurRadius: 8,
                             offset: Offset(0, 2),
                           )
@@ -700,7 +700,7 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                         borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
                         border: Border.all(
                           color: (isFocused || isSelected)
-                              ? NeoTheme.primaryRed
+                              ? Theme.of(context).colorScheme.primary
                               : Neo.bgBorder(context).withValues(alpha: 0.2),
                           width: isFocused ? 2 : 1,
                         ),
@@ -708,7 +708,7 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                             ? [
                                 BoxShadow(
                                   color:
-                                      NeoTheme.primaryRed.withValues(alpha: 0.35),
+                                      Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),
                                   blurRadius: 10,
                                 )
                               ]
@@ -769,7 +769,7 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                 gradient: isFocused
                     ? LinearGradient(
                         colors: [
-                          NeoTheme.primaryRed.withValues(alpha: 0.15),
+                          Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
                           Neo.bgElevated(context),
                         ],
                       )
@@ -777,7 +777,7 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                 borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
                 border: Border.all(
                   color: isFocused
-                      ? NeoTheme.primaryRed
+                      ? Theme.of(context).colorScheme.primary
                       : Neo.bgBorder(context).withValues(alpha: 0.15),
                   width: isFocused ? 1.5 : 0.8,
                 ),
@@ -785,7 +785,7 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                   ...NeoTheme.shadowLevel1,
                   if (isFocused)
                     BoxShadow(
-                      color: NeoTheme.primaryRed.withValues(alpha: 0.3),
+                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
                       blurRadius: 16,
                       spreadRadius: 1,
                     )
@@ -802,13 +802,13 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                         colors: [
-                          NeoTheme.primaryRed.withValues(alpha: 0.15),
+                          Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
                           Neo.bgElevated(context),
                         ],
                       ),
                       borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
                       border: Border.all(
-                        color: NeoTheme.primaryRed.withValues(alpha: 0.35),
+                        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),
                         width: 1,
                       ),
                     ),
@@ -816,7 +816,7 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                       child: Text(
                         'E${episode.episodeNumber}',
                         style: Neo.titleMedium(context).copyWith(
-                          color: NeoTheme.primaryRed,
+                          color: Theme.of(context).colorScheme.primary,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
@@ -845,14 +845,14 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                               padding: EdgeInsets.symmetric(
                                   horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
-                                color: NeoTheme.primaryRed
+                                color: Theme.of(context).colorScheme.primary
                                     .withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
                                 _selectedLanguage.toUpperCase(),
                                 style: Neo.labelSmall(context).copyWith(
-                                  color: NeoTheme.primaryRed,
+                                  color: Theme.of(context).colorScheme.primary,
                                   fontSize: 10,
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -873,8 +873,8 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                   Icon(
                     Icons.play_circle_fill_rounded,
                     color: isFocused
-                        ? NeoTheme.primaryRed
-                        : NeoTheme.primaryRed.withValues(alpha: 0.6),
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).colorScheme.primary.withValues(alpha: 0.6),
                     size: 34,
                   ),
                 ],
@@ -962,7 +962,7 @@ class _ExpandableSynopsisState extends State<_ExpandableSynopsis> {
           child: Text(
             _expanded ? 'Voir moins' : 'Voir plus',
             style: Neo.labelSmall(context).copyWith(
-              color: NeoTheme.primaryRed,
+              color: Theme.of(context).colorScheme.primary,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -1038,7 +1038,7 @@ class _FocusablePlayButtonState extends State<_FocusablePlayButton> {
                         BoxShadow(
                           color: (_focused && useFocus)
                               ? Colors.white.withValues(alpha: 0.3)
-                              : NeoTheme.primaryRed.withValues(alpha: 0.4),
+                              : Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
                           blurRadius: 18,
                           offset: Offset(0, 6),
                         ),

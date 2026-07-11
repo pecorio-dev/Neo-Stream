@@ -53,7 +53,6 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
   Timer? _prefetchTimer;
   Map<String, dynamic>? _prefetchedResult;
 
-  static const Duration _defaultSwapDelay = Duration(minutes: 9);
   static const Duration _prefetchLeadTime = Duration(minutes: 2);
 
   // Gestion des erreurs réseau temporaires
@@ -255,9 +254,12 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
     _scheduleUrlRefresh(videoUrl);
   }
 
-  Duration _detectSwapDelay(String videoUrl) {
+  /// Retourne la durée avant swap, ou null si l'URL n'expire pas.
+  /// Sibnet et la plupart des hébergeurs anime ont des URLs stables
+  /// (pas de paramètre expires) — aucun refresh automatique dans ce cas.
+  Duration? _detectSwapDelay(String videoUrl) {
     final uri = Uri.tryParse(videoUrl);
-    if (uri == null) return _defaultSwapDelay;
+    if (uri == null) return null;
     final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     for (final key in ['expires', 'expiry', 'exp', 'end', 'Expires']) {
       final val = uri.queryParameters[key];
@@ -271,7 +273,8 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
         }
       }
     }
-    return _defaultSwapDelay;
+    // Pas de paramètre d'expiration détecté → URL stable, pas de refresh automatique
+    return null;
   }
 
   Future<Map<String, dynamic>?> _extractNewUrl() async {
@@ -288,6 +291,12 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
     _prefetchedResult = null;
 
     final swapDelay = _detectSwapDelay(videoUrl);
+    if (swapDelay == null) {
+      // URL sans expiration (Sibnet, Sendvid, etc.) — pas de refresh automatique
+      debugPrint('🔗 Anime URL stable (pas d\'expiration CDN détectée) — refresh auto désactivé');
+      return;
+    }
+
     final prefetchDelay = swapDelay > _prefetchLeadTime
         ? swapDelay - _prefetchLeadTime
         : Duration.zero;
@@ -563,7 +572,7 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  CircularProgressIndicator(color: NeoTheme.primaryRed),
+                  CircularProgressIndicator(color: Theme.of(context).colorScheme.primary),
                   SizedBox(height: 24),
                   Text(
                     'Extraction de la vidéo...',
@@ -918,7 +927,7 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
                                           height: 5,
                                           decoration: BoxDecoration(
                                             borderRadius: BorderRadius.circular(3),
-                                            color: NeoTheme.primaryRed,
+                                            color: Theme.of(context).colorScheme.primary,
                                           ),
                                         ),
                                       ),
@@ -1087,7 +1096,7 @@ class _PlayerSettingsSheetState extends State<_PlayerSettingsSheet> {
                   style: Neo.bodyMedium(context).copyWith(color: Neo.textPrimary(context))),
               Spacer(),
               Text('${_speed}x',
-                  style: Neo.bodyMedium(context).copyWith(color: NeoTheme.primaryRed)),
+                  style: Neo.bodyMedium(context).copyWith(color: Theme.of(context).colorScheme.primary)),
             ],
           ),
           SizedBox(height: 8),
@@ -1105,11 +1114,11 @@ class _PlayerSettingsSheetState extends State<_PlayerSettingsSheet> {
                   padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   decoration: BoxDecoration(
                     color: selected
-                        ? NeoTheme.primaryRed
-                        : NeoTheme.primaryRed.withValues(alpha: 0.12),
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: selected ? NeoTheme.primaryRed : NeoTheme.primaryRed.withValues(alpha: 0.3),
+                      color: selected ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
                     ),
                   ),
                   child: Text(
@@ -1204,12 +1213,12 @@ class _TVSettingsDialogState extends State<_TVSettingsDialog> {
                             padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                             decoration: BoxDecoration(
                               color: isFocused
-                                  ? NeoTheme.primaryRed.withValues(alpha: 0.15)
+                                  ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.15)
                                   : (isCurrent ? Colors.white.withValues(alpha: 0.05) : Colors.transparent),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
                                 color: isFocused
-                                    ? NeoTheme.primaryRed
+                                    ? Theme.of(context).colorScheme.primary
                                     : (isCurrent ? Colors.white38 : Colors.white.withValues(alpha: 0.08)),
                                 width: isFocused ? 2 : 1,
                               ),
@@ -1219,7 +1228,7 @@ class _TVSettingsDialogState extends State<_TVSettingsDialog> {
                                 Icon(
                                   Icons.speed_rounded,
                                   color: isFocused
-                                      ? NeoTheme.primaryRed
+                                      ? Theme.of(context).colorScheme.primary
                                       : (isCurrent ? Colors.white : Colors.white70),
                                   size: 20,
                                 ),
@@ -1228,7 +1237,7 @@ class _TVSettingsDialogState extends State<_TVSettingsDialog> {
                                   '${speed}x',
                                   style: Neo.bodyMedium(context).copyWith(
                                     color: isFocused
-                                        ? NeoTheme.primaryRed
+                                        ? Theme.of(context).colorScheme.primary
                                         : (isCurrent ? Colors.white : Colors.white70),
                                     fontWeight: isCurrent || isFocused ? FontWeight.bold : FontWeight.normal,
                                   ),
@@ -1237,7 +1246,7 @@ class _TVSettingsDialogState extends State<_TVSettingsDialog> {
                                 if (isCurrent)
                                   Icon(
                                     Icons.check_circle_rounded,
-                                    color: isFocused ? NeoTheme.primaryRed : Colors.white,
+                                    color: isFocused ? Theme.of(context).colorScheme.primary : Colors.white,
                                     size: 18,
                                   ),
                               ],
@@ -1285,12 +1294,12 @@ class _ResumeDialog extends StatelessWidget {
             Container(
               padding: EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: NeoTheme.primaryRed.withValues(alpha: 0.1),
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
               child: Icon(
                 Icons.history_rounded,
-                color: NeoTheme.primaryRed,
+                color: Theme.of(context).colorScheme.primary,
                 size: 36,
               ),
             ),
@@ -1377,7 +1386,7 @@ class _ResumeButtonState extends State<_ResumeButton> {
   @override
   Widget build(BuildContext context) {
     final isTV = NeoTheme.isTV(context);
-    final primaryColor = NeoTheme.primaryRed;
+    final primaryColor = Theme.of(context).colorScheme.primary;
     final baseBgColor = widget.isPrimary
         ? primaryColor
         : Color(0xFF1E2E42);

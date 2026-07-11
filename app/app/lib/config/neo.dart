@@ -37,6 +37,13 @@ class Neo {
       _isLight(c) ? NeoLightTheme.borderLight : NeoTheme.bgBorder;
 
   // ── Brand ────────────────────────────────────────────────────────────
+  // accentColor : couleur d'accentuation principale selon le thème actif.
+  // En thème sombre : blanc (NeoTheme.primaryRed = 0xFFFFFF).
+  // En thème clair  : rouge (NeoLightTheme.primaryRed = 0xFFE50914).
+  // Toujours préférer accentColor(c) quand un BuildContext est disponible.
+  static Color accentColor(BuildContext c) =>
+      _isLight(c) ? NeoLightTheme.primaryRed : NeoTheme.primaryRed;
+  // Alias rétrocompatible (sans contexte). Ne pas utiliser en thème clair.
   static const Color primaryRed = NeoTheme.primaryRed;
   static const Color primaryRedHover = NeoTheme.primaryRedHover;
   static const Color primaryRedDark = NeoTheme.primaryRedDark;

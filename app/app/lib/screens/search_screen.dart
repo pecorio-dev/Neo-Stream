@@ -141,7 +141,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
                         border: Border.all(
                           color: _focusNode.hasFocus
-                              ? NeoTheme.primaryRed
+                              ? Theme.of(context).colorScheme.primary
                               : Neo.bgBorder(context).withValues(alpha: 0.3),
                           width: _focusNode.hasFocus ? 2 : 0.5,
                         ),
@@ -156,7 +156,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         decoration: InputDecoration(
                           hintText: 'Titre, genre, acteur...',
                           hintStyle: Neo.bodyMedium(context).copyWith(color: Neo.textDisabled(context)),
-                          prefixIcon: Icon(Icons.search_rounded, color: NeoTheme.primaryRed),
+                          prefixIcon: Icon(Icons.search_rounded, color: Theme.of(context).colorScheme.primary),
                           suffixIcon: _controller.text.isNotEmpty
                               ? IconButton(
                                   icon: Icon(Icons.close_rounded, color: Neo.textTertiary(context)),
@@ -188,7 +188,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     if (_loading) ...[
                       SizedBox(width: 8),
                       SizedBox(width: 12, height: 12,
-                          child: CircularProgressIndicator(color: NeoTheme.primaryRed, strokeWidth: 2)),
+                          child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary, strokeWidth: 2)),
                     ],
                   ],
                 ),
@@ -309,14 +309,14 @@ class _SearchScreenState extends State<SearchScreen> {
         overflow: TextOverflow.ellipsis,
       ),
       style: ElevatedButton.styleFrom(
-        backgroundColor: hasQuery ? NeoTheme.primaryRed : Neo.bgOverlay(context),
+        backgroundColor: hasQuery ? Theme.of(context).colorScheme.primary : Neo.bgOverlay(context),
         foregroundColor: Colors.white,
         minimumSize: Size(double.infinity, 52),
         alignment: Alignment.centerLeft,
         padding: EdgeInsets.symmetric(horizontal: 20),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(NeoTheme.radiusLg)),
         side: BorderSide(
-          color: hasQuery ? NeoTheme.primaryRed : Neo.bgBorder(context).withValues(alpha: 0.4),
+          color: hasQuery ? Theme.of(context).colorScheme.primary : Neo.bgBorder(context).withValues(alpha: 0.4),
         ),
       ),
     );
@@ -395,7 +395,7 @@ class _SearchDialogState extends State<_SearchDialog> {
               decoration: InputDecoration(
                 hintText: 'Titre, genre, acteur...',
                 hintStyle: Neo.bodyMedium(context).copyWith(color: Neo.textDisabled(context)),
-                prefixIcon: Icon(Icons.search_rounded, color: NeoTheme.primaryRed),
+                prefixIcon: Icon(Icons.search_rounded, color: Theme.of(context).colorScheme.primary),
                 filled: true,
                 fillColor: Neo.bgOverlay(context),
                 border: OutlineInputBorder(
@@ -404,7 +404,7 @@ class _SearchDialogState extends State<_SearchDialog> {
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: NeoTheme.primaryRed, width: 2),
+                  borderSide: BorderSide(color: Theme.of(context).colorScheme.primary, width: 2),
                 ),
               ),
             ),
@@ -423,7 +423,7 @@ class _SearchDialogState extends State<_SearchDialog> {
                   icon: Icon(Icons.search_rounded),
                   label: Text('Rechercher'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: NeoTheme.primaryRed,
+                    backgroundColor: Theme.of(context).colorScheme.primary,
                     foregroundColor: Colors.white,
                   ),
                 ),

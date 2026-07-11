@@ -322,7 +322,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   type: BottomNavigationBarType.fixed,
                   backgroundColor: Colors.transparent,
                   elevation: 0,
-                  selectedItemColor: NeoTheme.primaryRed,
+                  selectedItemColor: Theme.of(context).colorScheme.primary,
                   unselectedItemColor: Neo.textDisabled(context),
                   selectedFontSize: 11,
                   unselectedFontSize: 11,
@@ -392,12 +392,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             height: 2,
             margin: EdgeInsets.only(bottom: 6),
             decoration: BoxDecoration(
-              color: NeoTheme.primaryRed,
+              color: Theme.of(context).colorScheme.primary,
               borderRadius: BorderRadius.circular(1),
               boxShadow: isSelected
                   ? [
                       BoxShadow(
-                        color: NeoTheme.primaryRed.withValues(alpha: 0.5),
+                        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
                         blurRadius: 6,
                       ),
                     ]
@@ -443,7 +443,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
                 boxShadow: [
                   BoxShadow(
-                    color: NeoTheme.primaryRed.withValues(alpha: 0.3),
+                    color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
                     blurRadius: 16,
                     offset: Offset(0, 4),
                   ),
@@ -459,7 +459,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             Text(
               'NEO',
               style: Neo.labelLarge(context).copyWith(
-                color: NeoTheme.primaryRed,
+                color: Theme.of(context).colorScheme.primary,
                 fontWeight: FontWeight.w900,
                 letterSpacing: 2,
               ),
@@ -576,22 +576,22 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   gradient: isFocused
                       ? LinearGradient(
                           colors: [
-                            NeoTheme.primaryRed.withValues(alpha: 0.25),
-                            NeoTheme.primaryRed.withValues(alpha: 0.15),
+                            Theme.of(context).colorScheme.primary.withValues(alpha: 0.25),
+                            Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
                           ],
                         )
                       : null,
                   borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
                   border: Border.all(
                     color: isFocused
-                        ? NeoTheme.primaryRed
+                        ? Theme.of(context).colorScheme.primary
                         : Colors.transparent,
                     width: 2.5,
                   ),
                   boxShadow: isFocused
                       ? [
                           BoxShadow(
-                            color: NeoTheme.primaryRed.withValues(alpha: 0.4),
+                            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
                             blurRadius: 16,
                             spreadRadius: 2,
                           )
@@ -604,7 +604,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       isSelected ? activeIcon : icon,
                       color: isFocused
                           ? Colors.white
-                          : (isSelected ? NeoTheme.primaryRed : Neo.textDisabled(context)),
+                          : (isSelected ? Theme.of(context).colorScheme.primary : Neo.textDisabled(context)),
                       size: 26,
                     ),
                     SizedBox(width: 14),
@@ -773,7 +773,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         top: !NeoTheme.isTV(context),
         child: RefreshIndicator(
           onRefresh: () => content.loadHome(),
-          color: NeoTheme.primaryRed,
+          color: Theme.of(context).colorScheme.primary,
           backgroundColor: Neo.bgElevated(context),
           child: CustomScrollView(
             controller: _scrollController,
@@ -794,7 +794,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       Text(
                         'NEO',
                         style: Neo.titleLarge(context).copyWith(
-                          color: NeoTheme.primaryRed,
+                          color: Theme.of(context).colorScheme.primary,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
@@ -963,7 +963,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ? '$totalAvailable titres'
             : 'Toujours a jour',
         'icon': Icons.grid_view_rounded,
-        'color': NeoTheme.primaryRed,
+        'color': Theme.of(context).colorScheme.primary,
       },
       {
         'label': 'Films et series',
@@ -981,7 +981,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         'icon': isPremium
             ? Icons.workspace_premium_rounded
             : Icons.local_fire_department_outlined,
-        'color': isPremium ? NeoTheme.prestigeGold : NeoTheme.primaryRed,
+        'color': isPremium ? NeoTheme.prestigeGold : Theme.of(context).colorScheme.primary,
       },
     ];
 

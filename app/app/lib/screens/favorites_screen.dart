@@ -100,14 +100,14 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
         ],
       ),
       body: _isLoading
-          ? Center(child: CircularProgressIndicator(color: NeoTheme.primaryRed))
+          ? Center(child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary))
           : _error != null
               ? _buildError()
               : _items.isEmpty
                   ? _buildEmpty(context)
                   : RefreshIndicator(
                       onRefresh: _load,
-                      color: NeoTheme.primaryRed,
+                      color: Theme.of(context).colorScheme.primary,
                       child: FocusTraversalGroup(
                         policy: ReadingOrderTraversalPolicy(),
                         child: GridView.builder(
@@ -203,12 +203,12 @@ class _FavCard extends StatelessWidget {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
                 border: Border.all(
-                  color: focused ? NeoTheme.primaryRed : Colors.transparent,
+                  color: focused ? Theme.of(context).colorScheme.primary : Colors.transparent,
                   width: 2,
                 ),
                 boxShadow: focused ? [
                   BoxShadow(
-                    color: NeoTheme.primaryRed.withValues(alpha: 0.4),
+                    color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
                     blurRadius: 10,
                   )
                 ] : null,

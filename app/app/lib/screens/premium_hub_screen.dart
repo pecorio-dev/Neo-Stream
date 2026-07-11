@@ -241,7 +241,7 @@ class _PremiumHubScreenState extends State<PremiumHubScreen>
           ? _buildShimmer(context)
           : RefreshIndicator(
               onRefresh: _loadData,
-              color: NeoTheme.primaryRed,
+              color: Theme.of(context).colorScheme.primary,
               backgroundColor: Neo.bgElevated(context),
               child: CustomScrollView(
                 physics: AlwaysScrollableScrollPhysics(
@@ -380,7 +380,7 @@ class _PremiumHubScreenState extends State<PremiumHubScreen>
                     Neo.bgBase(context),
                   ]
                 : [
-                    NeoTheme.primaryRed.withValues(alpha: 0.08),
+                    Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
                     NeoTheme.purpleAccent.withValues(alpha: 0.04),
                     Neo.bgBase(context),
                   ],
@@ -654,7 +654,7 @@ class _PremiumHubScreenState extends State<PremiumHubScreen>
             buttonLabel: 'Activer',
             isLoading: _isActivating,
             onSubmit: _activateLicense,
-            buttonColor: NeoTheme.primaryRed,
+            buttonColor: Theme.of(context).colorScheme.primary,
             useFocus: useFocus,
             scale: scale,
           ),
@@ -1347,7 +1347,7 @@ class _PremiumHubScreenState extends State<PremiumHubScreen>
                                       Neo.bgBorder(context).withValues(alpha: 0.3),
                                   valueColor:
                                       AlwaysStoppedAnimation(
-                                          NeoTheme.primaryRed),
+                                          Theme.of(context).colorScheme.primary),
                                 ),
                               ),
                             ),
@@ -1656,7 +1656,7 @@ class _FocusableButtonState extends State<_FocusableButton> {
                   borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
                   boxShadow: [
                     BoxShadow(
-                      color: NeoTheme.primaryRed.withValues(alpha: 0.4),
+                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
                       blurRadius: 12,
                       spreadRadius: 1,
                     ),

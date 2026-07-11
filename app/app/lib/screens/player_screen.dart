@@ -1463,9 +1463,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 height: (72 * scale).roundToDouble(),
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: NeoTheme.primaryRed.withValues(alpha: 0.06),
+                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.06),
                   border: Border.all(
-                    color: NeoTheme.primaryRed.withValues(alpha: 0.12),
+                    color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
                     width: 0.5,
                   ),
                 ),
@@ -1474,7 +1474,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     width: (48 * scale).roundToDouble(),
                     height: (48 * scale).roundToDouble(),
                     child: CircularProgressIndicator(
-                      color: NeoTheme.primaryRed,
+                      color: Theme.of(context).colorScheme.primary,
                       strokeWidth: 2.5,
                     ),
                   ),
@@ -1568,7 +1568,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     icon: Icon(Icons.refresh, size: 18 * NeoTheme.scaleFactor(context)),
                     label: Text('Relancer'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: NeoTheme.primaryRed,
+                      backgroundColor: Theme.of(context).colorScheme.primary,
                     ),
                   ),
                   OutlinedButton.icon(
@@ -1694,7 +1694,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                               height: 5,
                                               decoration: BoxDecoration(
                                                 borderRadius: BorderRadius.circular(3),
-                                                color: NeoTheme.primaryRed,
+                                                color: Theme.of(context).colorScheme.primary,
                                               ),
                                             ),
                                           ),
@@ -1971,7 +1971,7 @@ class _PlayerSettingsSheetState extends State<_PlayerSettingsSheet> {
                   style: Neo.bodyMedium(context).copyWith(color: Neo.textPrimary(context))),
               Spacer(),
               Text('${_speed}x',
-                  style: Neo.bodyMedium(context).copyWith(color: NeoTheme.primaryRed)),
+                  style: Neo.bodyMedium(context).copyWith(color: Theme.of(context).colorScheme.primary)),
             ],
           ),
           SizedBox(height: 8),
@@ -1989,11 +1989,11 @@ class _PlayerSettingsSheetState extends State<_PlayerSettingsSheet> {
                   padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   decoration: BoxDecoration(
                     color: selected
-                        ? NeoTheme.primaryRed
-                        : NeoTheme.primaryRed.withValues(alpha: 0.12),
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: selected ? NeoTheme.primaryRed : NeoTheme.primaryRed.withValues(alpha: 0.3),
+                      color: selected ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
                     ),
                   ),
                   child: Text(
@@ -2046,10 +2046,10 @@ class _TVMenuButtonState extends State<_TVMenuButton> {
           padding: EdgeInsets.symmetric(horizontal: 12 * scale, vertical: 8 * scale),
           decoration: BoxDecoration(
             gradient: _focused ? null : Neo.glassGradient(context),
-            color: _focused ? NeoTheme.primaryRed : null,
+            color: _focused ? Theme.of(context).colorScheme.primary : null,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: _focused ? NeoTheme.primaryRed : Colors.white.withValues(alpha: 0.15),
+              color: _focused ? Theme.of(context).colorScheme.primary : Colors.white.withValues(alpha: 0.15),
               width: _focused ? 2 : 1,
             ),
           ),
@@ -2153,12 +2153,12 @@ class _TVSettingsDialogState extends State<_TVSettingsDialog> {
                             padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                             decoration: BoxDecoration(
                               color: isFocused
-                                  ? NeoTheme.primaryRed.withValues(alpha: 0.15)
+                                  ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.15)
                                   : (isCurrent ? Colors.white.withValues(alpha: 0.05) : Colors.transparent),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
                                 color: isFocused
-                                    ? NeoTheme.primaryRed
+                                    ? Theme.of(context).colorScheme.primary
                                     : (isCurrent ? Colors.white38 : Colors.white.withValues(alpha: 0.08)),
                                 width: isFocused ? 2 : 1,
                               ),
@@ -2168,7 +2168,7 @@ class _TVSettingsDialogState extends State<_TVSettingsDialog> {
                                 Icon(
                                   Icons.speed_rounded,
                                   color: isFocused
-                                      ? NeoTheme.primaryRed
+                                      ? Theme.of(context).colorScheme.primary
                                       : (isCurrent ? Colors.white : Colors.white70),
                                   size: 20,
                                 ),
@@ -2177,7 +2177,7 @@ class _TVSettingsDialogState extends State<_TVSettingsDialog> {
                                   '${speed}x',
                                   style: Neo.bodyMedium(context).copyWith(
                                     color: isFocused
-                                        ? NeoTheme.primaryRed
+                                        ? Theme.of(context).colorScheme.primary
                                         : (isCurrent ? Colors.white : Colors.white70),
                                     fontWeight: isCurrent || isFocused ? FontWeight.bold : FontWeight.normal,
                                   ),
@@ -2186,7 +2186,7 @@ class _TVSettingsDialogState extends State<_TVSettingsDialog> {
                                 if (isCurrent)
                                   Icon(
                                     Icons.check_circle_rounded,
-                                    color: isFocused ? NeoTheme.primaryRed : Colors.white,
+                                    color: isFocused ? Theme.of(context).colorScheme.primary : Colors.white,
                                     size: 18,
                                   ),
                               ],
@@ -2404,12 +2404,12 @@ class _ServerSelectorButtonState extends State<_ServerSelectorButton> {
               EdgeInsets.symmetric(horizontal: 12 * scale, vertical: 7 * scale),
           decoration: BoxDecoration(
             color: _focused
-                ? NeoTheme.primaryRed.withValues(alpha: 0.25)
+                ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.25)
                 : Colors.white.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
               color: _focused
-                  ? NeoTheme.primaryRed
+                  ? Theme.of(context).colorScheme.primary
                   : Colors.white.withValues(alpha: 0.15),
               width: _focused ? 2 : 0.5,
             ),
@@ -2622,7 +2622,7 @@ class _ServerTile extends StatelessWidget {
     final iframeOnly = WatchLinkUtils.isIframeOnly(link);
 
     Color bg = Colors.transparent;
-    if (isActive) bg = NeoTheme.primaryRed.withValues(alpha: 0.15);
+    if (isActive) bg = Theme.of(context).colorScheme.primary.withValues(alpha: 0.15);
     if (isFocused && !isActive) bg = Colors.white.withValues(alpha: 0.08);
 
     return GestureDetector(
@@ -2635,7 +2635,7 @@ class _ServerTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: isActive
-                ? NeoTheme.primaryRed.withValues(alpha: 0.5)
+                ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.5)
                 : (isFocused ? Colors.white24 : Colors.transparent),
             width: 1,
           ),
@@ -2647,7 +2647,7 @@ class _ServerTile extends StatelessWidget {
               child: Text(
                 '${index + 1}. $name',
                 style: TextStyle(
-                  color: isActive ? NeoTheme.primaryRed : Colors.white,
+                  color: isActive ? Theme.of(context).colorScheme.primary : Colors.white,
                   fontSize: 14 * scale,
                   fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
                 ),
@@ -2690,7 +2690,7 @@ class _ServerTile extends StatelessWidget {
             ),
             if (isActive) ...[
               SizedBox(width: 6 * scale),
-              Icon(Icons.play_circle_filled, color: NeoTheme.primaryRed, size: 16 * scale),
+              Icon(Icons.play_circle_filled, color: Theme.of(context).colorScheme.primary, size: 16 * scale),
             ],
           ],
         ),
@@ -2726,12 +2726,12 @@ class _ResumeDialog extends StatelessWidget {
             Container(
               padding: EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: NeoTheme.primaryRed.withValues(alpha: 0.1),
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
               child: Icon(
                 Icons.history_rounded,
-                color: NeoTheme.primaryRed,
+                color: Theme.of(context).colorScheme.primary,
                 size: 36,
               ),
             ),
@@ -2818,7 +2818,7 @@ class _ResumeButtonState extends State<_ResumeButton> {
   @override
   Widget build(BuildContext context) {
     final isTV = NeoTheme.isTV(context);
-    final primaryColor = NeoTheme.primaryRed;
+    final primaryColor = Theme.of(context).colorScheme.primary;
     final baseBgColor = widget.isPrimary
         ? primaryColor
         : Color(0xFF1E2E42);

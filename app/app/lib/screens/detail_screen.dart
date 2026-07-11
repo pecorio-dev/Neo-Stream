@@ -309,17 +309,17 @@ class _DetailScreenState extends State<DetailScreen>
                           Container(
                             padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
-                              color: NeoTheme.primaryRed.withValues(alpha: 0.18),
+                              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.18),
                               borderRadius: BorderRadius.circular(6),
                               border: Border.all(
-                                color: NeoTheme.primaryRed.withValues(alpha: 0.35),
+                                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),
                                 width: 0.8,
                               ),
                             ),
                             child: Text(
                               content.genres.first.toUpperCase(),
                               style: Neo.labelSmall(context).copyWith(
-                                color: NeoTheme.primaryRed,
+                                color: Theme.of(context).colorScheme.primary,
                                 fontWeight: FontWeight.w800,
                                 fontSize: 9,
                                 letterSpacing: 0.8,
@@ -378,7 +378,7 @@ class _DetailScreenState extends State<DetailScreen>
 
   Widget _metaChip(BuildContext context, String label,
       {bool accent = false, IconData? icon}) {
-    final color = accent ? NeoTheme.primaryRed : Neo.textSecondary(context);
+    final color = accent ? Theme.of(context).colorScheme.primary : Neo.textSecondary(context);
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
@@ -486,7 +486,7 @@ class _DetailScreenState extends State<DetailScreen>
                         ? [
                             BoxShadow(
                               color:
-                                  NeoTheme.primaryRed.withValues(alpha: 0.28),
+                                  Theme.of(context).colorScheme.primary.withValues(alpha: 0.28),
                               blurRadius: 8,
                               offset: Offset(0, 2),
                             )
@@ -526,10 +526,10 @@ class _DetailScreenState extends State<DetailScreen>
     return Container(
       padding: EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: NeoTheme.primaryRed.withValues(alpha: 0.05),
+        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
         border: Border.all(
-          color: NeoTheme.primaryRed.withValues(alpha: 0.15),
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
           width: 0.8,
         ),
       ),
@@ -541,7 +541,7 @@ class _DetailScreenState extends State<DetailScreen>
             children: [
               Row(
                 children: [
-                  Icon(Icons.play_circle_outline_rounded, size: 14, color: NeoTheme.primaryRed),
+                  Icon(Icons.play_circle_outline_rounded, size: 14, color: Theme.of(context).colorScheme.primary),
                   SizedBox(width: 6),
                   Text(
                     'Continuer la lecture',
@@ -555,7 +555,7 @@ class _DetailScreenState extends State<DetailScreen>
               Text(
                 '${(value * 100).round()}%',
                 style: Neo.labelSmall(context).copyWith(
-                  color: NeoTheme.primaryRed,
+                  color: Theme.of(context).colorScheme.primary,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -567,7 +567,7 @@ class _DetailScreenState extends State<DetailScreen>
             child: LinearProgressIndicator(
               value: value,
               backgroundColor: Colors.white10,
-              valueColor: AlwaysStoppedAnimation(NeoTheme.primaryRed),
+              valueColor: AlwaysStoppedAnimation(Theme.of(context).colorScheme.primary),
               minHeight: 6,
             ),
           ),
@@ -594,7 +594,7 @@ class _DetailScreenState extends State<DetailScreen>
           isActive: content.inLibrary,
           activeIcon: Icons.check_rounded,
           inactiveIcon: Icons.add_rounded,
-          activeColor: NeoTheme.primaryRed,
+          activeColor: Theme.of(context).colorScheme.primary,
           tooltip: content.inLibrary ? 'Dans ma liste' : 'Ajouter à ma liste',
           onTap: () async {
             final messenger = ScaffoldMessenger.of(context);
@@ -611,7 +611,7 @@ class _DetailScreenState extends State<DetailScreen>
                 if (!mounted) return;
                 messenger.showSnackBar(SnackBar(
                   content: Text('Ajouté à votre liste'),
-                  backgroundColor: NeoTheme.primaryRed,
+                  backgroundColor: Theme.of(context).colorScheme.primary,
                 ));
               }
               if (!mounted) return;
@@ -713,14 +713,14 @@ class _DetailScreenState extends State<DetailScreen>
                             BorderRadius.circular(NeoTheme.radiusMd),
                         border: Border.all(
                           color: (isFocused || isSelected)
-                              ? NeoTheme.primaryRed
+                              ? Theme.of(context).colorScheme.primary
                               : Neo.bgBorder(context).withValues(alpha: 0.2),
                           width: isFocused ? 2 : 1,
                         ),
                         boxShadow: isFocused
                             ? [
                                 BoxShadow(
-                                  color: NeoTheme.primaryRed
+                                  color: Theme.of(context).colorScheme.primary
                                       .withValues(alpha: 0.35),
                                   blurRadius: 10,
                                 )
@@ -791,14 +791,14 @@ class _DetailScreenState extends State<DetailScreen>
               decoration: BoxDecoration(
                 gradient: isFocused
                     ? LinearGradient(colors: [
-                        NeoTheme.primaryRed.withValues(alpha: 0.15),
+                        Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
                         Neo.bgElevated(context),
                       ])
                     : Neo.surfaceGradient,
                 borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
                 border: Border.all(
                   color: isFocused
-                      ? NeoTheme.primaryRed
+                      ? Theme.of(context).colorScheme.primary
                       : Neo.bgBorder(context).withValues(alpha: 0.15),
                   width: isFocused ? 1.5 : 0.8,
                 ),
@@ -806,7 +806,7 @@ class _DetailScreenState extends State<DetailScreen>
                   ...NeoTheme.shadowLevel1,
                   if (isFocused)
                     BoxShadow(
-                      color: NeoTheme.primaryRed.withValues(alpha: 0.3),
+                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
                       blurRadius: 16,
                       spreadRadius: 1,
                     ),
@@ -826,13 +826,13 @@ class _DetailScreenState extends State<DetailScreen>
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                             colors: [
-                              NeoTheme.primaryRed.withValues(alpha: 0.15),
+                              Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
                               Neo.bgElevated(context),
                             ],
                           ),
                           borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
                           border: Border.all(
-                            color: NeoTheme.primaryRed.withValues(alpha: 0.35),
+                            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),
                             width: 1,
                           ),
                         ),
@@ -840,7 +840,7 @@ class _DetailScreenState extends State<DetailScreen>
                           child: Text(
                             'E${episode.episode}',
                             style: Neo.titleMedium(context).copyWith(
-                              color: NeoTheme.primaryRed,
+                              color: Theme.of(context).colorScheme.primary,
                               fontWeight: FontWeight.w800,
                             ),
                           ),
@@ -880,13 +880,13 @@ class _DetailScreenState extends State<DetailScreen>
                                               horizontal: 6, vertical: 2),
                                           decoration: BoxDecoration(
                                             color: (_selectedLanguage == l)
-                                                ? NeoTheme.primaryRed
+                                                ? Theme.of(context).colorScheme.primary
                                                     .withValues(alpha: 0.15)
                                                 : Neo.bgActive(context),
                                             borderRadius: BorderRadius.circular(4),
                                             border: Border.all(
                                               color: (_selectedLanguage == l)
-                                                  ? NeoTheme.primaryRed
+                                                  ? Theme.of(context).colorScheme.primary
                                                       .withValues(alpha: 0.35)
                                                   : Neo.bgBorder(context)
                                                       .withValues(alpha: 0.2),
@@ -900,7 +900,7 @@ class _DetailScreenState extends State<DetailScreen>
                                               fontSize: 9,
                                               fontWeight: FontWeight.w800,
                                               color: (_selectedLanguage == l)
-                                                  ? NeoTheme.primaryRed
+                                                  ? Theme.of(context).colorScheme.primary
                                                   : Neo.textSecondary(context),
                                             ),
                                           ),
@@ -919,8 +919,8 @@ class _DetailScreenState extends State<DetailScreen>
                             : Icons.lock_outline_rounded,
                         color: isPlayable
                             ? (isFocused
-                                ? NeoTheme.primaryRed
-                                : NeoTheme.primaryRed.withValues(alpha: 0.75))
+                                ? Theme.of(context).colorScheme.primary
+                                : Theme.of(context).colorScheme.primary.withValues(alpha: 0.75))
                             : Neo.textDisabled(context),
                         size: 34,
                       ),
@@ -935,7 +935,7 @@ class _DetailScreenState extends State<DetailScreen>
                         value: episode.progressPercent! / 100,
                         backgroundColor: Colors.white10,
                         valueColor: AlwaysStoppedAnimation(
-                            NeoTheme.primaryRed),
+                            Theme.of(context).colorScheme.primary),
                         minHeight: 4,
                       ),
                     ),
@@ -1112,7 +1112,7 @@ class _ExpandableTextState extends State<_ExpandableText> {
           child: Text(
             _expanded ? 'Voir moins' : 'Voir plus',
             style: Neo.labelSmall(context).copyWith(
-              color: NeoTheme.primaryRed,
+              color: Theme.of(context).colorScheme.primary,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -1224,7 +1224,7 @@ class _FocusablePlayButtonState extends State<_FocusablePlayButton> {
                         BoxShadow(
                           color: (_focused && useFocus)
                               ? Colors.white.withValues(alpha: 0.3)
-                              : NeoTheme.primaryRed.withValues(alpha: 0.4),
+                              : Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
                           blurRadius: 18,
                           offset: Offset(0, 6),
                         ),

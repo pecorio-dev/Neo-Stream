@@ -82,7 +82,7 @@ class _AISearchScreenState extends State<AISearchScreen> {
                         borderSide: BorderSide.none,
                       ),
                       suffixIcon: IconButton(
-                        icon: Icon(Icons.search, color: NeoTheme.primaryRed),
+                        icon: Icon(Icons.search, color: Theme.of(context).colorScheme.primary),
                         onPressed: _isSearching ? null : _search,
                       ),
                     ),
@@ -118,7 +118,7 @@ class _AISearchScreenState extends State<AISearchScreen> {
             ),
           if (_result?.parsed != null) _buildParsedInfo(),
           if (_isSearching)
-            Expanded(child: Center(child: CircularProgressIndicator(color: NeoTheme.primaryRed)))
+            Expanded(child: Center(child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary)))
           else if (_error != null)
             Expanded(child: Center(child: Text(_error!, style: TextStyle(color: NeoTheme.errorRed))))
           else if (_result != null)
@@ -136,16 +136,16 @@ class _AISearchScreenState extends State<AISearchScreen> {
       decoration: BoxDecoration(
         color: Neo.bgSurface(context),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: NeoTheme.primaryRed.withValues(alpha: 0.3)),
+        border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.auto_awesome, color: NeoTheme.primaryRed, size: 18),
+              Icon(Icons.auto_awesome, color: Theme.of(context).colorScheme.primary, size: 18),
               SizedBox(width: 8),
-              Text('Analyse IA', style: TextStyle(color: NeoTheme.primaryRed, fontWeight: FontWeight.bold)),
+              Text('Analyse IA', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold)),
             ],
           ),
           SizedBox(height: 8),
@@ -177,7 +177,7 @@ class _AISearchScreenState extends State<AISearchScreen> {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: NeoTheme.primaryRed.withValues(alpha: 0.1),
+        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text('$label: $value', style: TextStyle(color: Neo.textSecondary(context), fontSize: 12)),
@@ -211,8 +211,8 @@ class _AISearchScreenState extends State<AISearchScreen> {
             trailing: item.score != null
                 ? Container(
                     padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(color: NeoTheme.primaryRed.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-                    child: Text('${(item.score! * 100).toInt()}%', style: TextStyle(color: NeoTheme.primaryRed, fontSize: 12, fontWeight: FontWeight.bold)))
+                    decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
+                    child: Text('${(item.score! * 100).toInt()}%', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 12, fontWeight: FontWeight.bold)))
                 : null,
             onTap: () {
               Navigator.push(
