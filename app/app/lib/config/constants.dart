@@ -19,7 +19,7 @@ class AppConstants {
   }
   static const Duration apiTimeout = Duration(seconds: 30);
   static const Duration extractTimeout = Duration(seconds: 30);
-  static const String appVersion = '1.2.0';
+  static const String appVersion = '1.2.2';
   static const String appClient = 'neo-stream-flutter';
   static const Duration integrityRefreshMargin = Duration(minutes: 10);
 

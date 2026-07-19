@@ -298,7 +298,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [Color(0xE00C0C1C), Color(0xF506060C)],
+                  colors: Theme.of(context).brightness == Brightness.light
+                      ? [Neo.bgBase(context).withValues(alpha: 0.92), Neo.bgBase(context)]
+                      : [Color(0xE00C0C1C), Color(0xF506060C)],
                 ),
                 border: Border(
                   top: BorderSide(
@@ -1004,7 +1006,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               width: NeoTheme.isTV(context) ? 238 : 208,
               padding: EdgeInsets.all(14),
               decoration: BoxDecoration(
-                gradient: Neo.surfaceGradient,
+                gradient: Neo.topPanelGradient(context),
                 borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
                 border: Border.all(
                   color: (card['color'] as Color).withValues(alpha: 0.12),

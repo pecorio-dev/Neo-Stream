@@ -145,15 +145,30 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
         _playbackRetryCount++;
         final pos = _player.state.position;
         if (pos.inSeconds > 0) _resumePosition = pos;
-        debugPrint('Anime erreur ($_playbackRetryCount/$_maxPlaybackRetries) — changement de source');
 
-        if (_prefetchedResult != null) {
-          debugPrint('⚡ URL pré-extraite disponible → swap immédiat');
-          Future.microtask(() { if (mounted) _doSilentRefresh(); });
-        } else {
-          Future.delayed(Duration(seconds: 1), () {
-            if (mounted) _extractVideo();
+        // Source stable (Sibnet, Sendvid) : pas de re-extraction,
+        // on retente la lecture a la meme position.
+        if (_isStableExtractor(_extractorUsed)) {
+          debugPrint('Anime erreur ($_playbackRetryCount/$_maxPlaybackRetries) — source stable ($_extractorUsed), retry sans re-extraction');
+          Future.delayed(Duration(seconds: 2), () {
+            if (!mounted) return;
+            if (_resumePosition != null && _resumePosition!.inSeconds > 0) {
+              _player.play();
+              _seekWhenReady(_resumePosition!);
+            } else {
+              _player.play();
+            }
           });
+        } else {
+          debugPrint('Anime erreur ($_playbackRetryCount/$_maxPlaybackRetries) — changement de source');
+          if (_prefetchedResult != null) {
+            debugPrint('URL pre-extraite disponible -> swap immediat');
+            Future.microtask(() { if (mounted) _doSilentRefresh(); });
+          } else {
+            Future.delayed(Duration(seconds: 1), () {
+              if (mounted) _extractVideo();
+            });
+          }
         }
       } else if (_errorMessage == null) {
         setState(() {
@@ -251,7 +266,7 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
       await _restoreProgress();
     }
     _startProgressTimer();
-    _scheduleUrlRefresh(videoUrl);
+    _scheduleUrlRefresh(videoUrl, extractor);
   }
 
   /// Retourne la durée avant swap, ou null si l'URL n'expire pas.
@@ -285,14 +300,18 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
     return null;
   }
 
-  void _scheduleUrlRefresh(String videoUrl) {
+  void _scheduleUrlRefresh(String videoUrl, String? extractor) {
     _urlRefreshTimer?.cancel();
     _prefetchTimer?.cancel();
     _prefetchedResult = null;
 
+    if (_isStableExtractor(extractor)) {
+      debugPrint('🔗 Anime URL stable (extracteur: $extractor) — refresh auto désactivé');
+      return;
+    }
+
     final swapDelay = _detectSwapDelay(videoUrl);
     if (swapDelay == null) {
-      // URL sans expiration (Sibnet, Sendvid, etc.) — pas de refresh automatique
       debugPrint('🔗 Anime URL stable (pas d\'expiration CDN détectée) — refresh auto désactivé');
       return;
     }
@@ -352,7 +371,7 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
     _player.play();
 
     debugPrint('✓ Anime lecture continue sans interruption');
-    _scheduleUrlRefresh(newUrl);
+    _scheduleUrlRefresh(newUrl, extractor);
   }
 
   void _startProgressTimer() {
@@ -546,15 +565,98 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
     return headers;
   }
 
-  KeyEventResult _handleTVBack(FocusNode node, KeyEvent event) {
+  /// Detecte si l'extracteur utilise des URLs stables (pas d'expiration CDN).
+  /// Pour ces sources, on ne re-extrait jamais : on retente la lecture directement.
+  bool _isStableExtractor(String? extractor) {
+    if (extractor == null) return false;
+    const stableExtractors = ['sibnet', 'sibnet_html', 'sendvid'];
+    return stableExtractors.contains(extractor.toLowerCase());
+  }
+
+  KeyEventResult _handleTVKeys(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
-    if (event.logicalKey == LogicalKeyboardKey.escape ||
-        event.logicalKey == LogicalKeyboardKey.goBack ||
-        event.logicalKey == LogicalKeyboardKey.browserBack) {
+
+    final key = event.logicalKey;
+
+    // Back / Escape : quitter le lecteur
+    if (key == LogicalKeyboardKey.escape ||
+        key == LogicalKeyboardKey.goBack ||
+        key == LogicalKeyboardKey.browserBack) {
       _saveProgressSync();
       Navigator.of(context).pop();
       return KeyEventResult.handled;
     }
+
+    // Play/Pause : centre de la telecommande ou touche media
+    if (key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.space ||
+        key == LogicalKeyboardKey.mediaPlayPause) {
+      _player.playOrPause();
+      _showControlsBriefly();
+      return KeyEventResult.handled;
+    }
+
+    // Seek avant (+10s) : D-pad droite ou fast-forward
+    if (key == LogicalKeyboardKey.arrowRight ||
+        key == LogicalKeyboardKey.mediaFastForward) {
+      final pos = _player.state.position + Duration(seconds: 10);
+      final dur = _player.state.duration;
+      _player.seek(pos > dur ? dur : pos);
+      _showControlsBriefly();
+      return KeyEventResult.handled;
+    }
+
+    // Seek arriere (-10s) : D-pad gauche ou rewind
+    if (key == LogicalKeyboardKey.arrowLeft ||
+        key == LogicalKeyboardKey.mediaRewind) {
+      final pos = _player.state.position - Duration(seconds: 10);
+      _player.seek(pos < Duration.zero ? Duration.zero : pos);
+      _showControlsBriefly();
+      return KeyEventResult.handled;
+    }
+
+    // Volume up : D-pad haut ou touche volume
+    if (key == LogicalKeyboardKey.arrowUp ||
+        key == LogicalKeyboardKey.audioVolumeUp) {
+      final current = _player.state.volume;
+      _player.setVolume((current + 10).clamp(0, 100));
+      _showControlsBriefly();
+      return KeyEventResult.handled;
+    }
+
+    // Volume down : D-pad bas ou touche volume
+    if (key == LogicalKeyboardKey.arrowDown ||
+        key == LogicalKeyboardKey.audioVolumeDown) {
+      final current = _player.state.volume;
+      _player.setVolume((current - 10).clamp(0, 100));
+      _showControlsBriefly();
+      return KeyEventResult.handled;
+    }
+
+    // Mute toggle
+    if (key == LogicalKeyboardKey.audioVolumeMute) {
+      final current = _player.state.volume;
+      _player.setVolume(current > 0 ? 0 : 100);
+      _showControlsBriefly();
+      return KeyEventResult.handled;
+    }
+
+    // Menu / contextMenu : ouvrir les parametres du lecteur
+    if (key == LogicalKeyboardKey.contextMenu ||
+        key == LogicalKeyboardKey.f10 ||
+        key == LogicalKeyboardKey.info) {
+      _showPlayerSettings(context);
+      return KeyEventResult.handled;
+    }
+
+    // Media stop : quitter le lecteur
+    if (key == LogicalKeyboardKey.mediaStop) {
+      _saveProgressSync();
+      Navigator.of(context).pop();
+      return KeyEventResult.handled;
+    }
+
     return KeyEventResult.ignored;
   }
 
@@ -562,7 +664,7 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
   Widget build(BuildContext context) {
     return Focus(
       autofocus: true,
-      onKeyEvent: _handleTVBack,
+      onKeyEvent: _handleTVKeys,
       child: Scaffold(
       backgroundColor: Colors.black,
       body: Stack(

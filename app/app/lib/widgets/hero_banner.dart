@@ -381,6 +381,15 @@ class _HeroBannerState extends State<HeroBanner> {
 
   Widget _buildOverlayCard(BuildContext context, Content item) {
     final isWide = MediaQuery.of(context).size.width >= 900;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    final onPrimaryColor = primaryColor.computeLuminance() > 0.5
+        ? Colors.black
+        : Colors.white;
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final cardBgColors = isLight
+        ? [Color(0xF0FFFFFF), Color(0xECF5F5FA)]
+        : [Color(0xE60C0C1C), Color(0xDD08081A)];
+    final cardTextColor = isLight ? Color(0xFF171C28) : Colors.white;
 
     return Container(
       padding: EdgeInsets.all(14 * NeoTheme.scaleFactor(context)),
@@ -388,11 +397,11 @@ class _HeroBannerState extends State<HeroBanner> {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xE60C0C1C), Color(0xDD08081A)],
+          colors: cardBgColors,
         ),
         borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
         border: Border.all(
-          color: (item.isSerie ? NeoTheme.infoCyan : Theme.of(context).colorScheme.primary)
+          color: (item.isSerie ? NeoTheme.infoCyan : primaryColor)
               .withValues(alpha: 0.2),
           width: 0.5,
         ),
@@ -413,7 +422,7 @@ class _HeroBannerState extends State<HeroBanner> {
               _heroChip(
                 context,
                 item.isSerie ? 'Serie' : 'Film',
-                color: item.isSerie ? NeoTheme.infoCyan : Theme.of(context).colorScheme.primary,
+                color: item.isSerie ? NeoTheme.infoCyan : primaryColor,
               ),
               SizedBox(width: 6),
               if (item.rating > 0)
@@ -432,7 +441,7 @@ class _HeroBannerState extends State<HeroBanner> {
             overflow: TextOverflow.ellipsis,
             style: NeoTheme.titleLarge(
               context,
-            ).copyWith(fontWeight: FontWeight.bold, color: Colors.white),
+            ).copyWith(fontWeight: FontWeight.bold, color: cardTextColor),
           ),
           SizedBox(height: 10),
           Row(
@@ -440,21 +449,21 @@ class _HeroBannerState extends State<HeroBanner> {
               Expanded(
                 child: ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.primary,
-                    foregroundColor: Colors.white,
+                    backgroundColor: primaryColor,
+                    foregroundColor: onPrimaryColor,
                     minimumSize: Size(0, 48 * NeoTheme.scaleFactor(context)),
                     padding: EdgeInsets.symmetric(horizontal: 16 * NeoTheme.scaleFactor(context)),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
                     ),
                     elevation: 4,
-                    shadowColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
+                    shadowColor: primaryColor.withValues(alpha: 0.5),
                   ),
                   onPressed: () => widget.onTap(item),
-                  icon: Icon(Icons.play_circle_fill_rounded, color: Colors.white, size: 22 * NeoTheme.scaleFactor(context)),
+                  icon: Icon(Icons.play_circle_fill_rounded, color: onPrimaryColor, size: 22 * NeoTheme.scaleFactor(context)),
                   label: Text(
                     isWide ? (item.isSerie ? 'Regarder la serie' : 'Regarder le film') : 'Regarder',
-                    style: TextStyle(fontSize: 15 * NeoTheme.scaleFactor(context), fontWeight: FontWeight.bold, color: Colors.white),
+                    style: TextStyle(fontSize: 15 * NeoTheme.scaleFactor(context), fontWeight: FontWeight.bold, color: onPrimaryColor),
                     maxLines: 1,
                   ),
                 ),
@@ -484,7 +493,7 @@ class _HeroBannerState extends State<HeroBanner> {
                 },
                 child: Icon(
                   item.inLibrary ? Icons.check_rounded : Icons.add_rounded,
-                  color: Colors.white,
+                  color: cardTextColor,
                   size: 20,
                 ),
               ),
@@ -496,10 +505,19 @@ class _HeroBannerState extends State<HeroBanner> {
   }
 
   Widget _buildCounterCard(BuildContext context) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final counterBg = isLight
+        ? LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xF0FFFFFF), Color(0xECF5F5FA)],
+          )
+        : Neo.surfaceGradient;
+
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 16 * NeoTheme.scaleFactor(context), vertical: 14 * NeoTheme.scaleFactor(context)),
       decoration: BoxDecoration(
-        gradient: Neo.surfaceGradient,
+        gradient: counterBg,
         borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
         border: Border.all(
           color: Neo.bgBorder(context).withValues(alpha: 0.2),
