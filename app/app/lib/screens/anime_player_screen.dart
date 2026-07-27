@@ -1208,7 +1208,7 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
     );
   }
 }
-}
+
 
 
 
