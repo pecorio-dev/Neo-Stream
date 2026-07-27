@@ -300,9 +300,10 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
         await _loadVideo(videoUrl, extractor, generation);
       } else {
         setState(() {
-        _errorMessage = "Aucun lien trouvé sur l'ensemble des ${widget.sources.length} sources.";
-        _isExtracting = false;
-      });
+          _errorMessage = "Aucun lien trouvé sur l'ensemble des ${widget.sources.length} sources.";
+          _isExtracting = false;
+        });
+      }
     } catch (e) {
       if (!mounted || generation != _extractionGeneration) return;
       setState(() {
