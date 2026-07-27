@@ -40,10 +40,8 @@ class TVRemoteNavigatorState extends State<TVRemoteNavigator> {
   @override
   void initState() {
     super.initState();
-    if (widget.autofocus) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _rootFocusNode.requestFocus();
-      });
+    if (widget.autofocus && mounted) {
+      _rootFocusNode.requestFocus();
     }
   }
 
@@ -108,11 +106,13 @@ class TVRemoteNavigatorState extends State<TVRemoteNavigator> {
 
   @override
   Widget build(BuildContext context) {
-    return Focus(
-      focusNode: _rootFocusNode,
-      onKeyEvent: _handleKeyEvent,
-      autofocus: widget.autofocus,
-      child: widget.child,
+    return FocusTraversalGroup(
+      child: Focus(
+        focusNode: _rootFocusNode,
+        onKeyEvent: _handleKeyEvent,
+        autofocus: widget.autofocus,
+        child: widget.child,
+      ),
     );
   }
 }

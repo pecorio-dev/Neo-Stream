@@ -51,6 +51,7 @@ class _DetailScreenState extends State<DetailScreen>
       final content = await _api.getContentDetail(widget.contentId);
       final seasons = content.seasons.keys.toList()..sort();
 
+      if (!mounted) return;
       setState(() {
         _content = content;
         _isLoading = false;
@@ -61,6 +62,7 @@ class _DetailScreenState extends State<DetailScreen>
       });
       _fadeCtrl.forward(from: 0);
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = 'Impossible de charger le contenu. Veuillez réessayer.';
         _isLoading = false;
@@ -249,8 +251,8 @@ class _DetailScreenState extends State<DetailScreen>
                   child: CachedNetworkImage(
                     imageUrl: content.fullPosterUrl,
                     fit: BoxFit.cover,
-                    placeholder: (_, _) => Container(color: Neo.bgElevated(context)),
-                    errorWidget: (_, _, _) => Container(color: Neo.bgElevated(context)),
+                    placeholder: (_1, _2) => Container(color: Neo.bgElevated(context)),
+                    errorWidget: (_1, _2, _3) => Container(color: Neo.bgElevated(context)),
                   ),
                 ),
               ),
@@ -1034,16 +1036,51 @@ class _DetailScreenState extends State<DetailScreen>
   }
 
   void _playPrimaryAction(Content content) {
+    if (content.isSerie) {
+      final episode = _resumeEpisode(content) ?? _firstPlayableEpisode(content);
+      if (episode != null) {
+        _launchPlayer(
+          content,
+          _rankLinks(episode.watchLinks),
+          episodeId: 'S${episode.season}E${episode.episode}',
+        );
+        return;
+      }
+    }
     final links = _rankLinks(content.watchLinks);
     if (links.isNotEmpty) {
       _launchPlayer(content, links);
       return;
     }
-    final ep = _firstPlayableEpisode(content);
+    // Reprendre l'épisode mémorisé avant de retomber sur le premier épisode.
+    // PlayerScreen utilise ensuite la position locale puis celle du serveur.
+    final ep = _resumeEpisode(content) ?? _firstPlayableEpisode(content);
     if (ep != null) {
       _launchPlayer(content, _rankLinks(ep.watchLinks),
           episodeId: 'S${ep.season}E${ep.episode}');
     }
+  }
+
+  Episode? _resumeEpisode(Content content) {
+    final rememberedId = content.currentEpisodeId;
+    final episodes = content.seasons.values.expand((items) => items);
+    if (rememberedId != null && rememberedId.isNotEmpty) {
+      for (final episode in episodes) {
+        if ('S${episode.season}E${episode.episode}' == rememberedId &&
+            _rankLinks(episode.watchLinks).isNotEmpty) {
+          return episode;
+        }
+      }
+    }
+    // Fallback pour les réponses API sans episode_id mais avec une progression.
+    for (final episode in content.seasons.values.expand((items) => items)) {
+      final progress = episode.progressPercent ?? 0;
+      if (progress > 0 && progress < 95 &&
+          _rankLinks(episode.watchLinks).isNotEmpty) {
+        return episode;
+      }
+    }
+    return null;
   }
 
   Episode? _firstPlayableEpisode(Content content) {

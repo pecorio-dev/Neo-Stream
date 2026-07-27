@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 
 /// Nettoie un titre venant de l'API : "N/A", vide ou nul → "Sans titre".
 String _cleanTitle(dynamic raw) {
-  final t = (raw as String?)?.trim() ?? '';
+  final t = raw?.toString().trim() ?? '';
   if (t.isEmpty || t.toUpperCase() == 'N/A' || t.toLowerCase() == 'null') {
     return 'Sans titre';
   }
@@ -75,13 +75,11 @@ class Anime {
                 
                 seasons[seasonNum] = AnimeSeason.fromJson(seasonMap);
               } catch (e) {
-                debugPrint('[Anime] Erreur parsing saison $seasonNum: $e');
-              }
+                }
             }
           });
         } catch (e) {
-          debugPrint('[Anime] Erreur parsing seasons: $e');
-        }
+          }
       }
     }
     // Si c'est un tableau vide ou null, on laisse seasons vide
@@ -216,8 +214,7 @@ class AnimeSeason {
                         players.add({'player': player, 'url': url});
                       }
                     } catch (e) {
-                      debugPrint('[AnimeSeason] Erreur parsing player: $e');
-                    }
+                      }
                   }
                 }
                 
@@ -232,8 +229,7 @@ class AnimeSeason {
               }
             }
           } catch (e) {
-            debugPrint('[AnimeSeason] Erreur parsing épisode $key: $e');
-          }
+            }
         });
         
         // Trier les épisodes par numéro
@@ -254,13 +250,11 @@ class AnimeSeason {
             }
             episodes.add(AnimeEpisode.fromJson(itemMap));
           } catch (e) {
-            debugPrint('[AnimeSeason] Erreur parsing épisode liste: $e');
-          }
+            }
         }
       }
     } catch (e) {
-      debugPrint('[AnimeSeason] Erreur parsing episodes: $e');
-    }
+      }
 
     final path = json['path']?.toString() ?? '';
     return AnimeSeason(

@@ -378,10 +378,12 @@ class _TVSettingsScreenState extends State<TVSettingsScreen> {
     return TVFocusableCard(
       autoFocus: isFocused,
       onTap: onTap,
-      onFocus: () => setState(() {
-        _focusedSection = sectionIndex;
-        _focusedIndex = itemIndex;
-      }),
+      onFocus: () {
+        if (mounted) setState(() {
+          _focusedSection = sectionIndex;
+          _focusedIndex = itemIndex;
+        });
+      },
       child: Row(
         children: [
           Container(
@@ -454,10 +456,12 @@ class _TVSettingsScreenState extends State<TVSettingsScreen> {
     return TVFocusableCard(
       autoFocus: isFocused,
       onTap: () => onChanged(!value),
-      onFocus: () => setState(() {
-        _focusedSection = sectionIndex;
-        _focusedIndex = itemIndex;
-      }),
+      onFocus: () {
+        if (mounted) setState(() {
+          _focusedSection = sectionIndex;
+          _focusedIndex = itemIndex;
+        });
+      },
       child: Row(
         children: [
           Container(

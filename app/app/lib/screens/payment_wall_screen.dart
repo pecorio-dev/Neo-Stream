@@ -44,9 +44,9 @@ class _PaymentWallScreenState extends State<PaymentWallScreen> {
         if (!mounted) return;
         Navigator.of(context).pushAndRemoveUntil(
           PageRouteBuilder(
-            pageBuilder: (_, _, _) => HomeScreen(),
+            pageBuilder: (_1, _2, _3) => HomeScreen(),
             transitionDuration: NeoTheme.durationSlow,
-            transitionsBuilder: (_, animation, _, child) =>
+            transitionsBuilder: (_1, animation, _2, child) =>
                 FadeTransition(opacity: animation, child: child),
           ),
           (route) => false,
@@ -90,9 +90,9 @@ class _PaymentWallScreenState extends State<PaymentWallScreen> {
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       PageRouteBuilder(
-        pageBuilder: (_, _, _) => LoginScreen(),
+        pageBuilder: (_1, _2, _3) => LoginScreen(),
         transitionDuration: NeoTheme.durationSlow,
-        transitionsBuilder: (_, animation, _, child) =>
+        transitionsBuilder: (_1, animation, _2, child) =>
             FadeTransition(opacity: animation, child: child),
       ),
       (route) => false,
@@ -165,9 +165,9 @@ class _PaymentWallScreenState extends State<PaymentWallScreen> {
                       success: true);
                   Navigator.of(context).pushAndRemoveUntil(
                     PageRouteBuilder(
-                      pageBuilder: (_, _, _) => HomeScreen(),
+                      pageBuilder: (_1, _2, _3) => HomeScreen(),
                       transitionDuration: NeoTheme.durationSlow,
-                      transitionsBuilder: (_, animation, _, child) =>
+                      transitionsBuilder: (_1, animation, _2, child) =>
                           FadeTransition(opacity: animation, child: child),
                     ),
                     (route) => false,

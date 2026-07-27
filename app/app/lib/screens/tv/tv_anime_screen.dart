@@ -41,6 +41,7 @@ class _TVAnimeScreenState extends State<TVAnimeScreen> {
   }
 
   Future<void> _loadContent() async {
+    if (!mounted) return;
     setState(() {
       _isLoading = true;
       _page = 1;
@@ -97,12 +98,14 @@ class _TVAnimeScreenState extends State<TVAnimeScreen> {
 
       final pagination = data['pagination'] as Map<String, dynamic>?;
 
+      if (!mounted) return;
       setState(() {
         _items.addAll(items);
         _hasMore = _page < (pagination?['total_pages'] as int? ?? 1);
         _isLoadingMore = false;
       });
     } catch (_) {
+      if (!mounted) return;
       setState(() {
         _page--;
         _isLoadingMore = false;
@@ -306,7 +309,7 @@ class _TVAnimeScreenState extends State<TVAnimeScreen> {
     return Image.asset(
       'assets/no_poster.png',
       fit: BoxFit.cover,
-      errorBuilder: (_, _, _) => Container(
+      errorBuilder: (_1, _2, _3) => Container(
         color: TVTheme.cardColor,
         child: Center(child: Icon(Icons.animation, color: TVTheme.textDisabled, size: 40)),
       ),

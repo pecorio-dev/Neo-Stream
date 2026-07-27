@@ -760,12 +760,12 @@ class _ContentCardState extends State<ContentCard> {
         fit: BoxFit.cover,
         memCacheWidth: cacheWidth,
         alignment: Alignment.center,
-        placeholder: (_, _) => Shimmer.fromColors(
+        placeholder: (_1, _2) => Shimmer.fromColors(
           baseColor: Neo.bgElevated(context),
           highlightColor: Neo.bgOverlay(context),
           child: Container(color: Neo.bgElevated(context)),
         ),
-        errorWidget: (_, _, _) => _NoPoster(),
+        errorWidget: (_1, _2, _3) => _NoPoster(),
       ),
     );
   }
@@ -987,7 +987,7 @@ class _NoPoster extends StatelessWidget {
     return Image.asset(
       'assets/no_poster.png',
       fit: BoxFit.cover,
-      errorBuilder: (_, _, _) => Container(
+      errorBuilder: (_1, _2, _3) => Container(
         color: Neo.bgActive(context),
         child: Center(
           child: Icon(Icons.broken_image_outlined, color: Neo.textDisabled(context)),

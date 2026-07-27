@@ -33,7 +33,7 @@ class UpdateCheckResult {
       UpdateCheckResult(
         hasUpdate: true,
         currentVersion: current,
-        latestVersion: Version.parse(r.tagName),
+        latestVersion: Version.parse(r.version),
         release: r,
       );
 
@@ -142,11 +142,20 @@ class UpdateService {
         );
       }
 
-      final List<dynamic> releasesJson = jsonDecode(response.body) as List;
+      final decoded = jsonDecode(response.body);
+      if (decoded is! List) {
+        return UpdateCheckResult.error(
+          currentVersion,
+          'Réponse GitHub invalide',
+        );
+      }
+
+      final List<dynamic> releasesJson = decoded;
 
       // Trouver la dernière release applicable (non-draft, version > actuelle).
       for (final raw in releasesJson) {
-        final release = GithubRelease.fromJson(raw as Map<String, dynamic>);
+        if (raw is! Map<String, dynamic>) continue;
+        final release = GithubRelease.fromJson(raw);
 
         // Ignorer les drafts (jamais visibles publiquement).
         if (release.isDraft) continue;
@@ -154,7 +163,7 @@ class UpdateService {
         // Ignorer les pré-versions si l'utilisateur ne les veut pas.
         if (release.isPrerelease && !includePre) continue;
 
-        final latest = Version.parse(release.tagName);
+        final latest = Version.parse(release.version);
 
         // On veut une version strictement supérieure.
         if (latest > currentVersion) {

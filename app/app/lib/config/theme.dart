@@ -1,13 +1,28 @@
 import 'dart:io' show Platform;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class NeoTheme {
   NeoTheme._();
 
   /// Debug override: force TV mode on any platform (set via Settings)
   static bool forceTVMode = false;
+
+  static const String _forceTVKey = 'force_tv_mode';
+  static Future<void> loadForceTVMode() async {
+    if (!kDebugMode && !isDesktopPlatform) return;
+    final prefs = await SharedPreferences.getInstance();
+    forceTVMode = prefs.getBool(_forceTVKey) ?? false;
+  }
+  static Future<void> setForceTVMode(bool value) async {
+    forceTVMode = value;
+    if (kDebugMode || isDesktopPlatform) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_forceTVKey, value);
+    }
+  }
 
   // ─── Backgrounds ──────────────────────────────────────────────
   static const Color bgBase = Color(0xFF0A0A0A);

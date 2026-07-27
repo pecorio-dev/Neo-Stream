@@ -1,3 +1,4 @@
+import '../widgets/universal_video_player.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -34,6 +35,7 @@ class _IptvScreenState extends State<IptvScreen> {
   List<FstvChannel> _filtered = [];
 
   bool _loading = true;
+  bool _loadInFlight = false;
   String? _error;
   bool _premiumRequired = false;
   int _loadAttempts = 0;
@@ -54,29 +56,38 @@ class _IptvScreenState extends State<IptvScreen> {
     super.dispose();
   }
 
-  Future<void> _load({bool silentRetry = false}) async {
-    if (!silentRetry) {
+  Future<void> _load({bool forceRefresh = false}) async {
+    if (_loadInFlight) return;
+    _loadInFlight = true;
+
+    if (_flat.isEmpty) {
       setState(() {
         _loading = true;
         _error = null;
         _premiumRequired = false;
       });
     }
+
     try {
       await _proxy.ensureAuthenticated();
-      final grouped = await _proxy.getChannels(forceRefresh: true);
+      final grouped = await _proxy.getChannels(forceRefresh: forceRefresh);
       if (!mounted) return;
+
       final flat = grouped.values.expand((l) => l).toList(growable: false);
-      // Succès : reset du compteur.
+      final filtered = _selectedCategory == null
+          ? List<FstvChannel>.of(flat)
+          : grouped[_selectedCategory] ?? const <FstvChannel>[];
+
       _loadAttempts = 0;
       setState(() {
         _channelsByCategory = grouped;
         _categories = grouped.keys.toList();
         _flat = flat;
+        _filtered = filtered;
         _loading = false;
         _error = null;
       });
-      _applyFilters();
+      if (_scrollCtrl.hasClients) _scrollCtrl.jumpTo(0);
     } on FstvPremiumRequiredException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -86,19 +97,12 @@ class _IptvScreenState extends State<IptvScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      // Retry silencieux : on ne montre l'erreur qu'après plusieurs essais.
-      _loadAttempts++;
-      if (_loadAttempts < _maxLoadAttempts) {
-        debugPrint('🔁 IPTV chargement échec (essai $_loadAttempts/$_maxLoadAttempts) — retry silencieux');
-        // On garde l'état précédent (chargement) sans afficher d'erreur.
-        await Future.delayed(Duration(seconds: 2 * _loadAttempts));
-        if (mounted) _load(silentRetry: true);
-        return;
-      }
       setState(() {
         _error = FstvProxyService.humanize(e);
         _loading = false;
       });
+    } finally {
+      _loadInFlight = false;
     }
   }
 
@@ -114,9 +118,9 @@ class _IptvScreenState extends State<IptvScreen> {
   void _play(FstvChannel channel) {
     Navigator.of(context).push(
       PageRouteBuilder(
-        pageBuilder: (_, _, _) => _LivePlayerScreen(channel: channel),
+        pageBuilder: (_1, _2, _3) => _LivePlayerScreen(channel: channel),
         transitionDuration: const Duration(milliseconds: 300),
-        transitionsBuilder: (_, anim, _, child) {
+        transitionsBuilder: (_1, anim, _2, child) {
           final curve =
               CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
           return FadeTransition(opacity: curve, child: child);
@@ -206,7 +210,7 @@ class _IptvScreenState extends State<IptvScreen> {
               ),
               if (!_premiumRequired && !_loading)
                 IconButton(
-                  onPressed: _loading ? null : _load,
+                  onPressed: _loading ? null : () => _load(forceRefresh: true),
                   icon: const Icon(Icons.refresh_rounded),
                   tooltip: 'Actualiser',
                 ),
@@ -246,7 +250,7 @@ class _IptvScreenState extends State<IptvScreen> {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 20),
         itemCount: chips.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 10),
+        separatorBuilder: (_1, _2) => const SizedBox(width: 10),
         itemBuilder: (_, i) => chips[i],
       ),
     );
@@ -320,10 +324,10 @@ class _IptvScreenState extends State<IptvScreen> {
   }
 
   Widget _buildBody() {
-    if (_loading) return _buildLoading();
+    if (_loading && _flat.isEmpty) return _buildLoading();
     if (_premiumRequired) return _buildPremiumWall();
-    if (_error != null) return _buildError();
-    if (_filtered.isEmpty) return _buildEmpty();
+    if (_error != null && _flat.isEmpty) return _buildError();
+    if (_filtered.isEmpty && _flat.isEmpty) return _buildEmpty();
     return _buildGrid();
   }
 
@@ -338,7 +342,7 @@ class _IptvScreenState extends State<IptvScreen> {
       ),
       itemCount: 6,
       physics: const NeverScrollableScrollPhysics(),
-      itemBuilder: (_, _) => NeoGlassCard(
+      itemBuilder: (_1, _2) => NeoGlassCard(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -401,7 +405,7 @@ class _IptvScreenState extends State<IptvScreen> {
               ElevatedButton.icon(
                 onPressed: () {
                   _loadAttempts = 0;
-                  _load();
+                  _load(forceRefresh: true);
                 },
                 icon: const Icon(Icons.refresh_rounded),
                 label: const Text('Réessayer'),
@@ -527,11 +531,14 @@ class _IptvScreenState extends State<IptvScreen> {
       itemBuilder: (context, index) {
         final ch = _filtered[index];
         final isLeftEdge = index % crossCount == 0; // Première colonne
-        return _ChannelCard(
-          channel: ch,
-          onTap: () => _play(ch),
-          isLeftEdge: isLeftEdge,
-        ).staggeredFade(index: index);
+        return RepaintBoundary(
+          child: _ChannelCard(
+            key: ValueKey(ch.slug),
+            channel: ch,
+            onTap: () => _play(ch),
+            isLeftEdge: isLeftEdge,
+          ),
+        );
       },
     );
   }
@@ -545,6 +552,7 @@ class _ChannelCard extends StatefulWidget {
   final bool isLeftEdge;
 
   const _ChannelCard({
+    super.key,
     required this.channel,
     required this.onTap,
     required this.isLeftEdge,
@@ -564,7 +572,6 @@ class _ChannelCardState extends State<_ChannelCard> {
     return Focus(
       onKeyEvent: (node, event) {
         if (event is KeyDownEvent) {
-          // Enter/OK : activer
           if (event.logicalKey == LogicalKeyboardKey.enter ||
               event.logicalKey == LogicalKeyboardKey.select ||
               event.logicalKey == LogicalKeyboardKey.space) {
@@ -572,14 +579,16 @@ class _ChannelCardState extends State<_ChannelCard> {
             return KeyEventResult.handled;
           }
 
-          // Flèche gauche : bloquer si pas au bord gauche (empêche d'aller à la navbar)
-          if (isTV && event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-            if (!widget.isLeftEdge) {
-              // Pas au bord : laisser la navigation normale
+          if (isTV) {
+            if (event.logicalKey == LogicalKeyboardKey.arrowLeft && !widget.isLeftEdge) {
               return KeyEventResult.ignored;
             }
-            // Au bord gauche : laisser remonter vers navbar
-            return KeyEventResult.ignored;
+            if ([LogicalKeyboardKey.arrowUp, LogicalKeyboardKey.arrowDown, LogicalKeyboardKey.arrowRight].contains(event.logicalKey)) {
+              return KeyEventResult.ignored;
+            }
+            if (event.logicalKey == LogicalKeyboardKey.arrowLeft && widget.isLeftEdge) {
+              return KeyEventResult.ignored;
+            }
           }
         }
         return KeyEventResult.ignored;
@@ -592,98 +601,86 @@ class _ChannelCardState extends State<_ChannelCard> {
             onExit: (_) => setState(() => _hovered = false),
             child: GestureDetector(
               onTap: widget.onTap,
-              child: AnimatedScale(
-                scale: (_hovered || isFocused) ? 1.05 : 1.0,
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOutCubic,
-                child: NeoGlassCard(
-                  padding: const EdgeInsets.all(14),
-                  accent: ch.categoryColor,
-                  elevation: (_hovered || isFocused) ? 4 : 0,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  ch.categoryColor.withValues(alpha: 0.18),
-                                  ch.categoryColor.withValues(alpha: 0.08),
-                                ],
-                              ),
-                              borderRadius: BorderRadius.circular(
-                                  Neo.radiusMd),
-                              border: Border.all(
-                                color: ch.categoryColor.withValues(alpha: 0.3),
-                                width: 1,
-                              ),
-                            ),
-                            child: Icon(ch.categoryIcon,
-                                color: ch.categoryColor, size: 22),
-                          ),
-                          const Spacer(),
-                          AnimatedScale(
-                            scale: (_hovered || isFocused) ? 1.15 : 1.0,
-                            duration: const Duration(milliseconds: 180),
-                            child: Icon(
-                                Icons.play_circle_fill_rounded,
-                                color: ch.categoryColor.withValues(
-                                    alpha: (_hovered || isFocused) ? 1 : 0.6),
-                                size: 28),
-                          ),
-                        ],
-                      ),
-                      const Spacer(),
-                      Text(
-                        ch.name,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style:
-                            Theme.of(context).textTheme.titleSmall?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Container(
-                            width: 6,
-                            height: 6,
-                            decoration: BoxDecoration(
-                              color: Neo.successGreen,
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Neo.successGreen
-                                      .withValues(alpha: 0.6),
-                                  blurRadius: 6,
-                                ),
+              child: NeoGlassCard(
+                padding: const EdgeInsets.all(14),
+                accent: ch.categoryColor,
+                elevation: (isTV ? isFocused : (_hovered || isFocused)) ? 4 : 0,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                ch.categoryColor.withValues(alpha: 0.18),
+                                ch.categoryColor.withValues(alpha: 0.08),
                               ],
                             ),
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              ch.category,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .labelSmall
-                                  ?.copyWith(
-                                    color: ch.categoryColor,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                            borderRadius: BorderRadius.circular(Neo.radiusMd),
+                            border: Border.all(
+                              color: ch.categoryColor.withValues(alpha: 0.3),
+                              width: 1,
                             ),
                           ),
-                        ],
-                      ),
-                    ],
-                  ),
+                          child: Icon(ch.categoryIcon, color: ch.categoryColor, size: 22),
+                        ),
+                        const Spacer(),
+                        AnimatedScale(
+                          scale: (_hovered || isFocused) ? 1.15 : 1.0,
+                          duration: const Duration(milliseconds: 180),
+                          child: Icon(
+                            Icons.play_circle_fill_rounded,
+                            color: ch.categoryColor.withValues(alpha: (_hovered || isFocused) ? 1 : 0.6),
+                            size: 28,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                    Text(
+                      ch.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: Neo.successGreen,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Neo.successGreen.withValues(alpha: 0.6),
+                                blurRadius: 6,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            ch.category,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                  color: ch.categoryColor,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -707,26 +704,22 @@ class _LivePlayerScreen extends StatefulWidget {
 
 class _LivePlayerScreenState extends State<_LivePlayerScreen> {
   final _proxy = FstvProxyService.instance;
-  late final Player _player;
-  late final VideoController _controller;
+  UniversalPlayerController? _universalController;
   bool _loading = true;
   String? _error;
   bool _showControls = true;
   Timer? _hideTimer;
 
-  // ── Reconnexion silencieuse ──────────────────────────────────────────
-  // On garde le flux visible pendant les retries : media_kit garde la
-  // dernière frame affichée. On ne montre qu'un petit indicateur discret.
   int _reconnectAttempts = 0;
   static const int _maxReconnectAttempts = 8;
   bool _isReconnecting = false;
   Timer? _reconnectTimer;
-  Timer? _bufferingWatchdog;
 
-  String? _lastStreamUrl; // pour re-open sans re-fetch
+  List<String> _streamUrls = const [];
+  int _sourceIndex = 0;
+  int _openGeneration = 0;
+
   StreamSubscription<String>? _errorSub;
-  StreamSubscription<bool>? _playingSub;
-  StreamSubscription<bool>? _bufferingSub;
 
   void _scheduleHide() {
     _hideTimer?.cancel();
@@ -740,26 +733,6 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
     if (_showControls) _scheduleHide();
   }
 
-  Future<void> _configureMpvForLiveStream() async {
-    final nativePlayer = _player.platform;
-    if (nativePlayer is NativePlayer) {
-      await nativePlayer.setProperty('cache', 'yes');
-      await nativePlayer.setProperty('cache-secs', '10');
-      await nativePlayer.setProperty('demuxer-max-bytes', '64MiB');
-      await nativePlayer.setProperty('demuxer-max-back-bytes', '32MiB');
-      await nativePlayer.setProperty('demuxer-readahead-secs', '8');
-      await nativePlayer.setProperty('network-timeout', '20');
-      await nativePlayer.setProperty('stream-buffer-size', '4MiB');
-      await nativePlayer.setProperty('hls-bitrate', 'max');
-      await nativePlayer.setProperty('cache-pause-initial', 'yes');
-      await nativePlayer.setProperty('cache-pause-wait', '3');
-      await nativePlayer.setProperty('hr-seek', 'no');
-      await nativePlayer.setProperty('video-sync', 'display-resample');
-      await nativePlayer.setProperty('interpolation', 'yes');
-      await nativePlayer.setProperty('tscale', 'mitchell');
-    }
-  }
-
   @override
   void initState() {
     super.initState();
@@ -768,149 +741,31 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
-    _player = Player(
-      configuration: PlayerConfiguration(
-        bufferSize: 64 * 1024 * 1024,
-      ),
-    );
-    _controller = VideoController(_player);
-    _configureMpvForLiveStream();
-
-    _errorSub = _player.stream.error.listen((e) {
-      if (!mounted) return;
-      _onStreamError(e);
-    });
-
-    _playingSub = _player.stream.playing.listen((playing) {
-      if (mounted && playing) _onPlaybackResumed();
-    });
-
-    // Détection du stall (buffering prolongé = source probablement perdue).
-    _bufferingSub = _player.stream.buffering.listen((buffering) {
-      if (!mounted) return;
-      if (buffering) {
-        _startBufferingWatchdog();
-      } else {
-        _bufferingWatchdog?.cancel();
-      }
-    });
-
     _openStream();
   }
 
-  /// Démarre un watchdog : si le buffering dure > 20s, on considère que le
-  /// flux est mort et on lance une reconnexion silencieuse.
-  void _startBufferingWatchdog() {
-    _bufferingWatchdog?.cancel();
-    _bufferingWatchdog = Timer(const Duration(seconds: 20), () {
-      if (!mounted) return;
-      if (!_isReconnecting) {
-        debugPrint('⏳ IPTV stall détecté (buffering > 20s) — reconnexion');
-        _attemptReconnect(reason: 'stall');
-      }
-    });
-  }
-
-  /// Gestion d'une erreur du lecteur.
-  /// Toutes les erreurs sont traitées comme transitoires tant qu'on n'a pas
-  /// épuisé les tentatives de reconnexion — pas d'affichage d'erreur prématuré.
-  void _onStreamError(String e) {
-    if (_reconnectAttempts < _maxReconnectAttempts) {
-      _attemptReconnect(reason: 'error: $e');
-    } else {
-      setState(() {
-        _loading = false;
-        _isReconnecting = false;
-        _error = e;
-      });
-    }
-  }
-
-  /// Tente une reconnexion silencieuse. Le flux reste affiché (dernière frame).
-  /// On re-open l'URL pour forcer un re-fetch complet.
-  void _attemptReconnect({String? reason}) {
-    if (_reconnectAttempts >= _maxReconnectAttempts) {
-      // Épuisement des tentatives : montrer l'erreur.
-      debugPrint('❌ IPTV reconnexion abandonnée après $_maxReconnectAttempts essais');
-      _bufferingWatchdog?.cancel();
-      setState(() {
-        _loading = false;
-        _isReconnecting = false;
-        _error = reason ?? 'Flux interrompu';
-      });
-      return;
-    }
-
-    _reconnectAttempts++;
-    _bufferingWatchdog?.cancel();
-
-    // Délai exponentiel avec plafond : 1.5s, 3s, 6s, ... max 15s.
-    final delaySeconds = (1.5 * _reconnectAttempts).clamp(1.5, 15.0);
-    debugPrint('🔁 IPTV reconnexion $_reconnectAttempts/$_maxReconnectAttempts '
-        'dans ${delaySeconds.toStringAsFixed(1)}s ($reason)');
-
-    setState(() {
-      _isReconnecting = true;
-      // On garde _loading = false pour ne pas masquer la vidéo avec le spinner.
-    });
-
-    _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(Duration(milliseconds: (delaySeconds * 1000).round()), () {
-      if (!mounted) return;
-      _reopenStream();
-    });
-  }
-
-  /// Re-open le flux en gardant l'URL déjà résolue (évite un re-fetch inutile).
-  Future<void> _reopenStream() async {
-    try {
-      if (_lastStreamUrl != null) {
-        await _player.open(
-          Media(_lastStreamUrl!, httpHeaders: _proxy.playerHeaders()),
-          play: true,
-        );
-      } else {
-        await _openStreamInternal();
-      }
-    } catch (e) {
-      // Échec du re-open : on relance le cycle de reconnexion.
-      if (mounted) _attemptReconnect(reason: 'reopen failed: $e');
-    }
-  }
-
-  /// La lecture a (re)démarré avec succès : on remet les compteurs à zéro.
-  void _onPlaybackResumed() {
-    _bufferingWatchdog?.cancel();
-    setState(() {
-      _loading = false;
-      _error = null;
-      _isReconnecting = false;
-      // IMPORTANT : reset du compteur — chaque nouvelle lecture repart de 0.
-      _reconnectAttempts = 0;
-    });
-    _scheduleHide();
-  }
-
   Future<void> _openStream() async {
+    _reconnectTimer?.cancel();
+    _openGeneration++;
+    _isReconnecting = false;
     setState(() {
       _loading = true;
       _error = null;
       _reconnectAttempts = 0;
     });
-    await _openStreamInternal();
+    _streamUrls = const [];
+    _sourceIndex = 0;
+    await _openStreamInternal(refreshSources: true);
   }
 
-  Future<void> _openStreamInternal() async {
+  Future<void> _openStreamInternal({required bool refreshSources}) async {
     try {
-      final url = await _proxy.streamUrlFor(widget.channel.slug);
-      _lastStreamUrl = url;
-      await _player.open(
-        Media(url, httpHeaders: _proxy.playerHeaders()),
-        play: true,
-      );
+      if (refreshSources || _streamUrls.isEmpty) {
+        _streamUrls = await _proxy.streamUrlsFor(widget.channel.slug);
+        _sourceIndex = 0;
+      }
+      await _openCurrentSource();
     } catch (e) {
-      // Erreur à l'ouverture : tenter une reconnexion silencieuse avant
-      // d'afficher l'erreur fatale.
       if (_reconnectAttempts < _maxReconnectAttempts) {
         _attemptReconnect(reason: 'open failed: $e');
       } else if (mounted) {
@@ -922,21 +777,81 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
     }
   }
 
+  Future<void> _openCurrentSource() async {
+    if (_streamUrls.isEmpty || _sourceIndex >= _streamUrls.length) {
+      _attemptReconnect(reason: 'aucune source disponible');
+      return;
+    }
+
+    final generation = ++_openGeneration;
+    final url = _streamUrls[_sourceIndex];
+    final headers = _proxy.playerHeaders();
+
+    try {
+      _universalController?.dispose();
+      _universalController = UniversalPlayerController(url: url, headers: headers);
+
+      _errorSub?.cancel();
+      _errorSub = _universalController!.errorStream.listen((err) {
+        if (!mounted || generation != _openGeneration) return;
+        _attemptReconnect(reason: 'erreur flux: $err');
+      });
+
+      await _universalController!.initialize();
+
+      if (mounted && generation == _openGeneration) {
+        setState(() {
+          _loading = false;
+          _error = null;
+          _isReconnecting = false;
+        });
+      }
+    } catch (e) {
+      if (mounted && generation == _openGeneration) {
+        _attemptReconnect(reason: 'ouverture impossible: $e');
+      }
+    }
+  }
+
+  void _attemptReconnect({required String reason}) {
+    if (_reconnectAttempts >= _maxReconnectAttempts) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _isReconnecting = false;
+          _error = 'Impossible de charger le flux en direct.';
+        });
+      }
+      return;
+    }
+
+    _reconnectAttempts++;
+    if (mounted) {
+      setState(() {
+        _isReconnecting = true;
+      });
+    }
+
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(Duration(seconds: 2 * _reconnectAttempts), () {
+      if (!mounted) return;
+      _sourceIndex = (_sourceIndex + 1) % (_streamUrls.isNotEmpty ? _streamUrls.length : 1);
+      _openStreamInternal(refreshSources: _sourceIndex == 0);
+    });
+  }
+
   @override
   void dispose() {
     _hideTimer?.cancel();
     _reconnectTimer?.cancel();
-    _bufferingWatchdog?.cancel();
     _errorSub?.cancel();
-    _playingSub?.cancel();
-    _bufferingSub?.cancel();
+    _universalController?.dispose();
     WakelockPlus.disable();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
-    _player.dispose();
     super.dispose();
   }
 
@@ -952,33 +867,43 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
           Navigator.of(context).pop();
           return KeyEventResult.handled;
         }
+        if (event.logicalKey == LogicalKeyboardKey.enter ||
+            event.logicalKey == LogicalKeyboardKey.select ||
+            event.logicalKey == LogicalKeyboardKey.space ||
+            event.logicalKey == LogicalKeyboardKey.gameButtonA) {
+          _toggleControls();
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowUp ||
+            event.logicalKey == LogicalKeyboardKey.arrowDown) {
+          if (!_showControls) {
+            setState(() => _showControls = true);
+          }
+          _scheduleHide();
+          return KeyEventResult.handled;
+        }
         return KeyEventResult.ignored;
       },
       child: Scaffold(
-      backgroundColor: Colors.black,
-      body: GestureDetector(
-        onTap: _toggleControls,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            Video(controller: _controller, controls: NoVideoControls),
-            // Spinner de chargement initial uniquement (pas pendant reconnexion).
-            if (_loading && !_isReconnecting) _buildLoading(),
-            // Erreur fatale uniquement (reconnexion épuisée).
-            if (_error != null && !_isReconnecting) _buildError(),
-            // Indicateur de reconnexion discret (ne masque pas la vidéo).
-            if (_isReconnecting) _buildReconnectingBadge(),
-            if (_showControls && _error == null && !_isReconnecting) _buildControlsOverlay(),
-          ],
+        backgroundColor: Colors.black,
+        body: GestureDetector(
+          onTap: _toggleControls,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (_universalController != null)
+                UniversalVideoView(controller: _universalController!),
+              if (_loading && !_isReconnecting) _buildLoading(),
+              if (_error != null && !_isReconnecting) _buildError(),
+              if (_isReconnecting) _buildReconnectingBadge(),
+              if (_showControls && _error == null && !_isReconnecting) _buildControlsOverlay(),
+            ],
+          ),
         ),
       ),
-    ),
     );
   }
 
-  /// Petit badge discret en haut à droite pendant la reconnexion.
-  /// La vidéo reste visible (dernière frame gelée), l'utilisateur voit juste
-  /// que l'app travaille en arrière-plan.
   Widget _buildReconnectingBadge() {
     return Positioned(
       top: MediaQuery.of(context).padding.top + 12,

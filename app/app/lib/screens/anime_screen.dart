@@ -251,7 +251,7 @@ class _AnimeScreenState extends State<AnimeScreen> {
                       mainAxisSpacing: NeoTheme.gridSpacing(context),
                     ),
                     delegate: SliverChildBuilderDelegate(
-                      (_, _) => ShimmerHomeLoading(),
+                      (_1, _2) => ShimmerHomeLoading(),
                       childCount: _gridColumns(context) * 3,
                     ),
                   ),
@@ -626,7 +626,7 @@ class _AnimeScreenState extends State<AnimeScreen> {
                           Image.network(
                             anime.posterUrl!,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, _, _) => _buildPlaceholder(),
+                            errorBuilder: (_1, _2, _3) => _buildPlaceholder(),
                           )
                         else
                           _buildPlaceholder(),
@@ -686,7 +686,7 @@ class _AnimeScreenState extends State<AnimeScreen> {
     return Image.asset(
       'assets/no_poster.png',
       fit: BoxFit.cover,
-      errorBuilder: (_, _, _) => Container(
+      errorBuilder: (_1, _2, _3) => Container(
         color: Neo.bgElevated(context),
         child: Center(
           child: Icon(Icons.animation, size: 48, color: Neo.textTertiary(context)),

@@ -29,6 +29,7 @@ class _TVHistoryScreenState extends State<TVHistoryScreen> {
   }
 
   Future<void> _loadHistory() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     try {
       final items = await _api.getHistory();
@@ -130,23 +131,17 @@ class _TVHistoryScreenState extends State<TVHistoryScreen> {
                     const Text('Historique', style: TextStyle(color: TVTheme.textPrimary, fontSize: 24, fontWeight: FontWeight.w600)),
                     const Spacer(),
                     if (_items.isNotEmpty)
-                      GestureDetector(
+                      TVFocusableCard(
                         onTap: _confirmClearHistory,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: TVTheme.errorRed.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: TVTheme.errorRed.withValues(alpha: 0.3)),
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.delete_outline, color: TVTheme.errorRed, size: 18),
-                              SizedBox(width: 6),
-                              Text('Vider', style: TextStyle(color: TVTheme.errorRed, fontSize: 13)),
-                            ],
-                          ),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        borderRadius: BorderRadius.circular(8),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.delete_outline, color: TVTheme.errorRed, size: 18),
+                            SizedBox(width: 6),
+                            Text('Vider', style: TextStyle(color: TVTheme.errorRed, fontSize: 13, fontWeight: FontWeight.bold)),
+                          ],
                         ),
                       ),
                   ],
@@ -165,23 +160,17 @@ class _TVHistoryScreenState extends State<TVHistoryScreen> {
       onBack: () => Navigator.pop(context),
       actions: [
         if (_items.isNotEmpty)
-          GestureDetector(
+          TVFocusableCard(
             onTap: _confirmClearHistory,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: TVTheme.errorRed.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: TVTheme.errorRed.withValues(alpha: 0.3)),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.delete_outline, color: TVTheme.errorRed, size: 18),
-                  SizedBox(width: 6),
-                  Text('Vider', style: TextStyle(color: TVTheme.errorRed, fontSize: 13)),
-                ],
-              ),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            borderRadius: BorderRadius.circular(8),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.delete_outline, color: TVTheme.errorRed, size: 18),
+                SizedBox(width: 6),
+                Text('Vider', style: TextStyle(color: TVTheme.errorRed, fontSize: 13, fontWeight: FontWeight.bold)),
+              ],
             ),
           ),
       ],
@@ -303,7 +292,7 @@ class _HistoryCard extends StatelessWidget {
                   child: CachedNetworkImage(
                     imageUrl: Content.resolvePosterUrl(poster),
                     fit: BoxFit.cover,
-                    errorWidget: (_, _, _) => const Center(child: Icon(Icons.movie, color: TVTheme.textDisabled, size: 40)),
+                    errorWidget: (_1, _2, _3) => const Center(child: Icon(Icons.movie, color: TVTheme.textDisabled, size: 40)),
                   ),
                 ),
                 Positioned(

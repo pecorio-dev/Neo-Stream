@@ -135,9 +135,9 @@ class UpdateProvider extends ChangeNotifier {
       );
 
       // Téléchargement terminé — lancer l'installation.
-      if (Platform.isAndroid) {
+      if (!kIsWeb && Platform.isAndroid) {
         await installApk(filePath);
-      } else if (Platform.isLinux || Platform.isWindows) {
+      } else if (!kIsWeb && (Platform.isLinux || Platform.isWindows)) {
         // Sur desktop, on lance le processus d'installation.
         _launchInstaller(filePath, platform);
       }

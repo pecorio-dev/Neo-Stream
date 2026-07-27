@@ -48,17 +48,18 @@ class AISearchService {
           .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-        return AIActivityResult.fromJson(data);
-      } else {
-        return AIActivityResult(
-          query: userQuery,
-          parsed: AIQueryParams(keywords: [userQuery], contentType: 'any', genres: [], yearRange: YearRange(min: 0, max: 9999), quality: 'any', language: 'any', exclusions: []),
-          results: [],
-          count: 0,
-          error: 'Serveur erreur: ${response.statusCode}',
-        );
+        final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+        if (decoded is Map<String, dynamic>) {
+          return AIActivityResult.fromJson(decoded);
+        }
       }
+      return AIActivityResult(
+        query: userQuery,
+        parsed: AIQueryParams(keywords: [userQuery], contentType: 'any', genres: [], yearRange: YearRange(min: 0, max: 9999), quality: 'any', language: 'any', exclusions: []),
+        results: [],
+        count: 0,
+        error: 'Réponse serveur invalide (${response.statusCode})',
+      );
     } catch (e) {
       return AIActivityResult(
         query: userQuery,

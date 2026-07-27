@@ -29,13 +29,13 @@ class _TVHomeScreenState extends State<TVHomeScreen> with TickerProviderStateMix
       vsync: this,
       duration: const Duration(seconds: 8),
     )..addStatusListener((status) {
-        if (status == AnimationStatus.completed) {
+        if (status == AnimationStatus.completed && mounted) {
           final provider = context.read<ContentProvider>();
           if (provider.hero.isNotEmpty) {
             setState(() {
               _heroIndex = (_heroIndex + 1) % provider.hero.length;
             });
-            _heroController.forward(from: 0);
+            if (mounted) _heroController.forward(from: 0);
           }
         }
       });
@@ -269,7 +269,8 @@ class _TVHomeScreenState extends State<TVHomeScreen> with TickerProviderStateMix
   Widget _buildHeroSection(_HomeSection section) {
     final items = section.items;
     if (items.isEmpty) return const SizedBox.shrink();
-    final currentItem = items[_heroIndex % items.length];
+    final safeLength = items.length;
+    final currentItem = items[_heroIndex % safeLength];
     final posterUrl = currentItem.fullPosterUrl as String? ?? '';
     final title = currentItem.title as String? ?? currentItem.displayTitle as String? ?? '';
     final genres = currentItem.genres as List<dynamic>? ?? [];
@@ -302,7 +303,7 @@ class _TVHomeScreenState extends State<TVHomeScreen> with TickerProviderStateMix
                           imageUrl: posterUrl,
                           fit: BoxFit.cover,
                           width: double.infinity,
-                          errorWidget: (_, _, _) => Container(color: TVTheme.cardColor),
+                          errorWidget: (_1, _2, _3) => Container(color: TVTheme.cardColor),
                         )
                       : Container(color: TVTheme.cardColor),
                 ),
@@ -752,7 +753,7 @@ class _RankedCard extends StatelessWidget {
                   fit: StackFit.expand,
                   children: [
                     if (posterUrl.isNotEmpty)
-                      CachedNetworkImage(imageUrl: posterUrl, fit: BoxFit.cover, errorWidget: (_, _, _) => _placeholder())
+                      CachedNetworkImage(imageUrl: posterUrl, fit: BoxFit.cover, errorWidget: (_1, _2, _3) => _placeholder())
                     else
                       _placeholder(),
                     // Gradient overlay bas
@@ -856,7 +857,7 @@ class _WideCard extends StatelessWidget {
               ? CachedNetworkImage(
                   imageUrl: posterUrl,
                   fit: BoxFit.cover,
-                  errorWidget: (_, _, ___) => Container(color: TVTheme.cardColor),
+                  errorWidget: (_1, _2, _3) => Container(color: TVTheme.cardColor),
                 )
               : Container(color: TVTheme.cardColor),
 

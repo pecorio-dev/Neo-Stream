@@ -73,6 +73,7 @@ class _TVSearchScreenState extends State<TVSearchScreen> {
   void _onSearchChanged(String query) {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) return;
       if (query.trim().length >= 2 && query != _lastQuery) {
         _performSearch(query.trim());
       } else if (query.trim().isEmpty) {

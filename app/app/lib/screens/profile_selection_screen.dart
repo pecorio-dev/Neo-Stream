@@ -66,10 +66,10 @@ class _ProfileSelectionScreenState extends State<ProfileSelectionScreen>
     final useTv = NeoTheme.isTV(context);
     Navigator.of(context).pushAndRemoveUntil(
       PageRouteBuilder(
-        pageBuilder: (_, _, _) =>
+        pageBuilder: (_1, _2, _3) =>
             useTv ? TVShell() : HomeScreen(),
         transitionDuration: NeoTheme.durationSplash,
-        transitionsBuilder: (_, animation, _, child) =>
+        transitionsBuilder: (_1, animation, _2, child) =>
             FadeTransition(opacity: animation, child: child),
       ),
       (route) => false,

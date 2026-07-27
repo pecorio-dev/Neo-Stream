@@ -26,24 +26,18 @@ class AnimeExtractor {
 
   static Future<Map<String, dynamic>> extract(String url) async {
     try {
-      debugPrint('[AnimeExtractor] Extraction: $url');
-
       // Déléguer à VideoExtractor pour tous les hébergeurs qu'il connaît
       final server = VideoExtractor.detectServer(url);
       if (server != 'unknown') {
-        debugPrint('[AnimeExtractor] → VideoExtractor ($server)');
         final result = await VideoExtractor.extract(url);
         if (result['success'] == true) return result;
-        debugPrint('[AnimeExtractor] VideoExtractor échec: ${result['error']}');
-      }
+        }
 
       // Extracteurs spécifiques anime
       final result = await _dispatchAnime(url);
       if (result['success'] == true) {
-        debugPrint('[AnimeExtractor] OK: ${result['video_url']}');
-      } else {
-        debugPrint('[AnimeExtractor] Échec: ${result['error']}');
-      }
+        } else {
+        }
       return result;
     } catch (e) {
       return {'success': false, 'error': 'Erreur: $e', 'url': url};
@@ -73,8 +67,6 @@ class AnimeExtractor {
   static Future<Map<String, dynamic>> extractFromMultipleSources(
     List<Map<String, String>> sources,
   ) async {
-    debugPrint('[AnimeExtractor] ${sources.length} sources');
-
     final sorted = List<Map<String, String>>.from(sources);
     sorted.sort((a, b) {
       final pa = (a['player'] ?? '').toLowerCase();
@@ -87,7 +79,6 @@ class AnimeExtractor {
       final player = source['player'];
       if (url == null || url.isEmpty) continue;
 
-      debugPrint('[AnimeExtractor] Essai: $player ($url)');
       final result = await extract(url);
       if (result['success'] == true) {
         result['tried_player'] = player;
@@ -104,10 +95,12 @@ class AnimeExtractor {
 
   static int _playerPriority(String player) {
     // Priorité décroissante — chiffre bas = priorité haute
-    if (player == 'sibnet') return 0;
-    if (player == 'sendvid') return 1;
-    if (player == 'vidmoly') return 2;
-    if (player == 'streamtape') return 3;
+    // Sibnet reste disponible, mais son CDN peut interrompre les longues
+    // lectures. On le garde comme solution de secours plutôt que par défaut.
+    if (player == 'sendvid') return 0;
+    if (player == 'vidmoly') return 1;
+    if (player == 'streamtape') return 2;
+    if (player == 'sibnet') return 99;
     if (player == 'doodstream' || player.startsWith('doo')) return 4;
     if (player == 'voe') return 5;
     if (player == 'filemoon' || player.contains('moon')) return 6;
@@ -159,8 +152,11 @@ class AnimeExtractor {
         qualities.add({'label': label, 'url': segUrl, 'bandwidth': bandwidth.toString()});
       }
 
-      qualities.sort((a, b) =>
-          int.parse(b['bandwidth'] ?? '0').compareTo(int.parse(a['bandwidth'] ?? '0')));
+      qualities.sort((a, b) {
+        final bwA = int.tryParse(a['bandwidth'] ?? '0') ?? (double.tryParse(a['bandwidth'] ?? '0')?.toInt() ?? 0);
+        final bwB = int.tryParse(b['bandwidth'] ?? '0') ?? (double.tryParse(b['bandwidth'] ?? '0')?.toInt() ?? 0);
+        return bwB.compareTo(bwA);
+      });
       return qualities;
     } catch (_) {
       return [];

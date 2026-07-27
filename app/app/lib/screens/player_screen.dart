@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:collection';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -66,6 +65,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   int _currentServerIndex = 0;
   List<WatchLink> _availableServers = <WatchLink>[];
+  bool _awaitingInitialSourceSelection = true;
   final List<HeadlessInAppWebView> _activeWebViews = <HeadlessInAppWebView>[];
   int _extractionSessionId = 0;
   int _parallelism = 1;
@@ -80,10 +80,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   StreamSubscription<bool>? _playerCompletedSub;
 
   // Gestion session CDN — refresh pré-emptif en deux phases
-  Timer? _urlRefreshTimer;
-  Timer? _prefetchTimer;
-  WatchLink? _currentSource;
-  Map<String, dynamic>? _prefetchedResult; // URL pré-extraite prête au swap
 
   // Gestion des erreurs réseau temporaires
   bool _isWaitingForNetwork = false;
@@ -112,7 +108,44 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
     _parallelism = WatchLinkUtils.recommendedParallelism();
 
-    _startExtractionPipeline();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_availableServers.isEmpty) {
+        _startExtractionPipeline();
+      } else {
+        _showInitialSourcePicker();
+      }
+    });
+  }
+
+  Future<void> _showInitialSourcePicker() async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black87,
+      builder: (dialogContext) => _ServerDialog(
+        servers: _availableServers,
+        currentIndex: _currentServerIndex,
+        onSelect: (index) {
+          Navigator.of(dialogContext).pop();
+          if (!mounted) return;
+          setState(() {
+            _currentServerIndex = index;
+            _awaitingInitialSourceSelection = false;
+          });
+          _startExtractionPipeline(
+            startIndex: index,
+            allowFallbacks: false,
+          );
+        },
+      ),
+    );
+
+    // Le retour système ferme uniquement le lecteur : aucune lecture ne démarre
+    // sans que l'utilisateur ait choisi sa source.
+    if (mounted && _awaitingInitialSourceSelection) {
+      Navigator.of(context).pop();
+    }
   }
 
   @override
@@ -134,8 +167,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     _progressTimer?.cancel();
     _controlsTimer?.cancel();
-    _urlRefreshTimer?.cancel();
-    _prefetchTimer?.cancel();
     _networkRetryTimer?.cancel();
     _playerErrorSub?.cancel();
     _playerCompletedSub?.cancel();
@@ -144,7 +175,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     super.dispose();
   }
 
-  Future<void> _startExtractionPipeline({int startIndex = 0}) async {
+  Future<void> _startExtractionPipeline({
+    int startIndex = 0,
+    bool allowFallbacks = true,
+  }) async {
     if (_availableServers.isEmpty || startIndex >= _availableServers.length) {
       if (!mounted) {
         return;
@@ -172,6 +206,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final result = await _extractFirstSuccessful(
       sessionId: sessionId,
       startIndex: startIndex,
+      allowFallbacks: allowFallbacks,
     );
 
     if (!mounted || sessionId != _extractionSessionId) {
@@ -194,15 +229,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
       result.videoUrl,
       result.videoType,
       result.source,
+      result.headers,
     );
   }
 
   Future<_ExtractionResult?> _extractFirstSuccessful({
     required int sessionId,
     required int startIndex,
+    required bool allowFallbacks,
   }) async {
+    final candidateCount = allowFallbacks
+        ? _availableServers.length - startIndex
+        : 1;
     final queue = Queue<_ServerCandidate>.from(
-      List<_ServerCandidate>.generate(_availableServers.length - startIndex, (
+      List<_ServerCandidate>.generate(candidateCount, (
         offset,
       ) {
         final index = startIndex + offset;
@@ -287,44 +327,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _ServerCandidate candidate,
     int sessionId,
   ) async {
-    // Essayer l'extraction locale avec VideoExtractor
+    // Essayer l'extraction hybride (locale d'abord, puis fallback API PHP)
     try {
-      debugPrint('=== EXTRACTION START ===');
-      debugPrint('Server: ${candidate.source.server}');
-      debugPrint('URL: ${candidate.source.url}');
-      
-      final localResult = await VideoExtractor.extract(candidate.source.url);
-      
-      debugPrint('Extraction result: $localResult');
-      
-      if (localResult['success'] == true && localResult['video_url'] != null) {
-        var videoUrl = localResult['video_url'] as String;
-        final videoType = localResult['type'] as String? ?? 'mp4';
-        final headers = localResult['headers'] as Map<String, dynamic>?;
-        
-        debugPrint('✓ Extraction SUCCESS');
-        debugPrint('Video URL: $videoUrl');
-        debugPrint('Type: $videoType');
-        debugPrint('Headers: $headers');
-        debugPrint('=== EXTRACTION END ===');
-        
-        // Retourner l'URL directe avec les headers
+      final result = await _api.extractVideoUrl(candidate.source.url);
+
+      if (result['success'] == true && result['video_url'] != null) {
+        final videoUrl = result['video_url'] as String;
+        final videoType = result['type'] as String? ?? 'mp4';
+        final headers = (result['headers'] as Map?)?.cast<String, dynamic>();
+        final rawQualities = result['qualities'] as List?;
+        final qualities = rawQualities
+            ?.map((e) => (e as Map).cast<String, String>())
+            .toList();
+
         return _ExtractionResult(
           index: candidate.index,
           source: candidate.source,
           videoUrl: videoUrl,
           videoType: videoType,
           headers: headers,
+          qualities: qualities,
         );
       }
-      
-      debugPrint('✗ Extraction FAILED: ${localResult['error']}');
-      debugPrint('=== EXTRACTION END ===');
-    } catch (e, stack) {
-      debugPrint('✗ Extraction ERROR: $e');
-      debugPrint('Stack: $stack');
-      debugPrint('=== EXTRACTION END ===');
-    }
+    } catch (_) {}
 
     // Extraction 100 % locale : si les patterns natifs échouent, on passe au
     // WebView headless (sniffing réseau du vrai flux). Aucun appel API serveur.
@@ -621,7 +646,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return 'mp4';
   }
 
-  void _startPlayerAfterExtraction(String url, String type, WatchLink source) {
+  void _startPlayerAfterExtraction(
+    String url,
+    String type,
+    WatchLink source,
+    Map<String, dynamic>? extractorHeaders,
+  ) {
     if (!mounted) {
       return;
     }
@@ -631,13 +661,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _isInitializing = true;
     });
 
-    _initializePlayer(url, type, source);
+    _initializePlayer(url, type, source, extractorHeaders);
   }
 
-  Map<String, String> _buildPlaybackHeaders(WatchLink source) {
+  Map<String, String> _buildPlaybackHeaders(
+    WatchLink source, {
+    Map<String, dynamic>? extractorHeaders,
+  }) {
     final sourceUri = Uri.tryParse(source.url);
     final referer = sourceUri != null ? '${sourceUri.scheme}://${sourceUri.host}/' : '';
-    return {
+    final headers = <String, String>{
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
       'Accept': '*/*',
       'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
@@ -652,99 +685,38 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (referer.isNotEmpty) 'Referer': referer,
       if (referer.isNotEmpty) 'Origin': referer.substring(0, referer.length - 1),
     };
-  }
-
-  /// Détecte l'expiration réelle depuis les query params CDN (expires, expiry, exp…).
-  /// Extrait une nouvelle URL — uniquement via l'extracteur local de l'app.
-  /// Retourne le résultat valide ou null.
-  Future<Map<String, dynamic>?> _extractNewUrl(WatchLink source) async {
-    try {
-      final result = await VideoExtractor.extract(source.url);
-      if (result['success'] == true && result['video_url'] != null) {
-        return result;
+    extractorHeaders?.forEach((key, value) {
+      if (value != null && value.toString().isNotEmpty) {
+        headers[key] = value.toString();
       }
-    } catch (_) {}
-    return null;
-  }
-
-  /// Planifie le refresh en deux phases :
-  ///   Phase 1 (swapDelay − 2min) : pré-extraction silencieuse en arrière-plan
-  ///   Phase 2 (swapDelay)        : swap instantané avec l'URL déjà prête
-  void _scheduleUrlRefresh(WatchLink source, String videoUrl) {
-    _urlRefreshTimer?.cancel();
-    _prefetchTimer?.cancel();
-    _currentSource = source;
-    _prefetchedResult = null;
-    // Auto-refresh désactivé — les HLS se rafraîchissent seuls
-    // et les re-extractions causent des interruptions visibles.
-  }
-
-  /// Swap silencieux : utilise l'URL pré-extraite si disponible,
-  /// sinon extrait en parallèle à la demande.
-  Future<void> _doSilentRefresh() async {
-    final source = _currentSource;
-    if (!mounted || _player == null || source == null) return;
-
-    Map<String, dynamic>? result = _prefetchedResult;
-    _prefetchedResult = null;
-
-    if (result == null) {
-      debugPrint('🔄 Extraction on-demand (pré-extraction manquante)...');
-      result = await _extractNewUrl(source);
-    } else {
-      debugPrint('🔄 Swap avec URL pré-extraite (instantané)...');
-    }
-
-    if (result == null || !mounted || _player == null) {
-      debugPrint('⚠ Refresh échoué — error handler prendra le relais');
-      return;
-    }
-
-    final newUrl = result['video_url'] as String;
-    final headers = _buildPlaybackHeaders(source);
-    final extractHeaders = result['headers'];
-    if (extractHeaders is Map) {
-      extractHeaders.forEach((k, v) => headers[k.toString()] = v.toString());
-    }
-
-    final pos = _player!.state.position;
-    debugPrint('✓ Swap à ${pos.inSeconds}s → nouvelle URL active');
-
-    await _player!.open(Media(newUrl, httpHeaders: headers), play: false);
-    if (!mounted || _player == null) return;
-    if (pos.inSeconds > 0) {
-      // Seek robuste : attend que la durée du nouveau flux soit connue avant de
-      // seek, sinon media_kit ignore le seek (cause du « retour au début »).
-      await _seekWhenReady(pos);
-    }
-    if (mounted && _player != null) _player!.play();
-
-    debugPrint('✓ Lecture continue sans interruption');
-    _scheduleUrlRefresh(source, newUrl);
+    });
+    return headers;
   }
 
   Future<void> _initializePlayer(
     String videoUrl,
     String type,
     WatchLink source,
+    Map<String, dynamic>? extractorHeaders,
   ) async {
     _playbackRetryCount = 0;
 
     try {
       _player?.dispose();
 
-      debugPrint('=== PLAYER INIT START ===');
-      debugPrint('URL: $videoUrl');
-      debugPrint('Type: $type');
-      debugPrint('Platform: ${Platform.operatingSystem}');
-
-      final headers = _buildPlaybackHeaders(source);
-      debugPrint('Headers: $headers');
-
+      final headers = _buildPlaybackHeaders(
+        source,
+        extractorHeaders: extractorHeaders,
+      );
       // Créer le Player et VideoController
-      debugPrint('Creating Player and VideoController...');
       _player = Player();
-      _videoController = VideoController(_player!);
+      _videoController = VideoController(
+        _player!,
+        configuration: const VideoControllerConfiguration(
+          enableHardwareAcceleration: true,
+          androidAttachSurfaceAfterVideoParameters: true,
+        ),
+      );
 
       // Annuler les subscriptions de l'ancien player avant d'en créer de nouvelles
       _playerErrorSub?.cancel();
@@ -755,7 +727,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       var errorHandled = false;
 
       _playerErrorSub = thisPlayer.stream.error.listen((error) {
-        debugPrint('Player error: $error');
         if (!mounted || errorHandled) return;
 
         final errorStr = error.toString().toLowerCase();
@@ -763,6 +734,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                errorStr.contains('timeout') ||
                                errorStr.contains('connection') ||
                                errorStr.contains('unreachable');
+        final isDecodeError = errorStr.contains('decode') || errorStr.contains('video') || errorStr.contains('format');
 
         // Erreur réseau temporaire : pause + attente sans réextraction
         if (isNetworkError && _playbackRetryCount < _maxPlaybackRetries) {
@@ -770,8 +742,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _playbackRetryCount++;
           final pos = thisPlayer.state.position;
           if (pos.inSeconds > 0) _resumePosition = pos;
-
-          debugPrint('⏸ Erreur réseau ($_playbackRetryCount/$_maxPlaybackRetries) — pause en attendant connexion stable');
 
           setState(() {
             _isWaitingForNetwork = true;
@@ -784,7 +754,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _networkRetryTimer?.cancel();
           _networkRetryTimer = Timer(retryDelay, () {
             if (!mounted) return;
-            debugPrint('▶ Tentative de reprise après erreur réseau...');
             setState(() {
               _isWaitingForNetwork = false;
             });
@@ -806,8 +775,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _playbackRetryCount++;
           final pos = thisPlayer.state.position;
           if (pos.inSeconds > 0) _resumePosition = pos;
-          debugPrint('Erreur lecture ($_playbackRetryCount/$_maxPlaybackRetries) — tentative de reprise sans re-extraction');
-
           setState(() => _isWaitingForNetwork = true);
           thisPlayer.pause();
 
@@ -837,22 +804,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (completed) _saveProgress();
       });
 
-      debugPrint('Opening media...');
       await _player!.open(
         Media(videoUrl, httpHeaders: headers),
-        play: false,
+        play: true,
       );
       
-      debugPrint('✓ Player opened, ensuring playback...');
-
-      debugPrint('✓ Player initialized successfully');
-
+      await _selectVideoTrackWhenAvailable(thisPlayer);
+      
       // Si on reprend après expiration URL / changement de lecteur → seek direct
       // sans passer par l'API. On attend que le stream soit chargé avant de seek.
       if (_resumePosition != null && _resumePosition!.inSeconds > 0) {
         final target = _resumePosition!;
         _resumePosition = null;
-        debugPrint('↩ Reprise à ${target.inSeconds}s (refresh/switch)');
         _player!.play();
         await _seekWhenReady(target);
       } else {
@@ -861,7 +824,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       _startProgressTimer();
       _showControlsBriefly();
-      _scheduleUrlRefresh(source, videoUrl);
 
       if (!mounted) {
         return;
@@ -870,14 +832,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _isInitializing = false;
       });
 
-      debugPrint('✓ Player fully initialized');
-      debugPrint('=== PLAYER INIT END ===');
-    } catch (e, stackTrace) {
-      debugPrint('✗ Player initialization FAILED');
-      debugPrint('Error: $e');
-      debugPrint('Stack: $stackTrace');
-      debugPrint('=== PLAYER INIT END ===');
-      
+      } catch (e, stackTrace) {
       final nextStartIndex = _currentServerIndex + 1;
       if (nextStartIndex < _availableServers.length) {
         _lastFailureReason = 'Changement de source en cours...';
@@ -892,6 +847,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _isInitializing = false;
         _error = 'Impossible d\'initialiser le lecteur: ${e.toString()}';
       });
+    }
+  }
+
+  Future<void> _selectVideoTrackWhenAvailable(Player player) async {
+    try {
+      var tracks = player.state.tracks;
+      if (tracks.video.isEmpty) {
+        tracks = await player.stream.tracks
+            .firstWhere((value) => value.video.isNotEmpty)
+            .timeout(const Duration(seconds: 12));
+      }
+      if (!mounted || _player != player) return;
+      await player.setVideoTrack(
+        tracks.video.isEmpty ? VideoTrack.auto() : tracks.video.first,
+      );
+    } catch (_) {
+      if (mounted && _player == player) {
+        await player.setVideoTrack(VideoTrack.auto());
+      }
     }
   }
 
@@ -1021,11 +995,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final targetDuration = Duration(seconds: bestTime.toInt());
       bool shouldResume = false;
 
-      if (mounted) {
+      if (mounted && _player != null) {
+        _player!.pause();
         await showDialog<void>(
           context: context,
           barrierDismissible: true,
-          barrierColor: Color(0xB3000000),
+          barrierColor: const Color(0xB3000000),
           builder: (dialogCtx) => _ResumeDialog(
             position: targetDuration,
             onResume: () {
@@ -1043,13 +1018,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (!mounted || _player == null) return;
 
       if (shouldResume) {
-        debugPrint('↩ Reprise de lecture acceptée à ${targetDuration.inSeconds}s');
         final seekTarget = Duration(
           seconds: (bestTime - 3).clamp(0, double.maxFinite).toInt(),
         );
         await _seekWhenReady(seekTarget);
       } else {
-        debugPrint('↩ Reprise de lecture refusée. Recommencer au début.');
+        await _seekWhenReady(Duration.zero);
       }
     }
 
@@ -1097,14 +1071,52 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _player?.dispose();
     _player = null;
     _videoController = null;
-    _startExtractionPipeline();
+    _startExtractionPipeline(
+      startIndex: _currentServerIndex,
+      allowFallbacks: false,
+    );
+  }
+
+  Episode? _nextPlayableEpisode() {
+    if (!widget.content.isSerie || widget.episodeId == null) return null;
+    final episodes = <Episode>[];
+    final seasons = widget.content.seasons.keys.toList()..sort();
+    for (final season in seasons) {
+      final items = List<Episode>.from(widget.content.seasons[season] ?? const [])
+        ..sort((a, b) => a.episode.compareTo(b.episode));
+      episodes.addAll(items.where((episode) => episode.watchLinks.isNotEmpty));
+    }
+    final currentIndex = episodes.indexWhere(
+      (episode) => 'S${episode.season}E${episode.episode}' == widget.episodeId,
+    );
+    if (currentIndex < 0 || currentIndex + 1 >= episodes.length) return null;
+    return episodes[currentIndex + 1];
+  }
+
+  void _playNextEpisode() {
+    final next = _nextPlayableEpisode();
+    if (next == null) return;
+    final servers = WatchLinkUtils.prioritize(
+      next.watchLinks,
+      preferredLanguage: widget.preferredLanguage,
+    );
+    if (servers.isEmpty) return;
+    _saveProgressSync();
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => PlayerScreen(
+          content: widget.content,
+          videoSourceUrl: servers.first.url,
+          candidateServers: servers,
+          preferredLanguage: widget.preferredLanguage,
+          episodeId: 'S${next.season}E${next.episode}',
+        ),
+      ),
+    );
   }
 
   void _cancelExtractionSession() {
     _extractionSessionId++;
-    _urlRefreshTimer?.cancel();
-    _prefetchTimer?.cancel();
-    _prefetchedResult = null;
     _disposeActiveWebViews();
   }
 
@@ -1212,9 +1224,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (key == LogicalKeyboardKey.escape ||
         key == LogicalKeyboardKey.goBack ||
         key == LogicalKeyboardKey.browserBack) {
-      _saveProgress();
-      Navigator.of(context).pop();
-      return KeyEventResult.handled;
+      if (ModalRoute.of(context)?.isCurrent == true) {
+        _saveProgress();
+        Navigator.of(context).pop();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
     }
 
     // TV: touche Menu/Info/F1 → ouvre sélecteur de lecteur + paramètres
@@ -1257,7 +1272,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   _player?.dispose();
                   _player = null;
                   _videoController = null;
-                  _startExtractionPipeline(startIndex: i);
+                  _startExtractionPipeline(
+                    startIndex: i,
+                    allowFallbacks: false,
+                  );
                 },
               ),
             );
@@ -1318,6 +1336,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   child: Video(
                     controller: _videoController!,
                     controls: NoVideoControls,
+                    fit: BoxFit.contain,
                   ),
                 ),
               // Overlay d'attente de connexion réseau
@@ -1771,6 +1790,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   _showControlsBriefly();
                 },
               ),
+              if (_nextPlayableEpisode() != null)
+                Padding(
+                  padding: EdgeInsets.only(left: 8 * scale),
+                  child: FilledButton.tonalIcon(
+                    onPressed: _playNextEpisode,
+                    icon: Icon(Icons.skip_next_rounded, size: 22 * scale),
+                    label: Text(
+                      'Suivant',
+                      style: TextStyle(fontSize: 13 * scale),
+                    ),
+                    style: FilledButton.styleFrom(
+                      minimumSize: Size(0, 40 * scale),
+                      padding: EdgeInsets.symmetric(horizontal: 12 * scale),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                ),
             ],
           ),
         ],
@@ -1874,7 +1910,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 _player?.dispose();
                 _player = null;
                 _videoController = null;
-                _startExtractionPipeline(startIndex: index);
+                _startExtractionPipeline(
+                  startIndex: index,
+                  allowFallbacks: false,
+                );
               },
             ),
           // ── Paramètres du lecteur ─────────────────────────────────
@@ -1921,6 +1960,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         builder: (ctx) => _PlayerSettingsSheet(player: _player),
       );
     }
+    if (!mounted) return;
   }
 }
 
@@ -2343,6 +2383,7 @@ class _ExtractionResult {
   final String videoUrl;
   final String videoType;
   final Map<String, dynamic>? headers;
+  final List<Map<String, String>>? qualities;
 
   _ExtractionResult({
     required this.index,
@@ -2350,6 +2391,7 @@ class _ExtractionResult {
     required this.videoUrl,
     required this.videoType,
     this.headers,
+    this.qualities,
   });
 }
 

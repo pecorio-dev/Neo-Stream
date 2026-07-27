@@ -291,7 +291,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
                       mainAxisSpacing: NeoTheme.gridSpacing(context),
                     ),
                     delegate: SliverChildBuilderDelegate(
-                      (_, _) => Shimmer.fromColors(
+                      (_1, _2) => Shimmer.fromColors(
                         baseColor: Neo.bgElevated(context),
                         highlightColor: Neo.bgBorder(context).withValues(alpha: 0.3),
                         child: Container(
@@ -564,7 +564,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: items.length,
-        separatorBuilder: (_, _) => SizedBox(width: 8),
+        separatorBuilder: (_1, _2) => SizedBox(width: 8),
         itemBuilder: (context, index) {
           final item = items[index];
           final selected = selectedValue == item;

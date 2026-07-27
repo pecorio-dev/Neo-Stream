@@ -43,6 +43,11 @@ installer/
 .agents/
 .claude/
 skills-lock.json
+scratch/
+windows/Output/
+windows/nuget.exe
+temp_*.php
+*.log
 
 # Secrets
 *.jks

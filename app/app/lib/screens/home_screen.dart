@@ -109,7 +109,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         : DetailScreen(contentId: content.id);
     Navigator.of(context).push(
       PageRouteBuilder(
-        pageBuilder: (_, animation, _) => destination,
+        pageBuilder: (_1, animation, _2) => destination,
         transitionDuration: Duration(milliseconds: 250),
         reverseTransitionDuration: Duration(milliseconds: 200),
         transitionsBuilder: (_, animation, secondaryAnimation, child) {
@@ -999,7 +999,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           itemCount: cards.length,
-          separatorBuilder: (_, _) => SizedBox(width: 12),
+          separatorBuilder: (_1, _2) => SizedBox(width: 12),
           itemBuilder: (context, index) {
             final card = cards[index];
             return Container(

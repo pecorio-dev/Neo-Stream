@@ -44,10 +44,8 @@ class _TVFocusableCardState extends State<TVFocusableCard> with SingleTickerProv
     _pulseAnimation = Tween<double>(begin: 1.0, end: 0.95).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
-    if (widget.autoFocus) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _focusNode.requestFocus();
-      });
+    if (widget.autoFocus && mounted) {
+      _focusNode.requestFocus();
     }
   }
 
@@ -262,10 +260,8 @@ class _TVFocusableListTileState extends State<TVFocusableListTile> {
   @override
   void initState() {
     super.initState();
-    if (widget.autoFocus) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _focusNode.requestFocus();
-      });
+    if (widget.autoFocus && mounted) {
+      _focusNode.requestFocus();
     }
   }
 

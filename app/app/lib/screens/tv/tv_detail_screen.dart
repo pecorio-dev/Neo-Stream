@@ -36,6 +36,7 @@ class _TVDetailScreenState extends State<TVDetailScreen> {
   Future<void> _loadDetail() async {
     try {
       final content = await _api.getContentDetail(widget.contentId);
+      if (!mounted) return;
       final seasons = content.seasons.keys.toList()..sort();
       setState(() {
         _content = content;
@@ -44,6 +45,7 @@ class _TVDetailScreenState extends State<TVDetailScreen> {
         _selectedLanguage = WatchLinkUtils.defaultLanguage(content.availableLanguages);
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = 'Impossible de charger le contenu';
         _isLoading = false;
@@ -141,7 +143,7 @@ class _TVDetailScreenState extends State<TVDetailScreen> {
                 child: CachedNetworkImage(
                   imageUrl: content.fullPosterUrl,
                   fit: BoxFit.cover,
-                  errorWidget: (_, _, _) => Container(color: TVTheme.cardColor, child: const Icon(Icons.movie, color: TVTheme.textDisabled, size: 48)),
+                  errorWidget: (_1, _2, _3) => Container(color: TVTheme.cardColor, child: const Icon(Icons.movie, color: TVTheme.textDisabled, size: 48)),
                 ),
               ),
               const SizedBox(width: 32),
@@ -235,6 +237,7 @@ class _TVDetailScreenState extends State<TVDetailScreen> {
                     Row(
                       children: [
                         TVFocusableCard(
+                          autoFocus: true,
                           onTap: canPlay ? _playContent : () {},
                           padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
                           child: Row(
@@ -402,7 +405,7 @@ class _TVDetailScreenState extends State<TVDetailScreen> {
                                 fit: StackFit.expand,
                                 children: [
                                   if (item.fullPosterUrl.isNotEmpty)
-                                    Image.network(item.fullPosterUrl, fit: BoxFit.cover, errorBuilder: (_, _, _) => _placeholder())
+                                    Image.network(item.fullPosterUrl, fit: BoxFit.cover, errorBuilder: (_1, _2, _3) => _placeholder())
                                   else
                                     _placeholder(),
                                   if (item.rating > 0)

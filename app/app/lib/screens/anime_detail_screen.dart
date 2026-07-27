@@ -304,8 +304,8 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                   child: CachedNetworkImage(
                     imageUrl: anime.posterUrl!,
                     fit: BoxFit.cover,
-                    placeholder: (_, _) => Container(color: Neo.bgElevated(context)),
-                    errorWidget: (_, _, _) => Container(color: Neo.bgElevated(context)),
+                    placeholder: (_1, _2) => Container(color: Neo.bgElevated(context)),
+                    errorWidget: (_1, _2, _3) => Container(color: Neo.bgElevated(context)),
                   ),
                 ),
               ),

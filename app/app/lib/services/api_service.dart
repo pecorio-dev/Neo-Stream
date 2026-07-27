@@ -86,7 +86,7 @@ class ApiService {
       _integrityExpiry!.isAfter(DateTime.now());
   DateTime? get integrityExpiresAt => _integrityExpiry;
 
-  String get _platform => Platform.operatingSystem;
+  String get _platform => kIsWeb ? 'web' : Platform.operatingSystem;
 
   void _notifyLibraryChanged() {
     libraryRevision.value = libraryRevision.value + 1;
@@ -237,13 +237,28 @@ class ApiService {
       throw ApiException('Security refresh failed', response.statusCode);
     }
 
-    final data = json.decode(response.body);
-    await _saveSecurityEnvelope((data as Map<String, dynamic>)['security']);
+    try {
+      final data = json.decode(response.body);
+      if (data is Map<String, dynamic> && data['security'] != null) {
+        await _saveSecurityEnvelope(data['security']);
+      }
+    } catch (e) {
+      if (e is AuthException || e is ApiException) rethrow;
+      throw ApiException('Erreur format enveloppe de sécurité', response.statusCode);
+    }
   }
 
   dynamic _decodeResponse(http.Response response) {
-    if (response.body.trim().isEmpty) return <String, dynamic>{};
-    return json.decode(response.body);
+    final body = response.body.trim();
+    if (body.isEmpty) return <String, dynamic>{};
+    try {
+      return json.decode(body);
+    } catch (_) {
+      throw ApiException(
+        'Format de réponse invalide (non-JSON)',
+        response.statusCode,
+      );
+    }
   }
 
   String _extractErrorMessage(http.Response response, String fallback) {
@@ -557,14 +572,23 @@ class ApiService {
         .cast<Map<String, dynamic>>();
   }
 
-  /// Extraction 100 % locale (aucun appel serveur). L'app gère elle-même les
-  /// patterns/ruses via [VideoExtractor] + WebView headless côté lecteur.
+  /// Extraction hybride (locale d'abord, puis fallback serveur PHP).
   Future<Map<String, dynamic>> extractVideoUrl(String url) async {
     try {
+      // 1. Essai local via VideoExtractor
       final localResult = await VideoExtractor.extract(url);
       if (localResult['success'] == true && localResult['video_url'] != null) {
         return localResult;
       }
+
+      // 2. Fallback serveur si l'extraction locale échoue
+      try {
+        final serverResult = await extractVideoUrlServer(url);
+        if (serverResult['success'] == true && serverResult['video_url'] != null) {
+          return serverResult;
+        }
+      } catch (_) {}
+
       return localResult;
     } catch (e) {
       return {'success': false, 'error': e.toString()};

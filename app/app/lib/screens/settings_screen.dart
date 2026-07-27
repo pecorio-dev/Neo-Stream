@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -266,7 +267,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: actions.length,
-        separatorBuilder: (_, _) => SizedBox(width: 12),
+        separatorBuilder: (_1, _2) => SizedBox(width: 12),
         itemBuilder: (_, i) {
           final action = actions[i];
           return _QuickActionTile(action: action);
@@ -436,7 +437,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               divisions: 20,
               activeColor: NeoTheme.infoCyan,
               inactiveColor: NeoTheme.infoCyan.withValues(alpha: 0.15),
-              onChanged: (v) => setState(() => _playerPrefs.subScale = double.parse(v.toStringAsFixed(1))),
+              onChanged: (v) => setState(() => _playerPrefs.subScale = double.tryParse(v.toStringAsFixed(1)) ?? 1.0),
               onChangeEnd: (_) => _playerPrefs.save(),
             ),
           ),
@@ -544,16 +545,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
           color: NeoTheme.errorRed,
         ),
         _buildDivider(context),
-        _buildToggleRow(
-          context,
-          icon: Icons.tv_rounded,
-          title: 'Mode TV (debug)',
-          subtitle: 'Forcer l interface TV sur PC',
-          value: NeoTheme.forceTVMode,
-          onChanged: (v) {
-            setState(() => NeoTheme.forceTVMode = v);
-          },
-        ),
+        if (kDebugMode || NeoTheme.isDesktopPlatform)
+          _buildToggleRow(
+            context,
+            icon: Icons.tv_rounded,
+            title: 'Mode TV (debug)',
+            subtitle: 'Forcer l interface TV sur PC',
+            value: NeoTheme.forceTVMode,
+            onChanged: (v) async {
+              await NeoTheme.setForceTVMode(v);
+              setState(() {});
+            },
+          ),
       ],
     );
   }

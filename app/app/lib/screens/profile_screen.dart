@@ -282,7 +282,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       SwitchListTile.adaptive(
                         value: hasAffiliateCode,
                         contentPadding: EdgeInsets.zero,
-                        activeThumbColor: NeoTheme.prestigeGold,
+                        activeColor: NeoTheme.prestigeGold,
                         title: Text(
                           'J ai un code d affiliation',
                           style: NeoTheme.bodyMedium(
@@ -943,7 +943,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           itemCount: _favorites.length > 8
                               ? 8
                               : _favorites.length,
-                          separatorBuilder: (_, _) => SizedBox(width: 12),
+                          separatorBuilder: (_1, _2) => SizedBox(width: 12),
                           itemBuilder: (context, index) {
                             final item = _favorites[index];
                             return SizedBox(
@@ -1164,8 +1164,8 @@ class _FavoriteTileState extends State<_FavoriteTile> {
                           imageUrl: widget.content.fullPosterUrl,
                           width: double.infinity,
                           fit: BoxFit.cover,
-                          placeholder: (_, _) => Container(color: Neo.bgElevated(context)),
-                          errorWidget: (_, _, _) => Container(
+                          placeholder: (_1, _2) => Container(color: Neo.bgElevated(context)),
+                          errorWidget: (_1, _2, _3) => Container(
                             color: Neo.bgElevated(context),
                             child: Icon(Icons.movie_rounded, color: Neo.textDisabled(context)),
                           ),

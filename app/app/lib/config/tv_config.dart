@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../config/theme.dart';
 import '../utils/tv_detector.dart';
 
 class TVConfig {
@@ -26,6 +28,7 @@ class TVConfig {
   static const double remoteDpadScrollStep = 0.15;
 
   static bool shouldUseTVMode(BuildContext context) {
+    if (kDebugMode && NeoTheme.forceTVMode) return true;
     final width = MediaQuery.of(context).size.width;
     final height = MediaQuery.of(context).size.height;
 
@@ -41,12 +44,20 @@ class TVConfig {
   }
 
   static bool shouldUsePCMode(BuildContext context) {
+    if (kDebugMode && NeoTheme.forceTVMode) return false;
     return TVDetector.isPCMode && !TVDetector.isTVMode;
   }
 
-  static void setTVMode(SystemMouseCursor cursor) {
-    if (cursor == SystemMouseCursors.basic) {
-      ServicesBinding.instance.platformDispatcher;
+  // Fixed: properly set TV mode - hide mouse cursor and enable immersive for TV
+  static void setTVMode(bool enableTVMode) {
+    if (enableTVMode) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: Colors.transparent,
+      ));
+    } else {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
   }
 }

@@ -8,6 +8,7 @@ import '../providers/providers.dart';
 import 'home_screen.dart';
 import 'payment_wall_screen.dart';
 import 'profile_selection_screen.dart';
+import 'tv/tv_shell.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -99,14 +100,14 @@ class _LoginScreenState extends State<LoginScreen>
     } else if (!user.isSubAccount) {
       destination = ProfileSelectionScreen(mainUser: user);
     } else {
-      destination = HomeScreen();
+      destination = NeoTheme.isTV(context) ? const TVShell() : HomeScreen();
     }
 
     Navigator.of(context).pushAndRemoveUntil(
       PageRouteBuilder(
-        pageBuilder: (_, animation, _) => destination,
+        pageBuilder: (_1, animation, _2) => destination,
         transitionDuration: NeoTheme.durationSlow,
-        transitionsBuilder: (_, animation, _, child) {
+        transitionsBuilder: (_1, animation, _2, child) {
           return FadeTransition(opacity: animation, child: child);
         },
       ),

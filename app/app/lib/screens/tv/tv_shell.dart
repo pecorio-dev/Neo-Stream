@@ -46,11 +46,13 @@ class _TVShellState extends State<TVShell> {
   late final List<FocusNode> _navNodes =
       List.generate(_items.length, (_) => FocusNode());
 
+  late final FocusScopeNode _sidebarFocusScopeNode = FocusScopeNode();
   late final FocusScopeNode _contentFocusScopeNode = FocusScopeNode();
 
   // Contrôleurs de focus pour la recherche
   late final FocusNode _searchFocusNode = FocusNode();
   late final FocusNode _searchTextFieldNode = FocusNode();
+  late final FocusNode _themeToggleFocusNode = FocusNode();
 
   // Contrôleur de recherche
   final TextEditingController _searchController = TextEditingController();
@@ -62,9 +64,21 @@ class _TVShellState extends State<TVShell> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    _sidebarFocusScopeNode.addListener(_onSidebarFocusChanged);
+
+    if (mounted) {
       context.read<ContentProvider>().loadHome();
-    });
+      if (_navNodes.isNotEmpty) _navNodes[0].requestFocus();
+    }
+  }
+
+  void _onSidebarFocusChanged() {
+    final hasFocus = _sidebarFocusScopeNode.hasFocus;
+    if (_isSidebarFocused != hasFocus && mounted) {
+      setState(() {
+        _isSidebarFocused = hasFocus;
+      });
+    }
   }
 
   /// Indice de contenu « virtuel » pour la recherche (pas d'onglet sidebar).
@@ -109,74 +123,42 @@ class _TVShellState extends State<TVShell> {
 
   @override
   void dispose() {
+    _sidebarFocusScopeNode.removeListener(_onSidebarFocusChanged);
     for (final n in _navNodes) {
       n.dispose();
     }
     _searchFocusNode.dispose();
     _searchTextFieldNode.dispose();
+    _themeToggleFocusNode.dispose();
     _searchController.dispose();
+    _sidebarFocusScopeNode.dispose();
     _contentFocusScopeNode.dispose();
     super.dispose();
+  }
+
+  void _focusActiveNavItem() {
+    final targetIndex = _index.clamp(0, _items.length - 1);
+    _navNodes[targetIndex].requestFocus();
   }
 
   @override
   Widget build(BuildContext context) {
     return PopScope(
       canPop: false,
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
-        if (!_isSidebarFocused) {
-          _navNodes[_index.clamp(0, _items.length - 1)].requestFocus();
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && !_isSidebarFocused && mounted) {
+          _focusActiveNavItem();
         }
       },
-      child: Focus(
-        autofocus: true,
-        onKeyEvent: (node, event) {
-          if (event is! KeyDownEvent) return KeyEventResult.ignored;
-          if (event.logicalKey == LogicalKeyboardKey.goBack ||
-              event.logicalKey == LogicalKeyboardKey.backspace) {
-            if (!_isSidebarFocused) {
-              _navNodes[_index.clamp(0, _items.length - 1)].requestFocus();
-              return KeyEventResult.handled;
-            }
-          }
-          return KeyEventResult.ignored;
-        },
-        child: Scaffold(
+        child: FocusTraversalGroup(
+          child: Scaffold(
           backgroundColor: TVTheme.backgroundDark,
           body: Row(
             children: [
               _buildSidebar(),
               Expanded(
-                child: FocusScope(
+                  child: FocusScope(
                   node: _contentFocusScopeNode,
-                  onKeyEvent: (node, event) {
-                    if (event is! KeyDownEvent) return KeyEventResult.ignored;
-
-                    if (event.logicalKey == LogicalKeyboardKey.escape ||
-                        event.logicalKey == LogicalKeyboardKey.goBack ||
-                        event.logicalKey == LogicalKeyboardKey.backspace) {
-                      _navNodes[_index.clamp(0, _items.length - 1)].requestFocus();
-                      return KeyEventResult.handled;
-                    }
-
-                    if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-                      final focusedChild = FocusManager.instance.primaryFocus;
-                      if (focusedChild == null) {
-                        _navNodes[_index.clamp(0, _items.length - 1)].requestFocus();
-                        return KeyEventResult.handled;
-                      }
-                      final moved = FocusTraversalGroup.of(context).inDirection(
-                        focusedChild, TraversalDirection.left,
-                      );
-                      if (!moved) {
-                        _navNodes[_index.clamp(0, _items.length - 1)].requestFocus();
-                      }
-                      return KeyEventResult.handled;
-                    }
-
-                    return KeyEventResult.ignored;
-                  },
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 300),
                     switchInCurve: Curves.easeOutCubic,
@@ -208,12 +190,8 @@ class _TVShellState extends State<TVShell> {
   }
 
   Widget _buildSidebar() {
-    return Focus(
-      onFocusChange: (focused) {
-        setState(() {
-          _isSidebarFocused = focused;
-        });
-      },
+    return FocusScope(
+      node: _sidebarFocusScopeNode,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 250),
         curve: Curves.easeInOut,
@@ -232,7 +210,8 @@ class _TVShellState extends State<TVShell> {
               const SizedBox(height: 24),
               _buildSearchField(_isSidebarFocused),
               const SizedBox(height: 16),
-              for (var i = 0; i < _items.length; i++) _buildNavItem(i, _isSidebarFocused),
+              for (var i = 0; i < _items.length; i++)
+                _buildNavItem(i, _isSidebarFocused),
               const Spacer(),
               _buildThemeToggle(_isSidebarFocused),
               const SizedBox(height: 16),
@@ -247,20 +226,34 @@ class _TVShellState extends State<TVShell> {
   Widget _buildThemeToggle(bool expanded) {
     final themeProvider = context.watch<ThemeProvider>();
     final isLight = themeProvider.isLight;
-    return GestureDetector(
-      onTap: () => themeProvider.toggleTheme(),
-      behavior: HitTestBehavior.opaque,
-      child: Focus(
-        onKeyEvent: (node, event) {
-          if (event is! KeyDownEvent) return KeyEventResult.ignored;
-          if (event.logicalKey == LogicalKeyboardKey.enter ||
-              event.logicalKey == LogicalKeyboardKey.select ||
-              event.logicalKey == LogicalKeyboardKey.space) {
-            themeProvider.toggleTheme();
-            return KeyEventResult.handled;
-          }
-          return KeyEventResult.ignored;
-        },
+    return Focus(
+      focusNode: _themeToggleFocusNode,
+      onKeyEvent: (node, event) {
+        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        final key = event.logicalKey;
+        if (key == LogicalKeyboardKey.arrowUp) {
+          _navNodes[_items.length - 1].requestFocus();
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.arrowDown) {
+          _searchFocusNode.requestFocus();
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.arrowRight) {
+          _contentFocusScopeNode.requestFocus();
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.enter ||
+            key == LogicalKeyboardKey.select ||
+            key == LogicalKeyboardKey.space) {
+          themeProvider.toggleTheme();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: GestureDetector(
+        onTap: () => themeProvider.toggleTheme(),
+        behavior: HitTestBehavior.opaque,
         child: Builder(
           builder: (ctx) {
             final focused = Focus.of(ctx).hasFocus;
@@ -278,6 +271,15 @@ class _TVShellState extends State<TVShell> {
                   color: focused ? TVTheme.accentRed : Colors.transparent,
                   width: 1.5,
                 ),
+                boxShadow: focused
+                    ? [
+                        BoxShadow(
+                          color: TVTheme.accentRed.withValues(alpha: 0.4),
+                          blurRadius: 12,
+                          spreadRadius: 1,
+                        ),
+                      ]
+                    : null,
               ),
               child: Row(
                 mainAxisAlignment:
@@ -316,69 +318,23 @@ class _TVShellState extends State<TVShell> {
       firstCurve: Curves.easeInOut,
       secondCurve: Curves.easeInOut,
       crossFadeState: expanded ? CrossFadeState.showFirst : CrossFadeState.showSecond,
-      firstChild: Column(
-        children: [
-          Container(
-            width: 54,
-            height: 54,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [TVTheme.accentRed, Color(0xFF7A0A12)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: TVTheme.accentRed.withValues(alpha: 0.4),
-                  blurRadius: 16,
-                  spreadRadius: 1,
-                ),
-              ],
-            ),
-            child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 36),
-          ).animate(onPlay: (c) => c.repeat(reverse: true))
-           .shimmer(duration: 2500.ms, color: Colors.white.withValues(alpha: 0.15)),
-          const SizedBox(height: 8),
-          const Text(
-            'NEO',
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w900,
-              fontSize: 14,
-              letterSpacing: 4,
-            ),
-          ),
-          const Text(
-            'STREAM',
-            style: TextStyle(
-              color: TVTheme.accentRed,
-              fontWeight: FontWeight.w900,
-              fontSize: 10,
-              letterSpacing: 4,
-            ),
-          ),
-        ],
-      ),
-      secondChild: Container(
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [TVTheme.accentRed, Color(0xFF7A0A12)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(10),
-          boxShadow: [
-            BoxShadow(
-              color: TVTheme.accentRed.withValues(alpha: 0.4),
-              blurRadius: 12,
-              spreadRadius: 1,
-            ),
-          ],
+      firstChild: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Image.asset(
+          'assets/logo.png',
+          height: 50,
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
         ),
-        child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 28),
+      ),
+      secondChild: Padding(
+        padding: const EdgeInsets.all(6),
+        child: Image.asset(
+          'assets/logo.png',
+          height: 36,
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stackTrace) => const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 28),
+        ),
       ),
     );
   }
@@ -395,7 +351,7 @@ class _TVShellState extends State<TVShell> {
           return KeyEventResult.handled;
         }
         if (key == LogicalKeyboardKey.arrowUp) {
-          _navNodes[_items.length - 1].requestFocus();
+          _themeToggleFocusNode.requestFocus();
           return KeyEventResult.handled;
         }
         // Enter/OK : activer le TextField pour taper
@@ -404,10 +360,8 @@ class _TVShellState extends State<TVShell> {
           return KeyEventResult.handled;
         }
         // Flèche droite : aller dans les résultats (si recherche en cours)
-        if (key == LogicalKeyboardKey.arrowRight && _searchQuery.isNotEmpty) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _contentFocusScopeNode.requestFocus();
-          });
+        if (key == LogicalKeyboardKey.arrowRight) {
+          if (mounted) _contentFocusScopeNode.requestFocus();
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
@@ -431,6 +385,15 @@ class _TVShellState extends State<TVShell> {
                 color: isFocused ? TVTheme.accentRed : Colors.transparent,
                 width: 1.5,
               ),
+              boxShadow: isFocused
+                  ? [
+                      BoxShadow(
+                        color: TVTheme.accentRed.withValues(alpha: 0.3),
+                        blurRadius: 12,
+                        spreadRadius: 1,
+                      ),
+                    ]
+                  : null,
             ),
             child: Row(
               mainAxisAlignment: expanded ? MainAxisAlignment.start : MainAxisAlignment.center,
@@ -459,14 +422,12 @@ class _TVShellState extends State<TVShell> {
                         }
                         if (key == LogicalKeyboardKey.arrowUp) {
                           _searchTextFieldNode.unfocus();
-                          _navNodes[_items.length - 1].requestFocus();
+                          _themeToggleFocusNode.requestFocus();
                           return KeyEventResult.handled;
                         }
-                        if (key == LogicalKeyboardKey.arrowRight && _searchQuery.isNotEmpty) {
+                        if (key == LogicalKeyboardKey.arrowRight) {
                           _searchTextFieldNode.unfocus();
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            _contentFocusScopeNode.requestFocus();
-                          });
+                          if (mounted) _contentFocusScopeNode.requestFocus();
                           return KeyEventResult.handled;
                         }
                         return KeyEventResult.ignored;
@@ -487,27 +448,37 @@ class _TVShellState extends State<TVShell> {
                           });
                         },
                         onSubmitted: (_) {
-                          if (_searchQuery.isNotEmpty) {
+                          if (_searchQuery.isNotEmpty && mounted) {
                             _searchTextFieldNode.unfocus();
-                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                              _contentFocusScopeNode.requestFocus();
-                            });
+                            _contentFocusScopeNode.requestFocus();
                           }
                         },
                       ),
                     ),
                   ),
                   if (_searchQuery.isNotEmpty)
-                    GestureDetector(
-                      onTap: () {
-                        _searchController.clear();
-                        setState(() {
-                          _searchQuery = '';
-                        });
-                      },
-                      child: const Padding(
-                        padding: EdgeInsets.all(4.0),
-                        child: Icon(Icons.close_rounded, color: TVTheme.textSecondary, size: 16),
+                    Focus(
+                      child: Builder(
+                        builder: (ctx) {
+                          final focused = Focus.of(ctx).hasFocus;
+                          return InkWell(
+                            onTap: () {
+                              _searchController.clear();
+                              setState(() {
+                                _searchQuery = '';
+                              });
+                            },
+                            borderRadius: BorderRadius.circular(12),
+                            child: Padding(
+                              padding: const EdgeInsets.all(4.0),
+                              child: Icon(
+                                Icons.close_rounded,
+                                color: focused ? TVTheme.accentRed : TVTheme.textSecondary,
+                                size: 18,
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ),
                 ],
@@ -539,7 +510,7 @@ class _TVShellState extends State<TVShell> {
           if (index < _items.length - 1) {
             _navNodes[index + 1].requestFocus();
           } else {
-            _searchFocusNode.requestFocus();
+            _themeToggleFocusNode.requestFocus();
           }
           return KeyEventResult.handled;
         }
@@ -551,9 +522,7 @@ class _TVShellState extends State<TVShell> {
         }
         if (key == LogicalKeyboardKey.arrowRight) {
           _select(index);
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _contentFocusScopeNode.requestFocus();
-          });
+          if (mounted) _contentFocusScopeNode.requestFocus();
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
@@ -585,9 +554,18 @@ class _TVShellState extends State<TVShell> {
                   border: Border.all(
                     color: selected && !focused
                         ? TVTheme.accentRed
-                        : Colors.transparent,
+                        : (focused ? TVTheme.accentRed : Colors.transparent),
                     width: 1.5,
                   ),
+                  boxShadow: focused
+                      ? [
+                          BoxShadow(
+                            color: TVTheme.accentRed.withValues(alpha: 0.4),
+                            blurRadius: 14,
+                            spreadRadius: 1,
+                          ),
+                        ]
+                      : null,
                 ),
                 child: Row(
                   mainAxisAlignment: expanded ? MainAxisAlignment.start : MainAxisAlignment.center,

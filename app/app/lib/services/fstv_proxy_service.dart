@@ -16,7 +16,8 @@ class FstvProxyService {
   FstvProxyService._();
   static final FstvProxyService instance = FstvProxyService._();
 
-  static const Duration _timeout = Duration(seconds: 15);
+  // Increased timeout for stability on slow connections/TV
+  static const Duration _timeout = Duration(seconds: 30);
   static const Duration _cacheMaxAge = Duration(minutes: 30);
 
   String get _apiBase => AppConstants.phpProxyBaseUrl;
@@ -38,42 +39,52 @@ class FstvProxyService {
       return _channelsCache!;
     }
 
-    final url = Uri.parse('${_apiBase}live_channels.php?limit=200');
-    final response = await http
-        .get(url, headers: {'Accept': 'application/json', 'User-Agent': 'NEO-Stream/4.0'})
-        .timeout(_timeout);
+    try {
+      final url = Uri.parse('${_apiBase}live_channels.php?limit=200');
+      final response = await http
+          .get(url, headers: {'Accept': 'application/json', 'User-Agent': 'NEO-Stream/4.0'})
+          .timeout(_timeout);
 
-    if (response.statusCode != 200) {
-      throw FstvException('Erreur serveur (${response.statusCode})');
-    }
-
-    final data = json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-    final items = (data['items'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-
-    final result = <String, List<FstvChannel>>{};
-
-    for (final item in items) {
-      try {
-        final channel = FstvChannel.fromJson(item);
-        result.putIfAbsent(channel.category, () => <FstvChannel>[]).add(channel);
-      } catch (e) {
-        // Skip invalid channels
-        continue;
+      if (response.statusCode != 200) {
+        throw FstvException('Erreur serveur (${response.statusCode})');
       }
-    }
 
-    // Trier par catégorie puis par nom
-    final ordered = Map.fromEntries(
-      result.entries.toList()
-        ..sort((a, b) => _categoryOrder(a.key).compareTo(_categoryOrder(b.key))),
-    );
-    for (final cat in ordered.keys) {
-      ordered[cat]!.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    }
+      final decoded = json.decode(utf8.decode(response.bodyBytes));
+      final data = decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
+      final itemsRaw = data['items'];
+      final items = itemsRaw is List
+          ? itemsRaw.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList()
+          : <Map<String, dynamic>>[];
 
-    _channelsCache = ordered;
-    _channelsCacheTime = DateTime.now();
-    return ordered;
+      final result = <String, List<FstvChannel>>{};
+
+      for (final item in items) {
+        try {
+          final channel = FstvChannel.fromJson(item);
+          result.putIfAbsent(channel.category, () => <FstvChannel>[]).add(channel);
+        } catch (_) {
+          // Skip invalid channels - safe
+          continue;
+        }
+      }
+
+      // Trier par catégorie puis par nom
+      final ordered = Map.fromEntries(
+        result.entries.toList()
+          ..sort((a, b) => _categoryOrder(a.key).compareTo(_categoryOrder(b.key))),
+      );
+      for (final cat in ordered.keys) {
+        ordered[cat]!.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      }
+
+      _channelsCache = ordered;
+      _channelsCacheTime = DateTime.now();
+      return ordered;
+    } on TimeoutException {
+      throw FstvException('Timeout: serveur lent');
+    } catch (e) {
+      throw FstvException('Erreur chargement chaînes: $e');
+    }
   }
 
   /// Toutes les chaînes à plat.
@@ -82,33 +93,64 @@ class FstvProxyService {
     return grouped.values.expand((list) => list).toList(growable: false);
   }
 
-  /// URL du stream HLS pour une chaîne (via son slug).
-  /// Fetch d'abord live_sources.php pour obtenir le fstv_stream_id.
-  Future<String> streamUrlFor(String slug) async {
-    final url = Uri.parse('${_apiBase}live_sources.php?slug=$slug');
-    final response = await http
-        .get(url, headers: {'Accept': 'application/json', 'User-Agent': 'NEO-Stream/4.0'})
-        .timeout(_timeout);
+  /// Retourne toutes les sources valides d'une chaîne, dans l'ordre fourni
+  /// par le serveur. Le lecteur peut ainsi basculer sur une autre source si
+  /// le CDN ou un flux HLS devient indisponible.
+  Future<List<String>> streamUrlsFor(String slug) async {
+    try {
+      final url = Uri.parse('${_apiBase}live_sources.php?slug=$slug');
+      final response = await http
+          .get(url, headers: {'Accept': 'application/json', 'User-Agent': 'NEO-Stream/4.0'})
+          .timeout(_timeout);
 
-    if (response.statusCode != 200) {
-      throw FstvException('Chaîne introuvable');
+      if (response.statusCode != 200) {
+        throw FstvException('Chaîne introuvable');
+      }
+
+      final decoded = json.decode(utf8.decode(response.bodyBytes));
+      final data = decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
+      final sourcesRaw = data['sources'];
+      final sources = sourcesRaw is List
+          ? sourcesRaw.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList()
+          : <Map<String, dynamic>>[];
+
+      if (sources.isEmpty) {
+        throw FstvException('Aucune source disponible');
+      }
+
+      final urls = <String>{};
+      for (final source in sources) {
+        final value = source['url'];
+        if (value is! String) continue;
+        final url = value.trim();
+        final uri = Uri.tryParse(url);
+        if (uri != null && uri.hasScheme &&
+            (uri.scheme == 'https' || uri.scheme == 'http')) {
+          urls.add(url);
+        }
+      }
+      if (urls.isEmpty) throw FstvException('URL source invalide');
+      return urls.toList(growable: false);
+    } on TimeoutException {
+      throw FstvException('Timeout: récupération source');
+    } catch (e) {
+      throw FstvException('Erreur source: $e');
     }
-
-    final data = json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-    final sources = (data['sources'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-
-    if (sources.isEmpty) {
-      throw FstvException('Aucune source disponible');
-    }
-
-    // Prendre la première source (meilleur score)
-    return sources.first['url'] as String;
   }
+
+  /// Raccourci de compatibilité pour les appels qui n'ont besoin que de la
+  /// première source.
+  Future<String> streamUrlFor(String slug) async =>
+      (await streamUrlsFor(slug)).first;
 
   /// Headers pour le player (pas besoin de cookie, FSTV est gratuit)
   Map<String, String> playerHeaders() => {
-        'User-Agent': 'NEO-Stream/4.0 (Flutter)',
+        'User-Agent': 'Mozilla/5.0 (Android TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': '*/*',
+        'Accept-Language': 'fr-FR,fr;q=0.9',
+        'Referer': 'https://iptv.mine.bz/',
+        'Origin': 'https://iptv.mine.bz',
+        'Connection': 'keep-alive',
       };
 
   /// Invalide le cache

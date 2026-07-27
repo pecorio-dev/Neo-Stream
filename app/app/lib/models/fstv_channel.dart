@@ -26,8 +26,16 @@ class FstvChannel {
     final slug = (json['slug'] as String?)?.trim() ?? '';
     final name = (json['name'] as String?)?.trim() ?? 'Chaîne';
     final category = (json['category'] as String?)?.trim() ?? 'Autre';
-    final logo = json['logo'] as String?;
-    final sources = (json['sources'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final logo = (json['logo'] as String?)?.trim();
+    final rawSources = json['sources'];
+    final sources = <Map<String, dynamic>>[];
+    if (rawSources is List) {
+      for (final item in rawSources) {
+        if (item is Map) {
+          sources.add(Map<String, dynamic>.from(item));
+        }
+      }
+    }
 
     return FstvChannel(
       slug: slug,

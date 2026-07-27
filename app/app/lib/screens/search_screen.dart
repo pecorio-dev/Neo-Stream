@@ -333,7 +333,7 @@ class _SearchScreenState extends State<SearchScreen> {
         mainAxisSpacing: NeoTheme.gridSpacing(context),
       ),
       itemCount: cols * 3,
-      itemBuilder: (_, _) => Shimmer.fromColors(
+      itemBuilder: (_1, _2) => Shimmer.fromColors(
         baseColor: Neo.bgElevated(context),
         highlightColor: Neo.bgBorder(context).withValues(alpha: 0.3),
         child: Container(

@@ -221,8 +221,8 @@ class _FavCard extends StatelessWidget {
                     CachedNetworkImage(
                       imageUrl: content.fullPosterUrl,
                       fit: BoxFit.cover,
-                      placeholder: (_, _) => Container(color: Neo.bgSurface(context)),
-                      errorWidget: (_, _, _) => Container(
+                      placeholder: (_1, _2) => Container(color: Neo.bgSurface(context)),
+                      errorWidget: (_1, _2, _3) => Container(
                         color: Neo.bgSurface(context),
                         child: Icon(Icons.movie_outlined, color: Neo.textDisabled(context)),
                       ),

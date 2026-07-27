@@ -90,12 +90,13 @@ class _SplashScreenState extends State<SplashScreen>
     await Future.delayed(Duration(milliseconds: 500));
     if (!mounted) return;
 
+    await NeoTheme.loadForceTVMode();
     final isPC = TVConfig.shouldUsePCMode(context);
     final isTV = !isPC && (TVDetector.isTVMode || TVConfig.shouldUseTVMode(context));
 
     Widget destination;
     if (!success && authProvider.hasStoredSession) {
-      destination = HomeScreen();
+      destination = isTV ? const TVShell() : HomeScreen();
     } else if (!success) {
       destination = LoginScreen();
     } else {
@@ -113,9 +114,9 @@ class _SplashScreenState extends State<SplashScreen>
 
     Navigator.of(context).pushAndRemoveUntil(
       PageRouteBuilder(
-        pageBuilder: (_, _, _) => destination,
+        pageBuilder: (_1, _2, _3) => destination,
         transitionDuration: NeoTheme.durationSplash,
-        transitionsBuilder: (_, animation, _, child) =>
+        transitionsBuilder: (_1, animation, _2, child) =>
             FadeTransition(opacity: animation, child: child),
       ),
       (route) => false,
@@ -178,6 +179,13 @@ class _SplashScreenState extends State<SplashScreen>
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        Image.asset(
+                          'assets/logo.png',
+                          height: 80 * NeoTheme.scaleFactor(context),
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+                        ),
+                        SizedBox(height: 12),
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.baseline,

@@ -43,12 +43,8 @@ class _TVWrapperState extends State<TVWrapper> {
   void initState() {
     super.initState();
     // Ne demander le focus que si autofocusRoot est true
-    if (widget.autofocusRoot) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _screenFocusNode.requestFocus();
-        }
-      });
+    if (widget.autofocusRoot && mounted) {
+      _screenFocusNode.requestFocus();
     }
   }
 
@@ -66,7 +62,8 @@ class _TVWrapperState extends State<TVWrapper> {
 
   @override
   Widget build(BuildContext context) {
-    return TVRemoteNavigator(
+    return FocusTraversalGroup(
+      child: TVRemoteNavigator(
       enableDpad: widget.enableDpad,
       autofocus: widget.autofocusRoot,
       onDpad: widget.onDpad,
@@ -85,6 +82,7 @@ class _TVWrapperState extends State<TVWrapper> {
           ),
         ),
         floatingActionButton: widget.floatingActionButton,
+      ),
       ),
     );
   }

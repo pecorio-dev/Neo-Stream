@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../models/content.dart';
 
@@ -11,9 +12,9 @@ class WatchLinkUtils {
     'savefiles.com',
     'vidmoly.biz', 'vidmoly.to',
     'minochinos.com',
-    'uqload.is', 'uqload.bz', 'uqload.org', 'uqload.co', 'uqload.to',
+    'uqload.is', 'uqload.bz', 'uqload.org', 'uqload.co', 'uqload.to', 'uqload.net',
     'uqload',
-    'vidzy.live', 'vidzy.org',
+    'vidzy.cc', 'vidzy.live', 'vidzy.org',
     'filemoon.to', 'filemoon.sx', 'filemoon.in', 'filmoon', 'moonmov',
     'mixdrop.co', 'mixdrop.ag', 'mixdrop.sb', 'mxdrop.',
     'streamtape.com', 'streamtape.net',
@@ -107,7 +108,7 @@ class WatchLinkUtils {
   }
 
   static int recommendedParallelism() {
-    final cores = Platform.numberOfProcessors;
+    final cores = kIsWeb ? 2 : Platform.numberOfProcessors;
     if (cores <= 4) {
       return 1;
     }

@@ -697,8 +697,8 @@ class _Poster extends StatelessWidget {
     return CachedNetworkImage(
       imageUrl: Content.resolvePosterUrl(poster),
       fit: BoxFit.cover,
-      placeholder: (_, _) => Container(color: Neo.bgElevated(context)),
-      errorWidget: (_, _, _) {
+      placeholder: (_1, _2) => Container(color: Neo.bgElevated(context)),
+      errorWidget: (_1, _2, _3) {
         return Container(
           color: Neo.bgElevated(context),
           child: Icon(Icons.movie_rounded, color: Neo.textDisabled(context)),

@@ -41,19 +41,20 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
   bool _isExtracting = true;
   String? _errorMessage;
   String? _extractorUsed;
+  int _currentSourceIndex = 0;
+  bool _recoveringFromError = false;
 
   StreamSubscription<String>? _errorSub;
   StreamSubscription<bool>? _completedSub;
+  StreamSubscription<bool>? _playingSub;
 
   int _playbackRetryCount = 0;
   static const int _maxPlaybackRetries = 3;
   Duration? _resumePosition;
 
-  Timer? _urlRefreshTimer;
-  Timer? _prefetchTimer;
-  Map<String, dynamic>? _prefetchedResult;
-
-  static const Duration _prefetchLeadTime = Duration(minutes: 2);
+  // Incrémente à chaque extraction pour ignorer une réponse devenue obsolète
+  // après un changement de source ou la fermeture du lecteur.
+  int _extractionGeneration = 0;
 
   // Gestion des erreurs réseau temporaires
   bool _isWaitingForNetwork = false;
@@ -62,6 +63,25 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
   /// Clé stable pour le cache local de progression (anime/saison/épisode).
   String get _progressKey =>
       'anime_${widget.anime.id}_${widget.seasonNumber}_${widget.episode.episodeNumber}';
+
+  Map<String, String>? get _selectedSource =>
+      widget.sources.isEmpty ? null : widget.sources[_currentSourceIndex];
+
+  bool get _selectedSourceIsSibnet {
+    final source = _selectedSource;
+    if (source == null) return false;
+    final player = (source['player'] ?? '').toLowerCase();
+    final url = (source['url'] ?? '').toLowerCase();
+    return player.contains('sibnet') || url.contains('sibnet');
+  }
+
+  String get _selectedSourceLabel {
+    final source = _selectedSource;
+    if (source == null) return 'Source inconnue';
+    final player = source['player']?.trim();
+    if (player != null && player.isNotEmpty) return player;
+    return Uri.tryParse(source['url'] ?? '')?.host ?? 'Source inconnue';
+  }
 
   /// Seek robuste : attend que la durée du flux soit connue avant de seek,
   /// sinon media_kit ignore le seek (cause du « retour au début »).
@@ -86,7 +106,22 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
   void initState() {
     super.initState();
     _player = Player();
-    _controller = VideoController(_player);
+    _controller = VideoController(
+      _player,
+      configuration: const VideoControllerConfiguration(
+        enableHardwareAcceleration: true,
+        androidAttachSurfaceAfterVideoParameters: true,
+      ),
+    );
+
+    // Sibnet coupe parfois son CDN après quelques minutes. Préférer une autre
+    // source quand elle existe, sans empêcher l'utilisateur de choisir Sibnet.
+    final nonSibnetIndex = widget.sources.indexWhere((source) {
+      final player = (source['player'] ?? '').toLowerCase();
+      final url = (source['url'] ?? '').toLowerCase();
+      return !player.contains('sibnet') && !url.contains('sibnet');
+    });
+    if (nonSibnetIndex >= 0) _currentSourceIndex = nonSibnetIndex;
 
     WakelockPlus.enable();
     if (!NeoTheme.isDesktopPlatform) {
@@ -98,8 +133,8 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
     }
 
     _errorSub = _player.stream.error.listen((error) {
-      debugPrint('Anime player error: $error');
-      if (!mounted) return;
+      if (!mounted || _recoveringFromError) return;
+      _recoveringFromError = true;
 
       final errorStr = error.toString().toLowerCase();
       final isNetworkError = errorStr.contains('network') ||
@@ -113,8 +148,6 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
         final pos = _player.state.position;
         if (pos.inSeconds > 0) _resumePosition = pos;
 
-        debugPrint('⏸ Anime erreur réseau ($_playbackRetryCount/$_maxPlaybackRetries) — pause en attendant connexion stable');
-
         setState(() {
           _isWaitingForNetwork = true;
         });
@@ -126,7 +159,6 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
         _networkRetryTimer?.cancel();
         _networkRetryTimer = Timer(retryDelay, () {
           if (!mounted) return;
-          debugPrint('▶ Anime tentative de reprise après erreur réseau...');
           setState(() {
             _isWaitingForNetwork = false;
           });
@@ -136,6 +168,7 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
           } else {
             _player.play();
           }
+          _recoveringFromError = false;
         });
         return;
       }
@@ -148,8 +181,7 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
 
         // Source stable (Sibnet, Sendvid) : pas de re-extraction,
         // on retente la lecture a la meme position.
-        if (_isStableExtractor(_extractorUsed)) {
-          debugPrint('Anime erreur ($_playbackRetryCount/$_maxPlaybackRetries) — source stable ($_extractorUsed), retry sans re-extraction');
+        if (_selectedSourceIsSibnet || _isStableExtractor(_extractorUsed)) {
           Future.delayed(Duration(seconds: 2), () {
             if (!mounted) return;
             if (_resumePosition != null && _resumePosition!.inSeconds > 0) {
@@ -158,19 +190,20 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
             } else {
               _player.play();
             }
+            _recoveringFromError = false;
           });
         } else {
-          debugPrint('Anime erreur ($_playbackRetryCount/$_maxPlaybackRetries) — changement de source');
-          if (_prefetchedResult != null) {
-            debugPrint('URL pre-extraite disponible -> swap immediat');
-            Future.microtask(() { if (mounted) _doSilentRefresh(); });
-          } else {
-            Future.delayed(Duration(seconds: 1), () {
-              if (mounted) _extractVideo();
-            });
-          }
+          // Une nouvelle extraction est réservée à une vraie erreur de lecture.
+          // Elle n'est jamais déclenchée par une minuterie pendant le visionnage.
+          Future.delayed(Duration(seconds: 1), () {
+            if (mounted) {
+              _recoveringFromError = false;
+              _extractVideo();
+            }
+          });
         }
       } else if (_errorMessage == null) {
+        _recoveringFromError = false;
         setState(() {
           _errorMessage = 'Erreur de lecture: $error';
           _isExtracting = false;
@@ -182,6 +215,10 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
       if (completed) _saveProgressSync();
     });
 
+    _playingSub = _player.stream.playing.listen((playing) {
+      if (playing) _recoveringFromError = false;
+    });
+
     _extractVideo();
   }
 
@@ -190,11 +227,11 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
     _saveProgressSync();
     _progressTimer?.cancel();
     _controlsTimer?.cancel();
-    _urlRefreshTimer?.cancel();
-    _prefetchTimer?.cancel();
+    _extractionGeneration++;
     _networkRetryTimer?.cancel();
     _errorSub?.cancel();
     _completedSub?.cancel();
+    _playingSub?.cancel();
     WakelockPlus.disable();
     if (!NeoTheme.isDesktopPlatform) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -211,17 +248,45 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
 
   Future<void> _extractVideo() async {
     if (!mounted) return;
+    final generation = ++_extractionGeneration;
     setState(() {
       _isExtracting = true;
       _errorMessage = null;
     });
 
     try {
-      final result = await AnimeExtractor.extractFromMultipleSources(
-        widget.sources,
-      );
+      Map<String, dynamic> result = {'success': false};
+      int startIndex = _currentSourceIndex;
+      int totalSources = widget.sources.length;
 
-      if (!mounted) return;
+      // Parcourir toutes les sources disponibles en fallback automatique
+      for (int i = 0; i < totalSources; i++) {
+        int targetIndex = (startIndex + i) % totalSources;
+        final source = widget.sources[targetIndex];
+        final sourceUrl = source['url'];
+
+        if (sourceUrl == null || sourceUrl.isEmpty) continue;
+
+        // Tenter l'extraction client-side
+        result = await AnimeExtractor.extract(sourceUrl);
+
+        // Si échec client-side, tenter l'extraction serveur
+        if (result['success'] != true) {
+          try {
+            final serverResult = await _api.extractVideoUrlServer(sourceUrl);
+            if (serverResult['success'] == true) {
+              result = serverResult;
+            }
+          } catch (_) {}
+        }
+
+        if (result['success'] == true) {
+          _currentSourceIndex = targetIndex;
+          break;
+        }
+      }
+
+      if (!mounted || generation != _extractionGeneration) return;
 
       if (result['success'] == true) {
         final videoUrl = result['video_url'] as String;
@@ -232,33 +297,45 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
           _isExtracting = false;
         });
 
-        await _loadVideo(videoUrl, extractor);
+        await _loadVideo(videoUrl, extractor, generation);
       } else {
         setState(() {
-          _errorMessage = result['error'] as String? ?? 'Extraction échouée';
-          _isExtracting = false;
-        });
-      }
+        _errorMessage = "Aucun lien trouvé sur l'ensemble des ${widget.sources.length} sources.";
+        _isExtracting = false;
+      });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || generation != _extractionGeneration) return;
       setState(() {
-        _errorMessage = 'Erreur: $e';
+        _errorMessage = "Erreur lors de l'extraction: $e";
         _isExtracting = false;
       });
     }
   }
 
-  Future<void> _loadVideo(String videoUrl, String? extractor) async {
-    if (!mounted) return;
+  Future<void> _loadVideo(
+    String videoUrl,
+    String? extractor,
+    int generation,
+  ) async {
+    if (!mounted || generation != _extractionGeneration) return;
     final headers = _getHeadersForExtractor(extractor, videoUrl);
     final media = Media(videoUrl, httpHeaders: headers);
 
-    await _player.open(media, play: false);
-    if (!mounted) return;
+    await _player.open(media, play: true);
+    if (!mounted || generation != _extractionGeneration) return;
     _playbackRetryCount = 0;
+    
+    // Ensure video track selected to prevent black screen / audio-only
+    try {
+      final tracks = _player.state.tracks;
+      if (tracks.video.isNotEmpty) {
+        await _player.setVideoTrack(tracks.video.first);
+      } else {
+        await _player.setVideoTrack(VideoTrack.auto());
+      }
+    } catch (_) {}
 
     if (_resumePosition != null && _resumePosition!.inSeconds > 0) {
-      debugPrint('↩ Reprise à ${_resumePosition!.inSeconds}s (URL refresh)');
       _player.play();
       await _seekWhenReady(_resumePosition!);
       _resumePosition = null;
@@ -266,112 +343,6 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
       await _restoreProgress();
     }
     _startProgressTimer();
-    _scheduleUrlRefresh(videoUrl, extractor);
-  }
-
-  /// Retourne la durée avant swap, ou null si l'URL n'expire pas.
-  /// Sibnet et la plupart des hébergeurs anime ont des URLs stables
-  /// (pas de paramètre expires) — aucun refresh automatique dans ce cas.
-  Duration? _detectSwapDelay(String videoUrl) {
-    final uri = Uri.tryParse(videoUrl);
-    if (uri == null) return null;
-    final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    for (final key in ['expires', 'expiry', 'exp', 'end', 'Expires']) {
-      final val = uri.queryParameters[key];
-      if (val == null) continue;
-      final ts = int.tryParse(val);
-      if (ts != null && ts > nowSeconds) {
-        final swapAt = ts - nowSeconds - 90;
-        if (swapAt > 60) {
-          debugPrint('🔎 Anime expiry CDN: ${DateTime.fromMillisecondsSinceEpoch(ts * 1000)} — swap dans ${swapAt}s');
-          return Duration(seconds: swapAt);
-        }
-      }
-    }
-    // Pas de paramètre d'expiration détecté → URL stable, pas de refresh automatique
-    return null;
-  }
-
-  Future<Map<String, dynamic>?> _extractNewUrl() async {
-    try {
-      final result = await AnimeExtractor.extractFromMultipleSources(widget.sources);
-      if (result['success'] == true && result['video_url'] != null) return result;
-    } catch (_) {}
-    return null;
-  }
-
-  void _scheduleUrlRefresh(String videoUrl, String? extractor) {
-    _urlRefreshTimer?.cancel();
-    _prefetchTimer?.cancel();
-    _prefetchedResult = null;
-
-    if (_isStableExtractor(extractor)) {
-      debugPrint('🔗 Anime URL stable (extracteur: $extractor) — refresh auto désactivé');
-      return;
-    }
-
-    final swapDelay = _detectSwapDelay(videoUrl);
-    if (swapDelay == null) {
-      debugPrint('🔗 Anime URL stable (pas d\'expiration CDN détectée) — refresh auto désactivé');
-      return;
-    }
-
-    final prefetchDelay = swapDelay > _prefetchLeadTime
-        ? swapDelay - _prefetchLeadTime
-        : Duration.zero;
-
-    if (prefetchDelay > Duration.zero) {
-      _prefetchTimer = Timer(prefetchDelay, () async {
-        if (!mounted) return;
-        debugPrint('🔍 Anime pré-extraction URL (phase 1)...');
-        _prefetchedResult = await _extractNewUrl();
-        debugPrint(_prefetchedResult != null
-            ? '✓ Anime URL pré-extraite — prête pour le swap'
-            : '⚠ Anime pré-extraction échouée — on-demand au swap');
-      });
-    }
-
-    _urlRefreshTimer = Timer(swapDelay, () {
-      if (mounted) _doSilentRefresh();
-    });
-
-    final mins = swapDelay.inMinutes;
-    final secs = swapDelay.inSeconds.remainder(60);
-    debugPrint('🕐 Anime swap planifié dans ${mins}m${secs}s');
-  }
-
-  Future<void> _doSilentRefresh() async {
-    if (!mounted) return;
-
-    Map<String, dynamic>? result = _prefetchedResult;
-    _prefetchedResult = null;
-
-    if (result == null) {
-      debugPrint('🔄 Anime extraction on-demand...');
-      result = await _extractNewUrl();
-    } else {
-      debugPrint('🔄 Anime swap avec URL pré-extraite (instantané)...');
-    }
-
-    if (result == null || !mounted) {
-      debugPrint('⚠ Anime refresh échoué — error handler prendra le relais');
-      return;
-    }
-
-    final newUrl = result['video_url'] as String;
-    final extractor = result['extractor'] as String?;
-    final headers = _getHeadersForExtractor(extractor, newUrl);
-
-    final pos = _player.state.position;
-    debugPrint('✓ Anime swap à ${pos.inSeconds}s → nouvelle URL active');
-
-    await _player.open(Media(newUrl, httpHeaders: headers), play: false);
-    if (!mounted) return;
-    if (pos.inSeconds > 0) await _seekWhenReady(pos);
-    _player.play();
-
-    debugPrint('✓ Anime lecture continue sans interruption');
-    _scheduleUrlRefresh(newUrl, extractor);
   }
 
   void _startProgressTimer() {
@@ -500,14 +471,12 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
       if (!mounted) return;
 
       if (shouldResume) {
-        debugPrint('↩ Reprise de lecture anime acceptée à ${targetDuration.inSeconds}s');
         final seekTarget = Duration(
           seconds: (bestTime - 3).clamp(0, double.maxFinite).toInt(),
         );
         await _seekWhenReady(seekTarget);
       } else {
-        debugPrint('↩ Reprise de lecture anime refusée. Recommencer au début.');
-      }
+        }
     }
 
     if (mounted) {
@@ -571,6 +540,73 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
     if (extractor == null) return false;
     const stableExtractors = ['sibnet', 'sibnet_html', 'sendvid'];
     return stableExtractors.contains(extractor.toLowerCase());
+  }
+
+  Future<void> _showSourcePicker() async {
+    if (widget.sources.isEmpty) return;
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black54,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF101018),
+        title: const Text(
+          'Choisir un lecteur',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 440,
+            maxHeight: MediaQuery.of(context).size.height * .65,
+          ),
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: widget.sources.length,
+            itemBuilder: (_, index) {
+              final source = widget.sources[index];
+              final player = source['player']?.trim();
+              final label = player == null || player.isEmpty
+                  ? Uri.tryParse(source['url'] ?? '')?.host ??
+                      'Source ${index + 1}'
+                  : player;
+              return ListTile(
+                leading: Icon(
+                  index == _currentSourceIndex
+                      ? Icons.check_circle_rounded
+                      : Icons.play_circle_outline_rounded,
+                  color: index == _currentSourceIndex
+                      ? Theme.of(context).colorScheme.primary
+                      : Colors.white70,
+                ),
+                title: Text(label, style: const TextStyle(color: Colors.white)),
+                subtitle: Text(
+                  index == _currentSourceIndex ? 'En cours' : 'Changer de source',
+                  style: const TextStyle(color: Colors.white60),
+                ),
+                onTap: () {
+                  Navigator.of(dialogContext).pop();
+                  _switchSource(index);
+                },
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _switchSource(int index) {
+    if (index < 0 || index >= widget.sources.length ||
+        index == _currentSourceIndex) return;
+    final position = _player.state.position;
+    _networkRetryTimer?.cancel();
+    setState(() {
+      _currentSourceIndex = index;
+      _resumePosition = position.inSeconds > 0 ? position : null;
+      _playbackRetryCount = 0;
+      _isWaitingForNetwork = false;
+      _recoveringFromError = false;
+    });
+    _extractVideo();
   }
 
   KeyEventResult _handleTVKeys(FocusNode node, KeyEvent event) {
@@ -646,7 +682,7 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
     if (key == LogicalKeyboardKey.contextMenu ||
         key == LogicalKeyboardKey.f10 ||
         key == LogicalKeyboardKey.info) {
-      _showPlayerSettings(context);
+      _showSourcePicker();
       return KeyEventResult.handled;
     }
 
@@ -710,8 +746,20 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
                     SizedBox(height: 12),
                     ElevatedButton(
                       onPressed: _extractVideo,
-                      child: Text('Réessayer'),
+                      child: Text('Réessayer (toutes les sources)'),
                     ),
+                    if (widget.sources.length > 1) ...[
+                      SizedBox(height: 12),
+                      ElevatedButton.icon(
+                        onPressed: _showSourcePicker,
+                        icon: const Icon(Icons.tune_rounded),
+                        label: Text('Changer de source (${widget.sources.length} disponibles)'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Theme.of(context).colorScheme.primary,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -799,7 +847,7 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
                               ),
                               if (_extractorUsed != null)
                                 Text(
-                                  'Source: $_extractorUsed',
+                                  'Source: $_selectedSourceLabel',
                                   style: TextStyle(
                                     color: Colors.white54,
                                     fontSize: 10,
@@ -809,6 +857,14 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
                           ),
                         ),
                         SizedBox(width: 12),
+                        IconButton(
+                          tooltip: 'Choisir un lecteur',
+                          icon: const Icon(
+                            Icons.switch_video_rounded,
+                            color: Colors.white,
+                          ),
+                          onPressed: _showSourcePicker,
+                        ),
                         IconButton(
                           tooltip: 'Paramètres du lecteur',
                           icon: Container(
@@ -1148,15 +1204,17 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
         builder: (ctx) => _PlayerSettingsSheet(player: _player),
       );
     }
+    if (!mounted) return;
   }
 }
 
 class _PlayerSettingsSheet extends StatefulWidget {
   final Player? player;
-  _PlayerSettingsSheet({required this.player});
+  const _PlayerSettingsSheet({super.key, required this.player});
 
   @override
   State<_PlayerSettingsSheet> createState() => _PlayerSettingsSheetState();
+}
 }
 
 class _PlayerSettingsSheetState extends State<_PlayerSettingsSheet> {
@@ -1242,10 +1300,11 @@ class _PlayerSettingsSheetState extends State<_PlayerSettingsSheet> {
 
 class _TVSettingsDialog extends StatefulWidget {
   final Player? player;
-  _TVSettingsDialog({required this.player});
+  const _TVSettingsDialog({super.key, required this.player});
 
   @override
   State<_TVSettingsDialog> createState() => _TVSettingsDialogState();
+}
 }
 
 class _TVSettingsDialogState extends State<_TVSettingsDialog> {
@@ -1374,7 +1433,8 @@ class _ResumeDialog extends StatelessWidget {
   final VoidCallback onResume;
   final VoidCallback onRestart;
 
-  _ResumeDialog({
+  const _ResumeDialog({
+    super.key,
     required this.position,
     required this.onResume,
     required this.onRestart,
@@ -1470,7 +1530,8 @@ class _ResumeButton extends StatefulWidget {
   final bool isPrimary;
   final bool autofocus;
 
-  _ResumeButton({
+  const _ResumeButton({
+    super.key,
     required this.label,
     required this.icon,
     required this.onTap,

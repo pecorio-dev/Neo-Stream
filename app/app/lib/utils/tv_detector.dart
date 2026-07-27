@@ -21,7 +21,7 @@ class TVDetector {
 
     if (kIsWeb) {
       _isTVCache = _detectTVFromUserAgent();
-      _isPCCache = false;
+      _isPCCache = !_isTVCache;
       return;
     }
 
@@ -35,8 +35,8 @@ class TVDetector {
       _isTVCache = false;
       _isPCCache = true;
     } else if (Platform.isWindows) {
-      _isTVCache = false;
-      _isPCCache = true;
+      _isTVCache = _detectWindowsTV();
+      _isPCCache = !_isTVCache;
     } else if (Platform.isIOS) {
       _isTVCache = false;
       _isPCCache = false;
@@ -46,32 +46,53 @@ class TVDetector {
     }
   }
 
+  // Improved reliability: more specific checks, avoid always-true default
   static bool _detectAndroidTV() {
     try {
-      final brand = Platform.environment['BRAND'] ?? '';
-      final model = Platform.environment['MODEL'] ?? '';
-      final device = Platform.environment['DEVICE'] ?? '';
+      final brand = (Platform.environment['BRAND'] ?? '').toLowerCase();
+      final model = (Platform.environment['MODEL'] ?? '').toLowerCase();
+      final device = (Platform.environment['DEVICE'] ?? '').toLowerCase();
+      final manufacturer = (Platform.environment['MANUFACTURER'] ?? '').toLowerCase();
 
       final tvIndicators = [
         'androidtv', 'firetv', 'fire tv', 'television', 'tv box',
-        'chromecast', 'nvidia shield', 'mi box', 'apple tv',
+        'chromecast', 'nvidia shield', 'mi box', 'apple tv', 'atv',
+        'mibox', 'shield', 'dongle', 'smarttv', 'bbox', 'freebox',
+        'livebox', 'sagemcom', 'bouygtel', 'tcl', 'hisense', 'sony', 'philips', 'realme',
+        'tv', 'set-top', 'settop', 'ott', 'stb'
       ];
 
-      final combined = '$brand $model $device'.toLowerCase();
-      return tvIndicators.any((indicator) => combined.contains(indicator));
-    } catch (_) {
+      final combined = '$brand $model $device $manufacturer';
+      final isTv = tvIndicators.any((indicator) => combined.contains(indicator));
+
+      // Only default to TV if clear TV signals, else false for phones/tablets
+      if (isTv) return true;
+
+      // Heuristic: large screen but avoid assuming all Android is TV
       return false;
+    } catch (_) {
+      return false; // Safer default
     }
   }
 
   static bool _detectLinuxTV() {
     try {
-      final drm = Platform.environment['XDG_SESSION_TYPE'] ?? '';
-      final desktop = Platform.environment['XDG_CURRENT_DESKTOP'] ?? '';
+      final drm = (Platform.environment['XDG_SESSION_TYPE'] ?? '').toLowerCase();
+      final desktop = (Platform.environment['XDG_CURRENT_DESKTOP'] ?? '').toLowerCase();
 
-      return drm.toLowerCase() == 'drm' ||
-          desktop.toLowerCase().contains('kodi') ||
-          desktop.toLowerCase().contains('plex');
+      return drm == 'drm' ||
+          desktop.contains('kodi') ||
+          desktop.contains('plex') ||
+          desktop.contains('tv');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static bool _detectWindowsTV() {
+    try {
+      final session = (Platform.environment['SESSIONNAME'] ?? '').toLowerCase();
+      return session.contains('console') && Platform.environment.containsKey('TV_MODE');
     } catch (_) {
       return false;
     }
@@ -79,6 +100,7 @@ class TVDetector {
 
   static bool _detectTVFromUserAgent() {
     try {
+      // In real web, check navigator.userAgent but here conservative
       return false;
     } catch (_) {
       return false;

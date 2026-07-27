@@ -252,8 +252,8 @@ class _HeroBannerState extends State<HeroBanner> {
                                               ? CachedNetworkImage(
                                                   imageUrl: item.fullPosterUrl,
                                                   fit: BoxFit.cover,
-                                                  placeholder: (_, _) => Container(color: Neo.bgElevated(context)),
-                                                  errorWidget: (_, _, _) =>
+                                                  placeholder: (_1, _2) => Container(color: Neo.bgElevated(context)),
+                                                  errorWidget: (_1, _2, _3) =>
                                                       Container(
                                                         color: Neo.bgElevated(context),
                                                         child: Center(

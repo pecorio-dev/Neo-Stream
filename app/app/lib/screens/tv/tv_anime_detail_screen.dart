@@ -35,6 +35,7 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
   Future<void> _loadAnime() async {
     try {
       final data = await _api.getAnimeDetail(widget.animeId);
+      if (!mounted) return;
       if (data['anime'] == null) throw Exception('Données anime non disponibles');
       final animeData = data['anime'];
       if (animeData is! Map<String, dynamic>) throw Exception('Format invalide');
@@ -44,6 +45,7 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
       try {
         inLibrary = await _api.checkAnimeInLibrary(anime.id);
       } catch (_) {}
+      if (!mounted) return;
 
       final validKeys = anime.seasons.entries.where((e) => e.value.episodes.isNotEmpty).map((e) => e.key).toList()..sort();
 
@@ -55,6 +57,7 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
         _isLoading = false;
       });
     } catch (error) {
+      if (!mounted) return;
       setState(() {
         _errorMessage = error.toString();
         _isLoading = false;
@@ -135,7 +138,7 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
                 child: CachedNetworkImage(
                   imageUrl: anime.posterUrl ?? '',
                   fit: BoxFit.cover,
-                  errorWidget: (_, _, _) => Container(color: TVTheme.cardColor, child: const Icon(Icons.animation, color: TVTheme.textDisabled, size: 48)),
+                  errorWidget: (_1, _2, _3) => Container(color: TVTheme.cardColor, child: const Icon(Icons.animation, color: TVTheme.textDisabled, size: 48)),
                 ),
               ),
               const SizedBox(width: 32),
@@ -191,6 +194,7 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
                     Row(
                       children: [
                         TVFocusableCard(
+                          autoFocus: true,
                           onTap: () {
                             if (anime.seasons.isNotEmpty) {
                               final firstSeason = anime.seasons[1];

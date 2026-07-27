@@ -203,7 +203,7 @@ class _AISearchScreenState extends State<AISearchScreen> {
                 ? ClipRRect(
                     borderRadius: BorderRadius.circular(8),
                     child: Image.network(item.posterUrl!, width: 50, height: 75, fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => Container(width: 50, height: 75, color: Neo.bgElevated(context), child: Icon(Icons.movie, color: Neo.textDisabled(context)))))
+                        errorBuilder: (_1, _2, _3) => Container(width: 50, height: 75, color: Neo.bgElevated(context), child: Icon(Icons.movie, color: Neo.textDisabled(context)))))
                 : Container(width: 50, height: 75, decoration: BoxDecoration(color: Neo.bgElevated(context), borderRadius: BorderRadius.circular(8)), child: Icon(Icons.movie, color: Neo.textDisabled(context))),
             title: Text(item.displayTitle, style: TextStyle(color: Neo.textPrimary(context), fontWeight: FontWeight.w600)),
             subtitle: Text('${item.typeLabel}${item.year != null ? " · ${item.year}" : ""}${item.rating != null ? " · ${item.rating!.toStringAsFixed(1)}★" : ""}',

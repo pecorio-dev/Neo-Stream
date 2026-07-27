@@ -44,7 +44,7 @@ class VideoExtractor {
     // PROXY: kakaflix / kokoflix / sequoia — proxy domains that redirect to real players
     if (RegExp(r'kakaflix\.lol|kokoflix\.lol|sequoia\.lol').hasMatch(u)) return 'proxy';
     // UQLOAD — exact PHP domains
-    if (RegExp(r'uqload\.(bz|is|org|co|to)').hasMatch(u)) return 'uqload';
+    if (RegExp(r'uqload\.(bz|is|org|co|to|net)').hasMatch(u)) return 'uqload';
     // VOE — voe.sx + all its JS-redirect alias domains (from PHP)
     if (RegExp(r'voe\.sx|dianaavoidthey\.com|lancewhosedifficult\.com|sandratableother\.com|maxfinishseveral\.com|alejandrocenturyoil\.com|voe\.monster|voe\.bar|voe\.click|voe\.ninja|voe\.lol|voe\.pm|voe\.wtf|voe\.earth|voe\.xyz|voe\.wiki|voe\.party|voe\.bond').hasMatch(u)) return 'voe';
     // DOODSTREAM — exact PHP domains (do7go added, kokoflix/kakaflix removed)
@@ -64,7 +64,7 @@ class VideoExtractor {
     // NETU — exact PHP domains: bysebuho / younetu / bysewihe
     if (RegExp(r'bysebuho\.com|younetu\.com|bysewihe\.com').hasMatch(u)) return 'netu';
     // VIDZY — exact PHP domains
-    if (RegExp(r'vidzy\.(live|org)').hasMatch(u)) return 'vidzy';
+    if (RegExp(r'vidzy\.(cc|live|org)').hasMatch(u)) return 'vidzy';
     // MIXDROP — exact PHP domains (mxdrop added)
     if (RegExp(r'mixdrop\.(co|ag|sb|to)|mxdrop\.(co|ag|sb|to)').hasMatch(u)) return 'mixdrop';
     // STREAMTAPE — exact PHP domains
@@ -98,7 +98,7 @@ class VideoExtractor {
       case 'vidaraa':     return _extractVidaraa(url);
       case 'vidsonic':    return _extractVidsonic(url);
       case 'savefiles':   return _extractPackerJwPlayer(url, 'savefiles', 'https://savefiles.com/');
-      case 'vidmoly':     return _extractPackerJwPlayer(url, 'vidmoly', 'https://vidmoly.biz/');
+      case 'vidmoly':     return _extractPackerJwPlayer(url, 'vidmoly', '');
       case 'minochinos':  return _extractMinochinos(url);
       case 'proxy':       return _extractProxy(url);
       case 'doodstream':  return _extractDoodstream(url);
@@ -263,7 +263,7 @@ class VideoExtractor {
       final token = RegExp(r'''token=([A-Za-z0-9]+)''').firstMatch(html)?.group(1);
 
       if (part1 != null && token != null) {
-        final videoUrl = 'https://streamtape.com$part1';
+        final videoUrl = 'https://streamtape.com$part1${part1.contains('?') ? '&' : '?'}token=$token';
         return _stResult(videoUrl);
       }
 
@@ -771,31 +771,51 @@ class VideoExtractor {
 
   static Future<Map<String, dynamic>> _extractUqload(String url) async {
     try {
-      // Normalize all uqload domains to uqload.is (bz/org/co/to are dead)
+      // Normalize all uqload domains to uqload.is
       url = url.replaceAll(RegExp(r'uqload\.\w+'), 'uqload.is');
-      // Normalize to /embed-XXXX.html format if not already
       if (!url.contains('/embed-')) {
-        url = url.replaceAllMapped(RegExp(r'/([a-z0-9]+)\.html', caseSensitive: false), (m) => '/embed-${m.group(1)}.html');
+        url = url.replaceAllMapped(
+          RegExp(r'/([a-z0-9]+)\.html', caseSensitive: false),
+          (m) => '/embed-${m.group(1)}.html',
+        );
       }
-      final resp = await http.get(
-        Uri.parse(url),
-        headers: _headers(referer: 'https://uqload.is/'),
-      ).timeout(_timeout);
+      final resp = await http
+          .get(
+            Uri.parse(url),
+            headers: _headers(referer: 'https://uqload.is/'),
+          )
+          .timeout(_timeout);
 
       final html = resp.body;
-      final patterns = [
-        RegExp(r"""sources\s*:\s*\[\s*['"](https?://[^'"]+\.mp4[^'"]*)['"]"""),
-        RegExp(r"""file\s*:\s*['"](https?://[^'"]+\.mp4[^'"]*)['"]"""),
-        RegExp(r"""<source[^>]+src=['"](https?://[^'"]+\.mp4[^'"]*)['"]"""),
-        RegExp(r"""(https?://[^\s"'<>]+\.mp4[^\s"'<>]*)"""),
-      ];
+      final unpacked = _unpackJs(html);
+      final src = unpacked.isNotEmpty ? '$html\n$unpacked' : html;
 
-      for (final pat in patterns) {
-        final m = pat.firstMatch(html);
-        if (m != null) {
-          final u = (m.group(1) ?? m.group(0)!).replaceAll(r'\/', '/');
-          return {'success': true, 'video_url': u, 'server': 'uqload', 'type': 'mp4', 'headers': {'Referer': 'https://uqload.is/', 'User-Agent': _ua}};
-        }
+      final m3u8 = _findM3u8(src);
+      if (m3u8 != null) {
+        final qualities = await _parseHLSMaster(m3u8, {
+          'Referer': 'https://uqload.is/',
+          'User-Agent': _ua,
+        });
+        return {
+          'success': true,
+          'video_url': m3u8,
+          'server': 'uqload',
+          'type': 'hls',
+          'is_hls': true,
+          'qualities': qualities,
+          'headers': {'Referer': 'https://uqload.is/', 'User-Agent': _ua},
+        };
+      }
+
+      final mp4 = _findMp4(src);
+      if (mp4 != null) {
+        return {
+          'success': true,
+          'video_url': mp4,
+          'server': 'uqload',
+          'type': 'mp4',
+          'headers': {'Referer': 'https://uqload.is/', 'User-Agent': _ua},
+        };
       }
 
       return {'error': 'Uqload: source non trouvée'};
@@ -839,12 +859,13 @@ class VideoExtractor {
       final src = unpacked.isNotEmpty ? unpacked : html;
 
       final m3u8 = _findM3u8(src);
+      final ref = Uri.parse(url).origin + '/';
       if (m3u8 != null) {
-        return {'success': true, 'video_url': m3u8, 'server': 'vidzy', 'type': 'hls', 'is_hls': true, 'headers': {'Referer': 'https://vidzy.live/', 'User-Agent': _ua}};
+        return {'success': true, 'video_url': m3u8, 'server': 'vidzy', 'type': 'hls', 'is_hls': true, 'headers': {'Referer': ref, 'User-Agent': _ua}};
       }
       final mp4 = _findMp4(src);
       if (mp4 != null) {
-        return {'success': true, 'video_url': mp4, 'server': 'vidzy', 'type': 'mp4', 'headers': {'Referer': 'https://vidzy.live/', 'User-Agent': _ua}};
+        return {'success': true, 'video_url': mp4, 'server': 'vidzy', 'type': 'mp4', 'headers': {'Referer': ref, 'User-Agent': _ua}};
       }
 
       return {'error': 'Vidzy: source non trouvée'};
@@ -977,34 +998,63 @@ class VideoExtractor {
       final finalUrl = resp.request?.url.toString() ?? url;
       final finalHost = Uri.tryParse(finalUrl)?.host ?? '';
 
-      // If redirected to a different real domain, extract from there
+      // 1. Redirect to real hoster
       if (finalHost.isNotEmpty && finalHost != uri.host &&
-          !RegExp(r'kakaflix|kokoflix|sequoia').hasMatch(finalHost)) {
+          !RegExp(r'kakaflix|kokoflix|sequoia|flixeo').hasMatch(finalHost)) {
         return await extract(finalUrl);
       }
 
-      // JS window.location redirect
+      // 2. JS redirect
       final jsRedirect = RegExp(r'''window\.location\.(?:href|replace)\s*[=(]\s*['"]([^'"]+)['"]''', caseSensitive: false).firstMatch(html);
       if (jsRedirect != null) {
         final redirectUrl = jsRedirect.group(1)!;
-        if (redirectUrl.startsWith('http')) return await extract(redirectUrl);
+        if (redirectUrl.startsWith('http') && redirectUrl != url) {
+          final res = await extract(redirectUrl);
+          if (res['success'] == true) return res;
+        }
       }
 
-      // atob base64 redirect
-      final atobMatch = RegExp(r'''atob\s*\(\s*['"]([A-Za-z0-9+/=]{10,})['"]\s*\)''').firstMatch(html);
-      if (atobMatch != null) {
-        try {
-          final decoded = utf8.decode(base64.decode(atobMatch.group(1)!));
-          if (decoded.startsWith('http')) return await extract(decoded);
-        } catch (_) {}
+      // 3. Doodstream embedded directly on proxy page
+      if (html.contains('/pass_md5')) {
+        return await _extractDoodstream(url);
       }
 
-      // iframe
+      // 4. iframe
       final iframeMatch = RegExp(r'''<iframe[^>]+src=['"]([^'"]+)['"]''', caseSensitive: false).firstMatch(html);
       if (iframeMatch != null) {
         var iframeUrl = iframeMatch.group(1)!;
         if (!iframeUrl.startsWith('http')) iframeUrl = '$base/${iframeUrl.replaceFirst(RegExp(r'^/'), '')}';
-        return await extract(iframeUrl);
+        final res = await extract(iframeUrl);
+        if (res['success'] == true) return res;
+      }
+
+      // 5. Unpack JS / search m3u8 or mp4
+      final unpacked = _unpackJs(html);
+      final src = unpacked.isNotEmpty ? '$html\n$unpacked' : html;
+
+      final m3u8 = _findM3u8(src);
+      if (m3u8 != null) {
+        final qualities = await _parseHLSMaster(m3u8, {'Referer': '$base/', 'User-Agent': _ua});
+        return {
+          'success': true,
+          'video_url': m3u8,
+          'server': 'proxy',
+          'type': 'hls',
+          'is_hls': true,
+          'qualities': qualities,
+          'headers': {'Referer': '$base/', 'User-Agent': _ua},
+        };
+      }
+
+      final mp4 = _findMp4(src);
+      if (mp4 != null) {
+        return {
+          'success': true,
+          'video_url': mp4,
+          'server': 'proxy',
+          'type': 'mp4',
+          'headers': {'Referer': '$base/', 'User-Agent': _ua},
+        };
       }
 
       return await _extractGeneric(url);
@@ -1325,8 +1375,20 @@ class VideoExtractor {
       ).timeout(_timeout);
 
       final html = resp.body;
-      final unpacked = _unpackJs(html);
-      final src = unpacked.isNotEmpty ? unpacked : html;
+
+      // Check JS window.location.replace redirect
+      final replaceMatch = RegExp(r'''window\.location\.replace\s*\(\s*['"]([^'"]+)['"]''').firstMatch(html);
+      String src = html;
+      if (replaceMatch != null) {
+        final redirectUrl = replaceMatch.group(1)!;
+        if (redirectUrl.startsWith('http') && redirectUrl != url) {
+          final page2Resp = await http.get(Uri.parse(redirectUrl), headers: _headers(referer: referer.isNotEmpty ? referer : '$base/')).timeout(_timeout);
+          src = page2Resp.body;
+        }
+      }
+
+      final unpacked = _unpackJs(src);
+      if (unpacked.isNotEmpty) src = '$src\n$unpacked';
 
       // JWPlayer: sources:[{file:"url"}]
       final srcMatch = RegExp(
@@ -1464,7 +1526,8 @@ class VideoExtractor {
         } else if (line.isNotEmpty && !line.startsWith('#')) {
           final segUrl = line.startsWith('http') ? line : baseUri.resolve(line).toString();
           final height = resolution != null ? int.tryParse(resolution.split('x').last) ?? 0 : 0;
-          final label = height > 0 ? '${height}p' : (bandwidth != null ? '${(int.parse(bandwidth) / 1000).toStringAsFixed(0)}k' : 'Auto');
+          final bwNum = bandwidth != null ? (int.tryParse(bandwidth) ?? (double.tryParse(bandwidth)?.toInt() ?? 0)) : 0;
+          final label = height > 0 ? '${height}p' : (bwNum > 0 ? '${(bwNum / 1000).toStringAsFixed(0)}k' : 'Auto');
           qualities.add({'label': label, 'url': segUrl, 'bandwidth': bandwidth ?? '0'});
           bandwidth = null;
           resolution = null;
@@ -1472,7 +1535,9 @@ class VideoExtractor {
       }
 
       qualities.sort((a, b) {
-        return int.parse(b['bandwidth'] ?? '0').compareTo(int.parse(a['bandwidth'] ?? '0'));
+        final bwA = int.tryParse(a['bandwidth'] ?? '0') ?? (double.tryParse(a['bandwidth'] ?? '0')?.toInt() ?? 0);
+        final bwB = int.tryParse(b['bandwidth'] ?? '0') ?? (double.tryParse(b['bandwidth'] ?? '0')?.toInt() ?? 0);
+        return bwB.compareTo(bwA);
       });
 
       return qualities;
@@ -1520,8 +1585,8 @@ class VideoExtractor {
 
     try {
       final p = match.group(1)!;
-      final a = int.parse(match.group(2)!);
-      final c = int.parse(match.group(3)!);
+      final a = int.tryParse(match.group(2) ?? '') ?? 10;
+      final c = int.tryParse(match.group(3) ?? '') ?? 0;
       final kStr = match.group(4)!;
       final delimiter = match.group(5)!;
       final k = delimiter.isNotEmpty ? kStr.split(delimiter) : <String>[];
