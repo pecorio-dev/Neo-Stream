@@ -1210,6 +1210,8 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
 }
 
 
+
+
 class _PlayerSettingsSheet extends StatefulWidget {
   final Player? player;
   const _PlayerSettingsSheet({super.key, required this.player});
