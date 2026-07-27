@@ -1215,7 +1215,6 @@ class _PlayerSettingsSheet extends StatefulWidget {
   @override
   State<_PlayerSettingsSheet> createState() => _PlayerSettingsSheetState();
 }
-}
 
 class _PlayerSettingsSheetState extends State<_PlayerSettingsSheet> {
   double _speed = 1.0;
@@ -1304,7 +1303,6 @@ class _TVSettingsDialog extends StatefulWidget {
 
   @override
   State<_TVSettingsDialog> createState() => _TVSettingsDialogState();
-}
 }
 
 class _TVSettingsDialogState extends State<_TVSettingsDialog> {
