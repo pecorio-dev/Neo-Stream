@@ -696,6 +696,46 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
     return KeyEventResult.ignored;
   }
 
+  String _formatDuration(Duration d) {
+    final hours = d.inHours;
+    final minutes = d.inMinutes.remainder(60);
+    final seconds = d.inSeconds.remainder(60);
+    if (hours > 0) {
+      return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+    }
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  void _showControlsBriefly() {
+    setState(() => _showControls = true);
+    _controlsTimer?.cancel();
+    _controlsTimer = Timer(Duration(seconds: 5), () {
+      if (mounted) {
+        setState(() => _showControls = false);
+      }
+    });
+  }
+
+  Future<void> _showPlayerSettings(BuildContext context) async {
+    if (NeoTheme.isTV(context)) {
+      await showDialog<void>(
+        context: context,
+        barrierColor: Colors.black54,
+        builder: (ctx) => _TVSettingsDialog(player: _player),
+      );
+    } else {
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: Neo.bgOverlay(context),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => _PlayerSettingsSheet(player: _player),
+      );
+    }
+    if (!mounted) return;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Focus(
@@ -1166,48 +1206,10 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
       ),
     );
   }
-
-  String _formatDuration(Duration d) {
-    final hours = d.inHours;
-    final minutes = d.inMinutes.remainder(60);
-    final seconds = d.inSeconds.remainder(60);
-    if (hours > 0) {
-      return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-    }
-    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-  }
-
-  void _showControlsBriefly() {
-    setState(() => _showControls = true);
-    _controlsTimer?.cancel();
-    _controlsTimer = Timer(Duration(seconds: 5), () {
-      if (mounted) {
-        setState(() => _showControls = false);
-      }
-    });
-  }
-
-  Future<void> _showPlayerSettings(BuildContext context) async {
-    if (NeoTheme.isTV(context)) {
-      await showDialog<void>(
-        context: context,
-        barrierColor: Colors.black54,
-        builder: (ctx) => _TVSettingsDialog(player: _player),
-      );
-    } else {
-      await showModalBottomSheet<void>(
-        context: context,
-        backgroundColor: Neo.bgOverlay(context),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        builder: (ctx) => _PlayerSettingsSheet(player: _player),
-      );
-    }
-    if (!mounted) return;
-  }
 }
 }
+
+
 
 
 
