@@ -1207,6 +1207,8 @@ class _AnimePlayerScreenState extends State<AnimePlayerScreen> {
     if (!mounted) return;
   }
 }
+}
+
 
 class _PlayerSettingsSheet extends StatefulWidget {
   final Player? player;
