@@ -6,7 +6,7 @@ import '../../models/anime.dart';
 import '../../services/api_service.dart';
 import '../../widgets/tv_wrapper.dart';
 import '../../widgets/tv_focusable_card.dart';
-import '../anime_player_screen.dart';
+import '../player_screen.dart';
 
 class TVAnimeDetailScreen extends StatefulWidget {
   final int animeId;
@@ -33,6 +33,10 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
   }
 
   Future<void> _loadAnime() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
     try {
       final data = await _api.getAnimeDetail(widget.animeId);
       if (!mounted) return;
@@ -70,7 +74,7 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => AnimePlayerScreen(
+        builder: (_) => PlayerScreen(
           anime: _anime!,
           seasonNumber: seasonNumber,
           episode: episode,
@@ -197,9 +201,10 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
                           autoFocus: true,
                           onTap: () {
                             if (anime.seasons.isNotEmpty) {
-                              final firstSeason = anime.seasons[1];
+                              final firstSeasonKey = anime.seasons.keys.first;
+                              final firstSeason = anime.seasons[firstSeasonKey];
                               if (firstSeason != null && firstSeason.episodes.isNotEmpty) {
-                                _playEpisode(1, firstSeason.episodes[0], firstSeason.episodes[0].players);
+                                _playEpisode(firstSeasonKey, firstSeason.episodes[0], firstSeason.episodes[0].players);
                               }
                             }
                           },
@@ -220,14 +225,17 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
                             try {
                               if (_inLibrary) {
                                 await _api.removeAnimeFromLibrary(anime.id);
+                                if (!mounted) return;
                                 messenger.showSnackBar(const SnackBar(content: Text('Retiré de votre liste'), backgroundColor: TVTheme.textSecondary));
                               } else {
                                 await _api.addAnimeToLibrary(anime.id);
+                                if (!mounted) return;
                                 messenger.showSnackBar(const SnackBar(content: Text('Ajouté à votre liste'), backgroundColor: TVTheme.accentRed));
                               }
                               if (!mounted) return;
                               setState(() => _inLibrary = !_inLibrary);
                             } catch (_) {
+                              if (!mounted) return;
                               messenger.showSnackBar(const SnackBar(content: Text('Erreur'), backgroundColor: TVTheme.errorRed));
                             }
                           },

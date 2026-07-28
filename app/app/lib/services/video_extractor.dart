@@ -1559,11 +1559,14 @@ class VideoExtractor {
     final patterns = [
       RegExp(r'''["']file["']\s*:\s*["'](https?://[^"']+\.mp4[^"']*)["']''', caseSensitive: false),
       RegExp(r'''<source[^>]+src=["'](https?://[^"']+\.mp4[^"']*)["']''', caseSensitive: false),
-      RegExp('https?://[^\\s"\'<>]+\\.mp4(?:\\?[^\\s"\'<>]*)?', caseSensitive: false),
+      RegExp(r'''(https?://[^\s"'<>]+\.mp4(?:\?[^\s"'<>]*)?)''', caseSensitive: false),
     ];
     for (final pat in patterns) {
       final m = pat.firstMatch(src);
-      if (m != null) return (m.group(1) ?? m.group(0)!).replaceAll(r'\/', '/');
+      if (m != null) {
+        final g = m.groupCount > 0 ? m.group(1) : m.group(0);
+        if (g != null) return g.replaceAll(r'\/', '/');
+      }
     }
     return null;
   }
@@ -1577,7 +1580,7 @@ class VideoExtractor {
   /// Unpack eval(function(p,a,c,k,e,d){...}) JavaScript
   static String _unpackJs(String html) {
     final match = RegExp(
-      r"eval\(function\(p,a,c,k,e,d?\)\{.*?\}\('(.*?)'\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'(.*?)'\.split\s*\(\s*'([^']*)'\s*\)",
+      r"eval\(function\(p,a,c,k,e,(?:r|d)?\)\{.*?\}\('(.*?)'\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'(.*?)'\.split\s*\(\s*'([^']*)'\s*\)",
       dotAll: true,
     ).firstMatch(html);
 
@@ -1594,19 +1597,7 @@ class VideoExtractor {
 
       for (var i = c - 1; i >= 0; i--) {
         if (i < k.length && k[i].isNotEmpty) {
-          String word;
-          if (a == 36) {
-            const digits = '0123456789abcdefghijklmnopqrstuvwxyz';
-            var n = i;
-            word = '';
-            while (n > 0) {
-              word = digits[n % 36] + word;
-              n = n ~/ 36;
-            }
-            if (word.isEmpty) word = '0';
-          } else {
-            word = i.toRadixString(a == 16 ? 16 : (a == 2 ? 2 : 10));
-          }
+          final word = _encodeBase(i, a);
           result = result.replaceAll(RegExp('\\b${RegExp.escape(word)}\\b'), k[i]);
         }
       }
@@ -1614,6 +1605,20 @@ class VideoExtractor {
     } catch (_) {
       return '';
     }
+  }
+
+  /// Encode an integer in base `a` (supports 2-62).
+  static String _encodeBase(int n, int base) {
+    if (base <= 36) return n.toRadixString(base);
+    // Base 62: 0-9, a-z, A-Z
+    const digits = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    if (n == 0) return '0';
+    var s = '';
+    while (n > 0) {
+      s = digits[n % base] + s;
+      n = n ~/ base;
+    }
+    return s;
   }
 
   static String _randomString(int length) {

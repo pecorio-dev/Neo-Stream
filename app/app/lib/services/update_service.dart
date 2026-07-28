@@ -211,14 +211,13 @@ class UpdateService {
           onProgress?.call(downloaded / totalBytes);
         }
       },
-      onDone: sink.close,
       onError: (e) {
         sink.close();
         file.deleteSync();
         throw e;
       },
     ).asFuture();
-
+    await sink.close();
     return file.path;
   }
 

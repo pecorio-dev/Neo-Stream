@@ -19,7 +19,7 @@ class AppConstants {
   }
   static const Duration apiTimeout = Duration(seconds: 30);
   static const Duration extractTimeout = Duration(seconds: 30);
-  static const String appVersion = '1.2.2';
+  static const String appVersion = '1.3.1';
   static const String appClient = 'neo-stream-flutter';
   static const Duration integrityRefreshMargin = Duration(minutes: 10);
 
@@ -56,6 +56,10 @@ class AppConstants {
       );
   // Délai minimal entre deux vérifications automatiques (anti-spam).
   static const Duration autoCheckMinInterval = Duration(hours: 6);
+
+  // AI Search (serveur local optionnel — non requis pour le fonctionnement normal)
+  static const String aiSearchServerUrl = 'http://127.0.0.1:8081';
+  static const String aiLlmUrl = 'http://127.0.0.1:8080';
 
   // Poster
   static const String posterBaseUrl = 'https://neo-stream.eu';

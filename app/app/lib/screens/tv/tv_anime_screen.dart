@@ -64,13 +64,15 @@ class _TVAnimeScreenState extends State<TVAnimeScreen> {
       final pagination = data['pagination'] as Map<String, dynamic>?;
       final meta = data['meta'] as Map<String, dynamic>?;
 
+      if (!mounted) return;
       setState(() {
         _items = items;
         _hasMore = _page < (pagination?['total_pages'] as int? ?? 1);
-        _genreFacets = (meta?['genres'] as List? ?? []).cast<Map<String, dynamic>>();
+        _genreFacets = (meta?['genres'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
         _isLoading = false;
       });
     } catch (error) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
         _errorMessage = _humanizeError(error);

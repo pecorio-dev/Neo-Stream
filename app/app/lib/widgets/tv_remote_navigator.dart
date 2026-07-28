@@ -90,7 +90,7 @@ class TVRemoteNavigatorState extends State<TVRemoteNavigator> {
     final direction = _getDirectionFromKey(key);
     if (direction != null) {
       widget.onDpad?.call(direction);
-      return KeyEventResult.ignored; // Laisser Flutter gérer la traversal
+      return widget.onDpad != null ? KeyEventResult.handled : KeyEventResult.ignored;
     }
 
     return KeyEventResult.ignored;

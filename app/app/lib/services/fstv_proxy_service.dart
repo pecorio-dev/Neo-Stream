@@ -93,9 +93,8 @@ class FstvProxyService {
     return grouped.values.expand((list) => list).toList(growable: false);
   }
 
-  /// Retourne toutes les sources valides d'une chaîne, dans l'ordre fourni
-  /// par le serveur. Le lecteur peut ainsi basculer sur une autre source si
-  /// le CDN ou un flux HLS devient indisponible.
+  /// Retourne **toutes** les sources valides d'une chaîne, dans l'ordre API.
+  /// Le lecteur fait 1 essai par source puis bascule (pas de skip de la 1re).
   Future<List<String>> streamUrlsFor(String slug) async {
     try {
       final url = Uri.parse('${_apiBase}live_sources.php?slug=$slug');
@@ -104,6 +103,9 @@ class FstvProxyService {
           .timeout(_timeout);
 
       if (response.statusCode != 200) {
+        // Fallback : sources embarquées dans le cache canaux
+        final cached = _urlsFromChannelCache(slug);
+        if (cached.isNotEmpty) return cached;
         throw FstvException('Chaîne introuvable');
       }
 
@@ -114,28 +116,56 @@ class FstvProxyService {
           ? sourcesRaw.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList()
           : <Map<String, dynamic>>[];
 
-      if (sources.isEmpty) {
+      final urls = _parseSourceUrls(sources);
+      if (urls.isEmpty) {
+        final cached = _urlsFromChannelCache(slug);
+        if (cached.isNotEmpty) return cached;
         throw FstvException('Aucune source disponible');
       }
-
-      final urls = <String>{};
-      for (final source in sources) {
-        final value = source['url'];
-        if (value is! String) continue;
-        final url = value.trim();
-        final uri = Uri.tryParse(url);
-        if (uri != null && uri.hasScheme &&
-            (uri.scheme == 'https' || uri.scheme == 'http')) {
-          urls.add(url);
-        }
-      }
-      if (urls.isEmpty) throw FstvException('URL source invalide');
-      return urls.toList(growable: false);
+      return urls;
     } on TimeoutException {
+      final cached = _urlsFromChannelCache(slug);
+      if (cached.isNotEmpty) return cached;
       throw FstvException('Timeout: récupération source');
+    } on FstvException {
+      rethrow;
     } catch (e) {
+      final cached = _urlsFromChannelCache(slug);
+      if (cached.isNotEmpty) return cached;
       throw FstvException('Erreur source: $e');
     }
+  }
+
+  /// Extrait les URLs http(s) uniques en conservant l'ordre.
+  List<String> _parseSourceUrls(List<Map<String, dynamic>> sources) {
+    final urls = <String>[];
+    final seen = <String>{};
+    for (final source in sources) {
+      final value = source['url'];
+      if (value is! String) continue;
+      final raw = value.trim();
+      if (raw.isEmpty || seen.contains(raw)) continue;
+      final uri = Uri.tryParse(raw);
+      if (uri == null || !uri.hasScheme) continue;
+      if (uri.scheme != 'https' && uri.scheme != 'http') continue;
+      seen.add(raw);
+      urls.add(raw);
+    }
+    return List<String>.unmodifiable(urls);
+  }
+
+  /// Sources déjà présentes sur le modèle canal (live_channels.php).
+  List<String> _urlsFromChannelCache(String slug) {
+    final cache = _channelsCache;
+    if (cache == null) return const [];
+    for (final list in cache.values) {
+      for (final ch in list) {
+        if (ch.slug == slug && ch.sources.isNotEmpty) {
+          return _parseSourceUrls(ch.sources);
+        }
+      }
+    }
+    return const [];
   }
 
   /// Raccourci de compatibilité pour les appels qui n'ont besoin que de la
@@ -143,11 +173,15 @@ class FstvProxyService {
   Future<String> streamUrlFor(String slug) async =>
       (await streamUrlsFor(slug)).first;
 
-  /// Headers pour le player (pas besoin de cookie, FSTV est gratuit)
+  /// Headers pour le player ExoPlayer (Freebox Mini 4K / Android TV).
+  /// UA type box TV + Accept HLS : certains CDN refusent les UA desktop.
   Map<String, String> playerHeaders() => {
-        'User-Agent': 'Mozilla/5.0 (Android TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': '*/*',
-        'Accept-Language': 'fr-FR,fr;q=0.9',
+        'User-Agent':
+            'Mozilla/5.0 (Linux; Android 12; Freebox Player Mini 4K) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept':
+            'application/vnd.apple.mpegurl, application/x-mpegURL, application/octet-stream, */*',
+        'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
         'Referer': 'https://iptv.mine.bz/',
         'Origin': 'https://iptv.mine.bz',
         'Connection': 'keep-alive',

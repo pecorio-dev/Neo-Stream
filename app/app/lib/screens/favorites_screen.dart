@@ -39,17 +39,18 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
 
   Future<void> _load() async {
     if (!mounted) return;
+    if (_isLoading) return;
     setState(() { _isLoading = true; _error = null; });
     try {
       final data = await _api.getLibrary();
       if (!mounted) return;
       setState(() {
-        _items = data.map(Content.fromJson).where((c) => c.hasPoster).toList();
+        _items = data.map(Content.fromJson).toList();
         _isLoading = false;
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() { _error = e.toString(); _isLoading = false; });
+      setState(() { _error = humanizeApiError(e); _isLoading = false; });
     }
   }
 

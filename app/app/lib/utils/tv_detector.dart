@@ -1,10 +1,53 @@
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/services.dart';
 
 class TVDetector {
+  static const MethodChannel _channel =
+      MethodChannel('eu.neostream.neo_stream/tv_detector');
+
   static bool _isTVCache = false;
   static bool _isPCCache = false;
   static bool _hasChecked = false;
+  static bool _initDone = false;
+
+  /// Async initializer: calls the platform channel to get real Android TV
+  /// detection (via [android.content.res.Configuration.UI_MODE_TYPE_TELEVISION]).
+  /// Must be called before reading [isTVMode] / [isPCMode] for reliable results.
+  static Future<void> init() async {
+    if (_initDone) return;
+    _initDone = true;
+
+    if (!kIsWeb && Platform.isAndroid) {
+      try {
+        final isTv = await _channel.invokeMethod<bool>('isAndroidTv') ?? false;
+        if (isTv) {
+          _isTVCache = true;
+          _hasChecked = true;
+          return;
+        }
+        // Fallback: try build props for keyword matching
+        final props = await _channel.invokeMethod<Map<dynamic, dynamic>>('getBuildProps') ?? {};
+        final combined = props.values.join(' ').toLowerCase();
+        const tvIndicators = [
+          'androidtv', 'firetv', 'fire tv', 'television', 'tv box',
+          'chromecast', 'nvidia shield', 'mi box', 'apple tv', 'atv',
+          'mibox', 'shield', 'dongle', 'smarttv', 'bbox', 'freebox',
+          'livebox', 'sagemcom', 'sony tv', 'sony bravia', 'tcl tv',
+          'tcl smart', 'philips tv', 'philips smart', 'hisense tv',
+          'hisense smart', 'smart tv', 'set-top', 'settop', 'ott', 'stb',
+        ];
+        if (tvIndicators.any((i) => combined.contains(i))) {
+          _isTVCache = true;
+          _hasChecked = true;
+          return;
+        }
+      } catch (_) {
+        // Channel unavailable → fall through to synchronous detection
+      }
+    }
+    // Synchronous detection runs lazily on first getter access
+  }
 
   static bool get isTVMode {
     if (!_hasChecked) _detectAll();
@@ -26,8 +69,8 @@ class TVDetector {
     }
 
     if (Platform.isAndroid) {
-      _isTVCache = _detectAndroidTV();
-      _isPCCache = false;
+      // If init() already set the cache, keep it; otherwise run fallback.
+      if (!_initDone) _detectAndroidTVFallback();
     } else if (Platform.isLinux) {
       _isTVCache = _detectLinuxTV();
       _isPCCache = !_isTVCache;
@@ -46,32 +89,32 @@ class TVDetector {
     }
   }
 
-  // Improved reliability: more specific checks, avoid always-true default
-  static bool _detectAndroidTV() {
+  /// Synchronous fallback using [Platform.environment].
+  /// On standard Android, environment variables are empty strings, so this
+  /// typically returns false — the [init()] async path should be preferred.
+  static void _detectAndroidTVFallback() {
     try {
       final brand = (Platform.environment['BRAND'] ?? '').toLowerCase();
       final model = (Platform.environment['MODEL'] ?? '').toLowerCase();
       final device = (Platform.environment['DEVICE'] ?? '').toLowerCase();
       final manufacturer = (Platform.environment['MANUFACTURER'] ?? '').toLowerCase();
 
-      final tvIndicators = [
+      const tvIndicators = [
         'androidtv', 'firetv', 'fire tv', 'television', 'tv box',
         'chromecast', 'nvidia shield', 'mi box', 'apple tv', 'atv',
         'mibox', 'shield', 'dongle', 'smarttv', 'bbox', 'freebox',
-        'livebox', 'sagemcom', 'bouygtel', 'tcl', 'hisense', 'sony', 'philips', 'realme',
-        'tv', 'set-top', 'settop', 'ott', 'stb'
+        'livebox', 'sagemcom', 'bouygtel', 'sony tv', 'sony bravia',
+        'tcl tv', 'tcl smart', 'philips tv', 'philips smart',
+        'hisense tv', 'hisense smart', 'smart tv', 'set-top', 'settop',
+        'ott', 'stb',
       ];
 
       final combined = '$brand $model $device $manufacturer';
-      final isTv = tvIndicators.any((indicator) => combined.contains(indicator));
-
-      // Only default to TV if clear TV signals, else false for phones/tablets
-      if (isTv) return true;
-
-      // Heuristic: large screen but avoid assuming all Android is TV
-      return false;
+      _isTVCache = tvIndicators.any((indicator) => combined.contains(indicator));
+      _isPCCache = false;
     } catch (_) {
-      return false; // Safer default
+      _isTVCache = false;
+      _isPCCache = false;
     }
   }
 
@@ -79,7 +122,6 @@ class TVDetector {
     try {
       final drm = (Platform.environment['XDG_SESSION_TYPE'] ?? '').toLowerCase();
       final desktop = (Platform.environment['XDG_CURRENT_DESKTOP'] ?? '').toLowerCase();
-
       return drm == 'drm' ||
           desktop.contains('kodi') ||
           desktop.contains('plex') ||
@@ -100,7 +142,6 @@ class TVDetector {
 
   static bool _detectTVFromUserAgent() {
     try {
-      // In real web, check navigator.userAgent but here conservative
       return false;
     } catch (_) {
       return false;
@@ -111,5 +152,6 @@ class TVDetector {
     _hasChecked = false;
     _isTVCache = false;
     _isPCCache = false;
+    _initDone = false;
   }
 }

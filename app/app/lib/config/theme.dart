@@ -282,6 +282,7 @@ class NeoTheme {
   /// 4K TVs (3840px) are also detected as TV
   static bool isTV(BuildContext context) {
     if (forceTVMode) return true;
+    if (isDesktopPlatform) return false;
     final width = MediaQuery.of(context).size.width;
     final height = MediaQuery.of(context).size.height;
     return (width > height && width >= 800 && height >= 500) || width >= 1200;

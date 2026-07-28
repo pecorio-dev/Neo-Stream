@@ -307,7 +307,7 @@ class _PremiumHubScreenState extends State<PremiumHubScreen>
                     ),
                   ],
 
-                  if (isPremium) ...[
+                  if (isPremium && user != null) ...[
                     SliverToBoxAdapter(
                       child: Padding(
                         padding: padding,

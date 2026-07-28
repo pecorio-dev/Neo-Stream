@@ -128,6 +128,13 @@ class WatchLinkUtils {
     return _iframeOnlyPatterns.any((p) => src.contains(p));
   }
 
+  /// Retire les liens iframe-only et les URLs vides avant extraction.
+  static List<WatchLink> filterPlayable(List<WatchLink> links) {
+    return links
+        .where((link) => link.url.trim().isNotEmpty && !isIframeOnly(link))
+        .toList();
+  }
+
   static String serverDisplayName(WatchLink link) {
     final domain = _extractDomain(link);
     if (domain.contains('vidaraa'))   return 'Vidaraa';

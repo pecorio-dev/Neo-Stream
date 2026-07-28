@@ -85,7 +85,9 @@ class _TVHomeScreenState extends State<TVHomeScreen> with TickerProviderStateMix
 
                   if (!_heroReady && provider.hero.isNotEmpty) {
                     _heroReady = true;
-                    _heroController.forward();
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) _heroController.forward();
+                    });
                   }
 
                   final sections = _getSections(provider);

@@ -15,8 +15,7 @@ dependencies:
   shimmer: ^3.0.0
   cached_network_image: ^3.3.0
   
-  # Video Player - video_player (Google ExoPlayer for Android TV) & media_kit (Windows Desktop)
-  video_player: ^2.9.2
+  # Video Player - media_kit (Windows Desktop) & native ExoPlayer (Android TV via NativeVideoActivity)
   media_kit: ^1.2.6
   media_kit_video: ^2.0.1
   media_kit_libs_video: ^1.0.7

@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../config/theme.dart';
@@ -91,8 +93,18 @@ class _SplashScreenState extends State<SplashScreen>
     if (!mounted) return;
 
     await NeoTheme.loadForceTVMode();
+    await TVDetector.init();
+    if (!mounted) return;
+    final width = MediaQuery.of(context).size.width;
+    final height = MediaQuery.of(context).size.height;
     final isPC = TVConfig.shouldUsePCMode(context);
-    final isTV = !isPC && (TVDetector.isTVMode || TVConfig.shouldUseTVMode(context));
+    var isTV = !isPC && (TVDetector.isTVMode || TVConfig.shouldUseTVMode(context));
+    // Fallback robuste pour les TV 16:9 standard (Freebox mini 4K, etc.) :
+    // la détection par ratio (>1.7) ou par MethodChannel peut échouer selon
+    // le firmware ; on force le mode TV pour tout écran Android ≥ 1920×1080.
+    if (!isTV && !kIsWeb && Platform.isAndroid && width >= 1920 && height >= 1080) {
+      isTV = true;
+    }
 
     Widget destination;
     if (!success && authProvider.hasStoredSession) {

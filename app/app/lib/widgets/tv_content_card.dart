@@ -127,8 +127,10 @@ class _CardShell extends StatelessWidget {
             event.logicalKey == LogicalKeyboardKey.select ||
             event.logicalKey == LogicalKeyboardKey.space ||
             event.logicalKey == LogicalKeyboardKey.numpadEnter) {
-          onTap?.call();
-          return KeyEventResult.handled;
+          if (onTap != null) {
+            onTap!.call();
+            return KeyEventResult.handled;
+          }
         }
         return KeyEventResult.ignored;
       },

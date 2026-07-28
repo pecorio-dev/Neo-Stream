@@ -239,7 +239,7 @@ class _HeroBannerState extends State<HeroBanner> {
                                                 .position
                                                 .haveDimensions) {
                                               value =
-                                                  _pageController!.page! - index;
+                                                  (_pageController!.page ?? 0.0) - index;
                                               value = (1 - (value.abs() * 0.3))
                                                   .clamp(0.0, 1.0);
                                             }

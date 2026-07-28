@@ -146,8 +146,11 @@ class _TVShellState extends State<TVShell> {
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
-        if (!didPop && !_isSidebarFocused && mounted) {
+        if (didPop) return;
+        if (!_isSidebarFocused && mounted) {
           _focusActiveNavItem();
+        } else if (mounted) {
+          SystemNavigator.pop();
         }
       },
         child: FocusTraversalGroup(
@@ -159,6 +162,17 @@ class _TVShellState extends State<TVShell> {
               Expanded(
                   child: FocusScope(
                   node: _contentFocusScopeNode,
+                  onKeyEvent: (node, event) {
+                    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+                    if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+                      final primary = FocusManager.instance.primaryFocus;
+                      if (primary != null && primary.enclosingScope == node) {
+                        _focusActiveNavItem();
+                        return KeyEventResult.handled;
+                      }
+                    }
+                    return KeyEventResult.ignored;
+                  },
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 300),
                     switchInCurve: Curves.easeOutCubic,

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  IPTV / HLS live : beaucoup de sources CDN passent encore en HTTP.
+  Freebox Mini 4K + Android 9+ bloquent le cleartext par défaut → flux mort.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

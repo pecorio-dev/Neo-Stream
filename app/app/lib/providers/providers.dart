@@ -216,9 +216,9 @@ class ContentProvider extends ChangeNotifier {
     _popularAnime = _parseContentList(data['popular_anime']);
     _recentAnime = _parseContentList(data['recent_anime']);
     _byGenre =
-        (data['by_genre'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+        (data['by_genre'] as List?)?.whereType<Map<String, dynamic>>().toList() ?? [];
     _myLibrary =
-        (data['my_library'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+        (data['my_library'] as List?)?.whereType<Map<String, dynamic>>().toList() ?? [];
     if (data['continue_watching'] != null &&
         data['continue_watching'] is List) {
       _continueWatching = (data['continue_watching'] as List).map((e) {
@@ -245,18 +245,22 @@ class ContentProvider extends ChangeNotifier {
   }
 
   Future<void> loadHome() async {
+    if (!_api.isLoggedIn) return;
     _homeError = null;
 
     // Show cached data immediately (no shimmer on repeat visits).
     final cached = await _loadCache();
     if (cached != null) {
-      await compute(_parseNothing, 0); // yield to UI thread
-      _applyHomeData(cached);
-      _isLoadingHome = false;
-      notifyListeners();
-      // Refresh in background — UI already populated.
-      _refreshHomeInBackground();
-      return;
+      try {
+        await Future.delayed(Duration.zero);
+        _applyHomeData(cached);
+        _isLoadingHome = false;
+        notifyListeners();
+        _refreshHomeInBackground();
+        return;
+      } catch (_) {
+        // Cache corrupt — fall through to network load
+      }
     }
 
     _isLoadingHome = true;

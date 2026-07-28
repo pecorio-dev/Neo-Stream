@@ -43,6 +43,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _loadFavorites() async {
+    if (_isLoadingFavorites) return;
     setState(() => _isLoadingFavorites = true);
     try {
       final data = await _api.getLibrary();
@@ -50,10 +51,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         return;
       }
       setState(() {
-        _favorites = data.map(Content.fromJson).where((c) => c.hasPoster).toList();
+        _favorites = data.map(Content.fromJson).toList();
         _isLoadingFavorites = false;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) {
         return;
       }

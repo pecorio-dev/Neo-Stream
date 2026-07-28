@@ -668,13 +668,15 @@ class ApiService {
   Future<List<Map<String, dynamic>>> getLibrary({int page = 1}) async {
     final data = await _get('library/list?page=$page');
     return (((data as Map<String, dynamic>)['items'] as List?) ?? const [])
-        .cast<Map<String, dynamic>>();
+        .whereType<Map<String, dynamic>>()
+        .toList();
   }
 
   Future<List<Map<String, dynamic>>> getHistory({int page = 1}) async {
     final data = await _get('progress/history?page=$page');
     return (((data as Map<String, dynamic>)['items'] as List?) ?? const [])
-        .cast<Map<String, dynamic>>();
+        .whereType<Map<String, dynamic>>()
+        .toList();
   }
 
   Future<void> deleteHistory() async {

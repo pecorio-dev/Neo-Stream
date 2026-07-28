@@ -33,7 +33,7 @@ class TVConfig {
     final height = MediaQuery.of(context).size.height;
 
     if (width >= 1920 || height >= 1080) {
-      final isWide = width / height > 1.8;
+      final isWide = width / height > 1.7;
       return isWide;
     }
 

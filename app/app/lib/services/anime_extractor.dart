@@ -93,6 +93,31 @@ class AnimeExtractor {
     };
   }
 
+  /// Trie les sources anime par fiabilité (Sendvid > Vidmoly > … > Sibnet).
+  static List<Map<String, String>> sortSources(
+    List<Map<String, String>> sources,
+  ) {
+    final sorted = List<Map<String, String>>.from(sources);
+    sorted.sort((a, b) {
+      final pa = (a['player'] ?? '').toLowerCase();
+      final pb = (b['player'] ?? '').toLowerCase();
+      return _playerPriority(pa).compareTo(_playerPriority(pb));
+    });
+    return sorted.where((s) {
+      final url = s['url']?.trim() ?? '';
+      return url.isNotEmpty && !isUnplayableUrl(url);
+    }).toList();
+  }
+
+  /// URLs nécessitant un navigateur (Mega, YouTube…) — ignorées par le lecteur natif.
+  static bool isUnplayableUrl(String url) {
+    final host = Uri.tryParse(url)?.host.toLowerCase() ?? '';
+    return host.contains('mega.nz') ||
+        host.contains('mega.co') ||
+        host.contains('youtu') ||
+        host.contains('youtube');
+  }
+
   static int _playerPriority(String player) {
     // Priorité décroissante — chiffre bas = priorité haute
     // Sibnet reste disponible, mais son CDN peut interrompre les longues
@@ -141,8 +166,7 @@ class AnimeExtractor {
         var segUrl = lines[i + 1].trim();
         if (segUrl.isEmpty || segUrl.startsWith('#')) continue;
         if (!segUrl.startsWith('http')) {
-          final base = masterUrl.substring(0, masterUrl.lastIndexOf('/') + 1);
-          segUrl = '$base$segUrl';
+          segUrl = Uri.parse(masterUrl).resolve(segUrl).toString();
         }
 
         final label = height > 0
@@ -249,8 +273,8 @@ class AnimeExtractor {
       }
 
       // player.ashx redirect
-      final playerMatch = RegExp(r'(/shell\.php[^"]*|player\.ashx[^"]*)"').firstMatch(html)
-          ?? RegExp(r"(/shell\.php[^']*|player\.ashx[^']*)'").firstMatch(html);
+      final playerMatch = RegExp(r'(/shell\.php[^"]*|/player\.ashx[^"]*)"').firstMatch(html)
+          ?? RegExp(r"(/shell\.php[^']*|/player\.ashx[^']*)'").firstMatch(html);
       if (playerMatch != null) {
         final playerUrl = 'https://video.sibnet.ru${playerMatch.group(1)!}';
         final resp2 = await http.get(Uri.parse(playerUrl), headers: headers).timeout(_timeout);
@@ -330,7 +354,7 @@ class AnimeExtractor {
       ]) {
         final m = pattern.firstMatch(unpacked);
         if (m != null) {
-          var videoUrl = (m.group(1) ?? m.group(0)!).replaceAll(r'\/', '/');
+          var videoUrl = (m.groupCount > 0 ? m.group(1) : m.group(0))!.replaceAll(r'\/', '/');
           if (!videoUrl.startsWith('http') || videoUrl.length < 10) continue;
           final type = videoUrl.contains('.m3u8') ? 'hls' : 'mp4';
           if (type == 'hls') {
@@ -373,7 +397,7 @@ class AnimeExtractor {
       ]) {
         final m = pattern.firstMatch(unpacked);
         if (m != null) {
-          var videoUrl = (m.group(1) ?? m.group(0)!).replaceAll(r'\/', '/');
+          var videoUrl = (m.groupCount > 0 ? m.group(1) : m.group(0))!.replaceAll(r'\/', '/');
           if (!videoUrl.startsWith('http')) continue;
           final type = videoUrl.contains('.m3u8') ? 'hls' : 'mp4';
           if (type == 'hls') {
@@ -410,7 +434,7 @@ class AnimeExtractor {
       final m = RegExp(r'"file":\s*"([^"]+\.m3u8[^"]*)"', caseSensitive: false).firstMatch(unpacked)
           ?? RegExp(r'https?://[^\s"<>]+\.m3u8[^\s"<>]*', caseSensitive: false).firstMatch(unpacked);
       if (m != null) {
-        var hlsUrl = (m.group(1) ?? m.group(0)!).replaceAll(r'\/', '/');
+        var hlsUrl = (m.groupCount > 0 ? m.group(1) : m.group(0))!.replaceAll(r'\/', '/');
         final qualities = await _parseHLSMaster(hlsUrl, headers);
         return {
           'success': true,
@@ -483,7 +507,7 @@ class AnimeExtractor {
       ]) {
         final m = pattern.firstMatch(unpacked);
         if (m != null) {
-          var videoUrl = (m.group(1) ?? m.group(0)!).replaceAll(r'\/', '/');
+          var videoUrl = (m.groupCount > 0 ? m.group(1) : m.group(0))!.replaceAll(r'\/', '/');
           if (videoUrl.length < 10 || !videoUrl.startsWith('http')) continue;
           final type = videoUrl.contains('.m3u8') ? 'hls' : 'mp4';
           if (type == 'hls') {

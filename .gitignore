@@ -42,6 +42,7 @@ installer/
 # Dev tools / agents
 .agents/
 .claude/
+.qwen/
 skills-lock.json
 scratch/
 windows/Output/

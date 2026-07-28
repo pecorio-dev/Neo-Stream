@@ -30,6 +30,7 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _loading = false;
   String _query = '';
   String? _error;
+  int _searchId = 0;
 
   @override
   void initState() {
@@ -74,6 +75,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Future<void> _search(String q) async {
+    final currentId = ++_searchId;
     setState(() { _loading = true; _query = q; _error = null; });
     try {
       final raw = await _api.searchContent(q);
@@ -86,7 +88,7 @@ class _SearchScreenState extends State<SearchScreen> {
         final animeData = await _api.searchAnime(q);
         animes = animeData.map((e) => Anime.fromJson(e)).toList();
       } catch (_) {}
-      if (!mounted) return;
+      if (currentId != _searchId) return; // stale request
       // Fusionner : si un anime est dans les deux listes, garder fromJson
       final animeIds = {for (final a in animes) a.id};
       final extraAnimes = animeAsContent
@@ -104,6 +106,7 @@ class _SearchScreenState extends State<SearchScreen> {
         _loading = false;
       });
     } catch (e) {
+      if (currentId != _searchId) return; // stale request
       if (!mounted) return;
       setState(() { _loading = false; _error = e.toString(); });
     }

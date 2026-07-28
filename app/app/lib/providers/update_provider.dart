@@ -19,7 +19,16 @@ enum UpdateStatus { idle, checking, downloading, error }
 class UpdateProvider extends ChangeNotifier {
   final UpdateService _service;
 
-  UpdateProvider() : _service = UpdateService();
+  UpdateProvider() : _service = UpdateService() {
+    _loadAllowPreReleaseSync();
+  }
+
+  bool _allowPreReleaseSync = false;
+
+  Future<void> _loadAllowPreReleaseSync() async {
+    _allowPreReleaseSync = await _service.allowPreRelease;
+    notifyListeners();
+  }
 
   // ── État ────────────────────────────────────────────────────────────
   UpdateStatus _status = UpdateStatus.idle;
@@ -41,6 +50,8 @@ class UpdateProvider extends ChangeNotifier {
   // ── Pré-versions ────────────────────────────────────────────────────
   Future<bool> get allowPreRelease => _service.allowPreRelease;
   Future<void> setAllowPreRelease(bool value) {
+    _allowPreReleaseSync = value;
+    notifyListeners();
     return _service.setAllowPreRelease(value);
   }
 
@@ -94,12 +105,8 @@ class UpdateProvider extends ChangeNotifier {
       !(_lastResult?.release?.isPrerelease == true &&
           !allowPreReleaseSync);
 
-  /// Synchronisé (pas d'await) pour les appels synchrones (build).
-  bool get allowPreReleaseSync {
-    // On ne peut pas faire async dans un getter sans Future.
-    // Utilisé seulement pour les guards synchrones.
-    return false;
-  }
+  /// Synchronisé : utilisé dans les guards de build (shouldShowUpdateDialog).
+  bool get allowPreReleaseSync => _allowPreReleaseSync;
 
   // ── Téléchargement + installation ────────────────────────────────────
 

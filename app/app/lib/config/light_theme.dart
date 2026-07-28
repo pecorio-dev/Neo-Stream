@@ -494,8 +494,10 @@ class NeoLightTheme {
   /// Seuil de détection TV.
   static const double tvBreakpoint = 960;
 
-  static bool isTV(BuildContext context) =>
-      MediaQuery.sizeOf(context).width >= tvBreakpoint;
+  static bool isTV(BuildContext context) {
+    if (isDesktopPlatform) return false;
+    return MediaQuery.sizeOf(context).width >= tvBreakpoint;
+  }
 
   static bool isTablet(BuildContext context) {
     final w = MediaQuery.sizeOf(context).width;

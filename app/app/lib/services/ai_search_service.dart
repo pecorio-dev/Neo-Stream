@@ -1,10 +1,11 @@
 import 'dart:convert';
 import 'dart:async';
 import 'package:http/http.dart' as http;
+import '../config/constants.dart';
 
 class AISearchService {
-  static const String _searchServerUrl = 'http://127.0.0.1:8081';
-  static const String _llmUrl = 'http://127.0.0.1:8080';
+  static const String _searchServerUrl = AppConstants.aiSearchServerUrl;
+  static const String _llmUrl = AppConstants.aiLlmUrl;
 
   static final AISearchService _instance = AISearchService._internal();
   factory AISearchService() => _instance;

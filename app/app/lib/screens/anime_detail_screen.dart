@@ -7,7 +7,7 @@ import '../config/theme.dart';
 import '../config/neo.dart';
 import '../models/anime.dart';
 import '../services/api_service.dart';
-import 'anime_player_screen.dart';
+import 'player_screen.dart';
 
 class AnimeDetailScreen extends StatefulWidget {
   final int animeId;
@@ -136,7 +136,7 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
   ) {
     Navigator.of(context)
         .push(MaterialPageRoute(
-          builder: (_) => AnimePlayerScreen(
+          builder: (_) => PlayerScreen(
             anime: _anime!,
             seasonNumber: seasonNumber,
             episode: episode,

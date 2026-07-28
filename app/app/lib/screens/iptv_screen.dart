@@ -1,10 +1,9 @@
-import '../widgets/universal_video_player.dart';
 import 'dart:async';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:media_kit/media_kit.dart';
-import 'package:media_kit_video/media_kit_video.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../config/theme.dart';
@@ -13,6 +12,7 @@ import '../models/fstv_channel.dart';
 import '../services/fstv_proxy_service.dart';
 import '../widgets/neo_glass_card.dart';
 import '../widgets/satisfying_animations.dart';
+import '../widgets/universal_video_player.dart';
 import 'payment_wall_screen.dart';
 
 /// Écran TV en direct — chaînes servies par le proxy FSTV (iptv.mine.bz).
@@ -691,7 +691,12 @@ class _ChannelCardState extends State<_ChannelCard> {
   }
 }
 
-// ── Lecteur ────────────────────────────────────────────────────────────────
+// ── Lecteur TV en direct ───────────────────────────────────────────────────
+//
+// Sur Android / Freebox Mini 4K : lance NativeVideoActivity (ExoPlayer HLS).
+//   - Toutes les sources passées d'un coup
+//   - 1 seule tentative par source (bascule in-Activity, pas d'écran noir)
+// Sur Desktop : media_kit, 1 try par source puis bascule Flutter
 
 class _LivePlayerScreen extends StatefulWidget {
   final FstvChannel channel;
@@ -710,16 +715,16 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
   bool _showControls = true;
   Timer? _hideTimer;
 
-  int _reconnectAttempts = 0;
-  static const int _maxReconnectAttempts = 8;
-  bool _isReconnecting = false;
-  Timer? _reconnectTimer;
-
-  List<String> _streamUrls = const [];
-  int _sourceIndex = 0;
+  /// Desktop only : index source courante (Android bascule en natif).
+  int _desktopSourceIndex = 0;
   int _openGeneration = 0;
+  bool _userClosedNative = false;
+  bool _isSwitching = false;
+  List<String> _streamUrls = const [];
 
   StreamSubscription<String>? _errorSub;
+
+  bool get _useNativeAndroid => !kIsWeb && Platform.isAndroid;
 
   void _scheduleHide() {
     _hideTimer?.cancel();
@@ -745,105 +750,173 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
   }
 
   Future<void> _openStream() async {
-    _reconnectTimer?.cancel();
     _openGeneration++;
-    _isReconnecting = false;
-    setState(() {
-      _loading = true;
-      _error = null;
-      _reconnectAttempts = 0;
-    });
-    _streamUrls = const [];
-    _sourceIndex = 0;
-    await _openStreamInternal(refreshSources: true);
-  }
+    _userClosedNative = false;
+    _desktopSourceIndex = 0;
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
 
-  Future<void> _openStreamInternal({required bool refreshSources}) async {
     try {
-      if (refreshSources || _streamUrls.isEmpty) {
-        _streamUrls = await _proxy.streamUrlsFor(widget.channel.slug);
-        _sourceIndex = 0;
+      _streamUrls = await _proxy.streamUrlsFor(widget.channel.slug);
+      if (_streamUrls.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _loading = false;
+            _error = 'Aucune source disponible pour cette chaîne.';
+          });
+        }
+        return;
       }
-      await _openCurrentSource();
+      debugPrint(
+        '[LivePlayer] ${widget.channel.name}: ${_streamUrls.length} source(s)',
+      );
+      await _playAllSources();
     } catch (e) {
-      if (_reconnectAttempts < _maxReconnectAttempts) {
-        _attemptReconnect(reason: 'open failed: $e');
-      } else if (mounted) {
+      if (mounted) {
         setState(() {
           _loading = false;
-          _error = 'Chaîne indisponible. Réessayez.';
+          _error = 'Chaîne indisponible.\n${FstvProxyService.humanize(e)}';
         });
       }
     }
   }
 
-  Future<void> _openCurrentSource() async {
-    if (_streamUrls.isEmpty || _sourceIndex >= _streamUrls.length) {
-      _attemptReconnect(reason: 'aucune source disponible');
-      return;
-    }
-
+  Future<void> _playAllSources() async {
+    if (_streamUrls.isEmpty) return;
     final generation = ++_openGeneration;
-    final url = _streamUrls[_sourceIndex];
     final headers = _proxy.playerHeaders();
 
     try {
       _universalController?.dispose();
-      _universalController = UniversalPlayerController(url: url, headers: headers);
-
       _errorSub?.cancel();
-      _errorSub = _universalController!.errorStream.listen((err) {
+
+      // ── Android : toutes les sources d'un coup, 1 try chacune en natif ──
+      if (_useNativeAndroid) {
+        if (mounted) {
+          setState(() {
+            _loading = true;
+            _error = null;
+          });
+        }
+
+        _universalController = UniversalPlayerController(
+          url: _streamUrls.first,
+          fallbackUrls: _streamUrls.skip(1).toList(),
+          headers: headers,
+          isLive: true,
+        );
+
+        await _universalController!.initialize();
         if (!mounted || generation != _openGeneration) return;
-        _attemptReconnect(reason: 'erreur flux: $err');
-      });
 
-      await _universalController!.initialize();
+        final result = _universalController!.lastSurfaceResult;
+        final hadError = result?['hadError'] == true || result?['ok'] == false;
+        final errMsg = result?['error']?.toString();
 
+        if (!hadError) {
+          _userClosedNative = true;
+          if (mounted) Navigator.of(context).pop();
+          return;
+        }
+
+        // Toutes les sources ont déjà été essayées côté natif (1 try chacune)
+        debugPrint('[LivePlayer] all native sources failed: $errMsg');
+        if (mounted) {
+          setState(() {
+            _loading = false;
+            _error =
+                'Impossible de charger le flux.\n'
+                '${_streamUrls.length} source(s) testée(s).\n'
+                '${errMsg ?? ''}';
+          });
+        }
+        return;
+      }
+
+      // ── Desktop : 1 try par source, bascule Flutter ───────────────────
+      await _playDesktopSource(generation);
+    } catch (e) {
       if (mounted && generation == _openGeneration) {
         setState(() {
           _loading = false;
-          _error = null;
-          _isReconnecting = false;
+          _error = 'Ouverture impossible: $e';
         });
-      }
-    } catch (e) {
-      if (mounted && generation == _openGeneration) {
-        _attemptReconnect(reason: 'ouverture impossible: $e');
       }
     }
   }
 
-  void _attemptReconnect({required String reason}) {
-    if (_reconnectAttempts >= _maxReconnectAttempts) {
-      if (mounted) {
+  Future<void> _playDesktopSource(int generation) async {
+    if (_desktopSourceIndex >= _streamUrls.length) {
+      if (mounted && generation == _openGeneration) {
         setState(() {
           _loading = false;
-          _isReconnecting = false;
-          _error = 'Impossible de charger le flux en direct.';
+          _error =
+              'Impossible de charger le flux.\n'
+              '${_streamUrls.length} source(s) testée(s).';
         });
       }
       return;
     }
 
-    _reconnectAttempts++;
+    final url = _streamUrls[_desktopSourceIndex];
+    final headers = _proxy.playerHeaders();
+    debugPrint(
+      '[LivePlayer] desktop source $_desktopSourceIndex/${_streamUrls.length}',
+    );
+
     if (mounted) {
       setState(() {
-        _isReconnecting = true;
+        _loading = true;
+        _error = null;
       });
     }
 
-    _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(Duration(seconds: 2 * _reconnectAttempts), () {
-      if (!mounted) return;
-      _sourceIndex = (_sourceIndex + 1) % (_streamUrls.isNotEmpty ? _streamUrls.length : 1);
-      _openStreamInternal(refreshSources: _sourceIndex == 0);
+    _universalController?.dispose();
+    _errorSub?.cancel();
+    _universalController = UniversalPlayerController(
+      url: url,
+      headers: headers,
+      isLive: true,
+    );
+
+    // 1 seule erreur → bascule source suivante (pas de retry sur la même)
+    _errorSub = _universalController!.errorStream.listen((err) {
+      if (!mounted || generation != _openGeneration || _userClosedNative) return;
+      if (_isSwitching) return;
+      debugPrint('[LivePlayer] desktop error on source $_desktopSourceIndex: $err');
+      _isSwitching = true;
+      _desktopSourceIndex++;
+      _playDesktopSource(generation);
     });
+
+    try {
+      await _universalController!.initialize();
+      if (!mounted || generation != _openGeneration) return;
+      if (_universalController!.isInitialized) {
+        setState(() {
+          _loading = false;
+          _error = null;
+        });
+        _isSwitching = false;
+        _scheduleHide();
+      } else {
+        _desktopSourceIndex++;
+        await _playDesktopSource(generation);
+      }
+    } catch (e) {
+      if (!mounted || generation != _openGeneration) return;
+      _desktopSourceIndex++;
+      await _playDesktopSource(generation);
+    }
   }
 
   @override
   void dispose() {
     _hideTimer?.cancel();
-    _reconnectTimer?.cancel();
     _errorSub?.cancel();
     _universalController?.dispose();
     WakelockPlus.disable();
@@ -871,14 +944,16 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
             event.logicalKey == LogicalKeyboardKey.select ||
             event.logicalKey == LogicalKeyboardKey.space ||
             event.logicalKey == LogicalKeyboardKey.gameButtonA) {
-          _toggleControls();
+          if (_error != null) {
+            _openStream();
+          } else {
+            _toggleControls();
+          }
           return KeyEventResult.handled;
         }
         if (event.logicalKey == LogicalKeyboardKey.arrowUp ||
             event.logicalKey == LogicalKeyboardKey.arrowDown) {
-          if (!_showControls) {
-            setState(() => _showControls = true);
-          }
+          if (!_showControls) setState(() => _showControls = true);
           _scheduleHide();
           return KeyEventResult.handled;
         }
@@ -891,12 +966,15 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              if (_universalController != null)
+              if (!_useNativeAndroid && _universalController != null)
                 UniversalVideoView(controller: _universalController!),
-              if (_loading && !_isReconnecting) _buildLoading(),
-              if (_error != null && !_isReconnecting) _buildError(),
-              if (_isReconnecting) _buildReconnectingBadge(),
-              if (_showControls && _error == null && !_isReconnecting) _buildControlsOverlay(),
+              if (_loading) _buildLoading(),
+              if (_error != null && !_loading) _buildError(),
+              if (!_useNativeAndroid &&
+                  _showControls &&
+                  _error == null &&
+                  !_loading)
+                _buildControlsOverlay(),
             ],
           ),
         ),
@@ -904,49 +982,12 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
     );
   }
 
-  Widget _buildReconnectingBadge() {
-    return Positioned(
-      top: MediaQuery.of(context).padding.top + 12,
-      right: 12,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.6),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: Colors.orange.withValues(alpha: 0.5),
-            width: 1,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(
-                color: Colors.orange,
-                strokeWidth: 2,
-              ),
-            ),
-            const SizedBox(width: 8),
-            const Text(
-              'Reconnexion…',
-              style: TextStyle(
-                color: Colors.orange,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildLoading() {
+    final srcInfo = _streamUrls.isNotEmpty
+        ? ' · ${_streamUrls.length} source${_streamUrls.length > 1 ? 's' : ''}'
+        : '';
     return Container(
-      color: Colors.black54,
+      color: Colors.black,
       child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -955,15 +996,29 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
               width: 44,
               height: 44,
               child: CircularProgressIndicator(
-                  color: Theme.of(context).colorScheme.primary, strokeWidth: 2.5),
+                color: Theme.of(context).colorScheme.primary,
+                strokeWidth: 2.5,
+              ),
             ),
             const SizedBox(height: 16),
             Text(
-              _reconnectAttempts > 0
-                  ? 'Reconnexion $_reconnectAttempts/$_maxReconnectAttempts…'
-                  : 'Connexion à ${widget.channel.name}…',
+              'Connexion à ${widget.channel.name}$srcInfo…',
               style: const TextStyle(color: Colors.white70, fontSize: 14),
+              textAlign: TextAlign.center,
             ),
+            if (_useNativeAndroid) ...[
+              const SizedBox(height: 8),
+              const Text(
+                'Lecteur natif · 1 essai par source',
+                style: TextStyle(color: Colors.white38, fontSize: 11),
+              ),
+            ] else if (_streamUrls.length > 1) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Source ${_desktopSourceIndex + 1}/${_streamUrls.length}',
+                style: const TextStyle(color: Colors.white38, fontSize: 11),
+              ),
+            ],
           ],
         ),
       ),
@@ -972,7 +1027,7 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
 
   Widget _buildError() {
     return Container(
-      color: Colors.black54,
+      color: Colors.black,
       child: Center(
         child: Padding(
           padding: const EdgeInsets.all(28),
@@ -982,26 +1037,34 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
               const Icon(Icons.error_outline_rounded,
                   color: NeoTheme.errorRed, size: 52),
               const SizedBox(height: 14),
-              const Text('Chaîne indisponible',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600)),
+              const Text(
+                'Chaîne indisponible',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
               const SizedBox(height: 8),
-              Text(_error ?? '',
-                  style: const TextStyle(color: Colors.white70),
-                  textAlign: TextAlign.center),
+              Text(
+                _error ?? '',
+                style: const TextStyle(color: Colors.white70),
+                textAlign: TextAlign.center,
+              ),
               const SizedBox(height: 20),
               ElevatedButton.icon(
-                onPressed: () {
-                  _reconnectAttempts = 0;
-                  _openStream();
-                },
+                onPressed: _openStream,
                 icon: const Icon(Icons.refresh_rounded),
                 label: const Text('Réessayer'),
                 style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.primary,
-                    foregroundColor: Colors.white),
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Retour', style: TextStyle(color: Colors.white70)),
               ),
             ],
           ),
@@ -1037,8 +1100,7 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
             ),
             const SizedBox(width: 4),
             Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.85),
                 borderRadius: BorderRadius.circular(NeoTheme.radiusSm),
@@ -1046,15 +1108,17 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
               child: const Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.fiber_manual_record,
-                      color: Colors.white, size: 14),
+                  Icon(Icons.fiber_manual_record, color: Colors.white, size: 14),
                   SizedBox(width: 4),
-                  Text('EN DIRECT',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.8)),
+                  Text(
+                    'EN DIRECT',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1063,9 +1127,10 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
               child: Text(
                 widget.channel.name,
                 style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600),
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),

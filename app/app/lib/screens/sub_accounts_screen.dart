@@ -220,7 +220,7 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
                             if (!mounted) {
                               return;
                             }
-                            setDialogState(() => isSubmitting = false);
+                            try { setDialogState(() => isSubmitting = false); } catch (_) {}
                             _showSnack('Erreur: $error', error: true);
                           }
                         },
