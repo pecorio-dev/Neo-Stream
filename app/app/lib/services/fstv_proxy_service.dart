@@ -137,7 +137,10 @@ class FstvProxyService {
   }
 
   /// Extrait les URLs http(s) uniques en conservant l'ordre.
+  /// Les URLs relatives (ex: /api/live_proxy.php?...) sont résolues avec le
+  /// base URL de l'API.
   List<String> _parseSourceUrls(List<Map<String, dynamic>> sources) {
+    final base = Uri.parse(_apiBase);
     final urls = <String>[];
     final seen = <String>{};
     for (final source in sources) {
@@ -145,11 +148,14 @@ class FstvProxyService {
       if (value is! String) continue;
       final raw = value.trim();
       if (raw.isEmpty || seen.contains(raw)) continue;
-      final uri = Uri.tryParse(raw);
+      // Résoudre les URLs relatives (ex: /api/live_proxy.php?...)
+      final uri = raw.startsWith('/')
+          ? base.resolve(raw)
+          : Uri.tryParse(raw);
       if (uri == null || !uri.hasScheme) continue;
       if (uri.scheme != 'https' && uri.scheme != 'http') continue;
       seen.add(raw);
-      urls.add(raw);
+      urls.add(uri.toString());
     }
     return List<String>.unmodifiable(urls);
   }

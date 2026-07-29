@@ -49,6 +49,7 @@ class NativeVideoActivity : Activity(), Player.Listener {
     private var sourceIndex: Int = 0
     private var isLive: Boolean = false
     private var headers: Map<String, String> = emptyMap()
+    private var controllerVisible = false
     /** Headers par source (index aligné sur [streamUrls]). */
     private var headersList: List<Map<String, String>> = emptyList()
     private var startPosition: Long = 0L
@@ -94,6 +95,9 @@ class NativeVideoActivity : Activity(), Player.Listener {
             setKeepContentOnPlayerReset(true)
             setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
             controllerAutoShow = true
+            setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
+                controllerVisible = visibility == android.view.View.VISIBLE
+            })
         }
         root.addView(
             playerView,
@@ -401,25 +405,57 @@ class NativeVideoActivity : Activity(), Player.Listener {
         mainHandler.postDelayed(runnable, 900L)
     }
 
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        // OK / Enter sur écran d'erreur final → recommencer depuis la 1re source
-        if (errorView?.visibility == View.VISIBLE &&
-            finishedWithError &&
-            (keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
-                keyCode == KeyEvent.KEYCODE_ENTER ||
-                keyCode == KeyEvent.KEYCODE_MEDIA_PLAY ||
-                keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
-        ) {
-            sourceIndex = 0
-            finishedWithError = false
-            buildAndStartPlayer()
-            return true
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            when (event.keyCode) {
+                // OK / Enter sur écran d'erreur final → recommencer depuis la 1re source
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
+                KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+                    if (errorView?.visibility == View.VISIBLE && finishedWithError) {
+                        sourceIndex = 0
+                        finishedWithError = false
+                        buildAndStartPlayer()
+                        return true
+                    }
+                    // Toggle play/pause + show controller
+                    player?.let { it.playWhenReady = !it.playWhenReady }
+                    playerView?.showController()
+                    return true
+                }
+
+                // D-pad arrows → show controller if hidden, let PlayerView handle if visible
+                KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
+                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                    if (!controllerVisible) {
+                        playerView?.showController()
+                        return true
+                    }
+                }
+
+                KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                    player?.playWhenReady = false
+                    playerView?.showController()
+                    return true
+                }
+                KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
+                    player?.seekForward()
+                    playerView?.showController()
+                    return true
+                }
+                KeyEvent.KEYCODE_MEDIA_REWIND -> {
+                    player?.seekBack()
+                    playerView?.showController()
+                    return true
+                }
+            }
         }
-        if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
+        // BACK / ESCAPE → finish
+        if (event.action == KeyEvent.ACTION_DOWN &&
+            (event.keyCode == KeyEvent.KEYCODE_BACK || event.keyCode == KeyEvent.KEYCODE_ESCAPE)) {
             finishWithResult(error = if (finishedWithError) "playback_error" else null)
             return true
         }
-        return super.onKeyDown(keyCode, event)
+        return super.dispatchKeyEvent(event)
     }
 
     @Deprecated("Deprecated in Java")
