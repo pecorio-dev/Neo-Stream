@@ -1,5 +1,19 @@
 # Changelog — Neo-Stream
 
+## v1.3.2 — 29 juillet 2026
+
+### Corrections
+- **Focus recherche TV** : le focus ne s'échappe plus vers la sidebar en appuyant sur gauche pendant la recherche de films/séries/anime sur Android TV
+- Piégeage des touches directionnelles aux bords de la grille de résultats
+- Auto-focus sur le premier résultat de recherche en mode TV
+- Fix extraction vidéo, lecteur, favoris, perfs (correctifs v1.3.1 rétrosportés)
+
+### Améliorations
+- 12 captures d'écran ajoutées au repo depuis neo-stream.eu
+- README enrichi avec la galerie de screenshots complète
+
+---
+
 ## v1.0.0 — 13 mai 2026
 
 Première version publique de Neo-Stream.

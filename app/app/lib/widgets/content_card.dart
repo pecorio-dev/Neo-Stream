@@ -20,6 +20,8 @@ class ContentCard extends StatefulWidget {
   final CardVariant variant;
   final int index;
   final VoidCallback? onTap;
+  final ValueChanged<bool>? onFocusChange;
+  final bool autofocus;
 
   ContentCard({
     super.key,
@@ -27,6 +29,8 @@ class ContentCard extends StatefulWidget {
     this.variant = CardVariant.standard,
     this.index = 0,
     this.onTap,
+    this.onFocusChange,
+    this.autofocus = false,
   });
 
   @override
@@ -44,6 +48,7 @@ class _ContentCardState extends State<ContentCard> {
 
     return RepaintBoundary(
       child: Focus(
+      autofocus: widget.autofocus,
       onFocusChange: (focused) {
         if (_isFocused == focused) return;
         setState(() => _isFocused = focused);
@@ -55,6 +60,7 @@ class _ContentCardState extends State<ContentCard> {
             alignment: 0.5,
           );
         }
+        widget.onFocusChange?.call(focused);
       },
       onKeyEvent: useFocus
           ? (node, event) {

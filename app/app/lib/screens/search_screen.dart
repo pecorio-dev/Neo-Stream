@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../config/theme.dart';
@@ -31,6 +32,9 @@ class _SearchScreenState extends State<SearchScreen> {
   String _query = '';
   String? _error;
   int _searchId = 0;
+
+  int _focusedResultIndex = 0;
+  bool _autoFocusFirstResult = false;
 
   @override
   void initState() {
@@ -104,6 +108,9 @@ class _SearchScreenState extends State<SearchScreen> {
         _results = films;
         _animeResults = [...animes, ...extraAnimes];
         _loading = false;
+        _focusedResultIndex = 0;
+        _autoFocusFirstResult = NeoTheme.isTV(context) &&
+            (films.isNotEmpty || animes.isNotEmpty || extraAnimes.isNotEmpty);
       });
     } catch (e) {
       if (currentId != _searchId) return; // stale request
@@ -217,18 +224,39 @@ class _SearchScreenState extends State<SearchScreen> {
     final useGrid = isTV || MediaQuery.of(context).size.width >= 600;
 
     if (useGrid) {
-      return FocusTraversalGroup(
-        policy: ReadingOrderTraversalPolicy(),
-        child: GridView.builder(
-          padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, 32),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: cols,
-            childAspectRatio: 2 / 3,
-            crossAxisSpacing: NeoTheme.gridSpacing(context),
-            mainAxisSpacing: NeoTheme.gridSpacing(context),
+      final total = all.length;
+      return Focus(
+        canRequestFocus: false,
+        onKeyEvent: isTV
+            ? (node, event) {
+                if (event is! KeyDownEvent) return KeyEventResult.ignored;
+                if (event.logicalKey == LogicalKeyboardKey.arrowLeft &&
+                    _focusedResultIndex % cols == 0) {
+                  return KeyEventResult.handled;
+                }
+                if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+                  final posInRow = _focusedResultIndex % cols;
+                  if (posInRow == cols - 1 ||
+                      _focusedResultIndex == total - 1) {
+                    return KeyEventResult.handled;
+                  }
+                }
+                return KeyEventResult.ignored;
+              }
+            : null,
+        child: FocusTraversalGroup(
+          policy: ReadingOrderTraversalPolicy(),
+          child: GridView.builder(
+            padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, 32),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: cols,
+              childAspectRatio: 2 / 3,
+              crossAxisSpacing: NeoTheme.gridSpacing(context),
+              mainAxisSpacing: NeoTheme.gridSpacing(context),
+            ),
+            itemCount: all.length,
+            itemBuilder: (ctx, i) => _buildCard(ctx, all[i], i),
           ),
-          itemCount: all.length,
-          itemBuilder: (ctx, i) => _buildCard(ctx, all[i], i),
         ),
       );
     }
@@ -265,6 +293,15 @@ class _SearchScreenState extends State<SearchScreen> {
       variant: NeoTheme.isTV(context) ? CardVariant.standard : CardVariant.search,
       index: index,
       onTap: onTap,
+      autofocus: index == 0 && _autoFocusFirstResult,
+      onFocusChange: (focused) {
+        if (focused) {
+          _focusedResultIndex = index;
+          if (_autoFocusFirstResult) {
+            setState(() => _autoFocusFirstResult = false);
+          }
+        }
+      },
     );
   }
 
@@ -303,23 +340,33 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildTVSearchButton(BuildContext context) {
     final hasQuery = _query.isNotEmpty;
-    return ElevatedButton.icon(
-      autofocus: true,
-      onPressed: _openSearchDialog,
-      icon: Icon(Icons.search_rounded, size: 22),
-      label: Text(
-        hasQuery ? 'Modifier : "$_query"' : 'Appuyer OK pour rechercher',
-        overflow: TextOverflow.ellipsis,
-      ),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: hasQuery ? Theme.of(context).colorScheme.primary : Neo.bgOverlay(context),
-        foregroundColor: Colors.white,
-        minimumSize: Size(double.infinity, 52),
-        alignment: Alignment.centerLeft,
-        padding: EdgeInsets.symmetric(horizontal: 20),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(NeoTheme.radiusLg)),
-        side: BorderSide(
-          color: hasQuery ? Theme.of(context).colorScheme.primary : Neo.bgBorder(context).withValues(alpha: 0.4),
+    return Focus(
+      canRequestFocus: false,
+      onKeyEvent: (node, event) {
+        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: ElevatedButton.icon(
+        autofocus: true,
+        onPressed: _openSearchDialog,
+        icon: Icon(Icons.search_rounded, size: 22),
+        label: Text(
+          hasQuery ? 'Modifier : "$_query"' : 'Appuyer OK pour rechercher',
+          overflow: TextOverflow.ellipsis,
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: hasQuery ? Theme.of(context).colorScheme.primary : Neo.bgOverlay(context),
+          foregroundColor: Colors.white,
+          minimumSize: Size(double.infinity, 52),
+          alignment: Alignment.centerLeft,
+          padding: EdgeInsets.symmetric(horizontal: 20),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(NeoTheme.radiusLg)),
+          side: BorderSide(
+            color: hasQuery ? Theme.of(context).colorScheme.primary : Neo.bgBorder(context).withValues(alpha: 0.4),
+          ),
         ),
       ),
     );
