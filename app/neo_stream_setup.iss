@@ -1,5 +1,5 @@
 #define MyAppName "Neo-Stream"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.3.2"
 #define MyAppPublisher "p3cori0"
 #define MyAppURL "https://neo-stream.eu"
 #define MyAppExeName "neo_stream.exe"
