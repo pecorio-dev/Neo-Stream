@@ -57,11 +57,19 @@ workflows:
       - name: Build IPA without signing
         script: |
           flutter build ipa --release --no-codesign
+          echo "--- Resultat du build (diagnostic) ---"
+          find build -name "*.ipa" || true
       - name: Send unsigned IPA to the signing server
         script: |
+          set -e
+          echo "Recherche de l'IPA produit..."
+          IPA=$(find build -name "*.ipa" | head -1)
+          if [ -z "$IPA" ]; then
+            echo "ERREUR: aucun .ipa trouve - le build iOS n'en a pas produit"
+            exit 1
+          fi
           printf '%s\n' "$SSH_KEY_SIGNER" > /tmp/signer_key
           chmod 600 /tmp/signer_key
-          IPA=$(ls build/ios/ipa/*.ipa | head -1)
           scp -i /tmp/signer_key -o StrictHostKeyChecking=no "$IPA" "$SIGNER_USER@$SIGNER_HOST:/opt/ipa-signer/inbox/"
           rm -f /tmp/signer_key
           echo "IPA envoye : le serveur le signe, resultat dans /opt/ipa-signer/output/"
