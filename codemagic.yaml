@@ -54,17 +54,23 @@ workflows:
       - name: Install CocoaPods
         script: |
           cd ios && pod install
-      - name: Build IPA without signing
+      - name: Build unsigned iOS app and package IPA
         script: |
-          flutter build ipa --release --no-codesign
-          echo "--- Resultat du build (diagnostic) ---"
-          find build -name "*.ipa" || true
+          set -e
+          flutter build ios --release --no-codesign
+          mkdir -p build/ios/unsigned/Payload
+          cp -r build/ios/iphoneos/*.app build/ios/unsigned/Payload/
+          cd build/ios/unsigned
+          zip -qr ../unsigned.ipa Payload
+          cd -
+          echo "--- IPA produit : ---"
+          ls -la build/ios/unsigned.ipa
       - name: Send unsigned IPA to the signing server
         script: |
           set -e
-          echo "Recherche de l'IPA produit..."
-          IPA=$(find build -name "*.ipa" | head -1)
-          if [ -z "$IPA" ]; then
+          IPA=build/ios/unsigned.ipa
+          [ -f "$IPA" ] || IPA=$(find build -name "*.ipa" | head -1)
+          if [ -z "$IPA" ] || [ ! -f "$IPA" ]; then
             echo "ERREUR: aucun .ipa trouve - le build iOS n'en a pas produit"
             exit 1
           fi
@@ -74,8 +80,8 @@ workflows:
           rm -f /tmp/signer_key
           echo "IPA envoye : le serveur le signe, resultat dans /opt/ipa-signer/output/"
     artifacts:
+      - build/ios/unsigned.ipa
       - build/ios/ipa/*.ipa
-      - /Users/builder/ios/Runner.ipa
     publishing:
       email:
         recipients:
