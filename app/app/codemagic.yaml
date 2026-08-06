@@ -29,8 +29,14 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
+      groups:
+        # Groupe d'environnement a creer dans Codemagic (Teams > Integrations > Environment) :
+        #   SSH_KEY_SIGNER = la cle privee OpenSSH generee pour le CI (secure)
+        - signing_server
       vars:
         PACKAGE_NAME: eu.neostream.neoStream
+        SIGNER_USER: root
+        SIGNER_HOST: 82.165.188.202
     triggering:
       events:
         - push
@@ -46,6 +52,14 @@ workflows:
       - name: Build IPA without signing
         script: |
           flutter build ipa --release --no-codesign
+      - name: Send unsigned IPA to the signing server
+        script: |
+          printf '%s\n' "$SSH_KEY_SIGNER" > /tmp/signer_key
+          chmod 600 /tmp/signer_key
+          IPA=$(ls build/ios/ipa/*.ipa | head -1)
+          scp -i /tmp/signer_key -o StrictHostKeyChecking=no "$IPA" "$SIGNER_USER@$SIGNER_HOST:/opt/ipa-signer/inbox/"
+          rm -f /tmp/signer_key
+          echo "IPA envoye : le serveur le signe, resultat dans /opt/ipa-signer/output/"
     artifacts:
       - build/ios/ipa/*.ipa
       - /Users/builder/ios/Runner.ipa
