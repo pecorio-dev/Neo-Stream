@@ -1,6 +1,7 @@
 workflows:
   android-workflow:
     name: Android Release
+    working_directory: app/app
     environment:
       flutter: stable
       vars:
@@ -25,6 +26,7 @@ workflows:
 
   ios-workflow:
     name: iOS Development
+    working_directory: app/app
     environment:
       flutter: stable
       xcode: latest
