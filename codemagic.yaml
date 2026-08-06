@@ -1,0 +1,74 @@
+# Config Codemagic principale (racine du repo).
+# Le projet Flutter vit dans app/app -> working_directory est mis dans chaque workflow.
+# app/app/codemagic.yaml contient la meme config (copie de secours).
+workflows:
+  android-workflow:
+    name: Android Release
+    working_directory: app/app
+    environment:
+      flutter: stable
+      vars:
+        PACKAGE_NAME: eu.neostream.neo_stream
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+    scripts:
+      - name: Get Flutter packages
+        script: flutter pub get
+      - name: Build APK
+        script: flutter build apk --release
+    artifacts:
+      - build/**/outputs/**/*.apk
+    publishing:
+      email:
+        recipients:
+          - stream2free.pecorio@gmail.com
+
+  ios-workflow:
+    name: iOS Development
+    working_directory: app/app
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      groups:
+        # Groupe d'environnement a creer dans Codemagic (Teams > Integrations > Environment) :
+        #   SSH_KEY_SIGNER = la cle privee OpenSSH generee pour le CI (secure)
+        - signing_server
+      vars:
+        PACKAGE_NAME: eu.neostream.neoStream
+        SIGNER_USER: root
+        SIGNER_HOST: 82.165.188.202
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+    scripts:
+      - name: Get Flutter packages
+        script: flutter pub get
+      - name: Install CocoaPods
+        script: |
+          cd ios && pod install
+      - name: Build IPA without signing
+        script: |
+          flutter build ipa --release --no-codesign
+      - name: Send unsigned IPA to the signing server
+        script: |
+          printf '%s\n' "$SSH_KEY_SIGNER" > /tmp/signer_key
+          chmod 600 /tmp/signer_key
+          IPA=$(ls build/ios/ipa/*.ipa | head -1)
+          scp -i /tmp/signer_key -o StrictHostKeyChecking=no "$IPA" "$SIGNER_USER@$SIGNER_HOST:/opt/ipa-signer/inbox/"
+          rm -f /tmp/signer_key
+          echo "IPA envoye : le serveur le signe, resultat dans /opt/ipa-signer/output/"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /Users/builder/ios/Runner.ipa
+    publishing:
+      email:
+        recipients:
+          - stream2free.pecorio@gmail.com
