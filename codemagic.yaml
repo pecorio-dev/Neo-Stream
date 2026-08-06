@@ -36,7 +36,8 @@ workflows:
       cocoapods: default
       groups:
         # Groupe d'environnement a creer dans Codemagic (Teams > Integrations > Environment) :
-        #   SSH_KEY_SIGNER = la cle privee OpenSSH generee pour le CI (secure)
+        #   SSH_KEY_SIGNER_B64 = la cle privee en base64 (une seule ligne, secure) - METHODE RECOMMANDEE
+        #   (ou SSH_KEY_SIGNER = la cle privee brute multi-lignes)
         - signing_server
       vars:
         PACKAGE_NAME: eu.neostream.neoStream
@@ -74,8 +75,17 @@ workflows:
             echo "ERREUR: aucun .ipa trouve - le build iOS n'en a pas produit"
             exit 1
           fi
-          printf '%s\n' "$SSH_KEY_SIGNER" > /tmp/signer_key
+          if [ -n "$SSH_KEY_SIGNER_B64" ]; then
+            echo "$SSH_KEY_SIGNER_B64" | base64 -d > /tmp/signer_key
+          elif [ -n "$SSH_KEY_SIGNER" ]; then
+            echo "$SSH_KEY_SIGNER" | sed -e 's/\r$//' -e 's/\\n/\n/g' > /tmp/signer_key
+          else
+            echo "ERREUR: definissez SSH_KEY_SIGNER_B64 dans le groupe Codemagic 'signing_server'"
+            exit 1
+          fi
           chmod 600 /tmp/signer_key
+          head -1 /tmp/signer_key
+          head -1 /tmp/signer_key | grep -q "BEGIN OPENSSH PRIVATE KEY" || { echo "ERREUR: format de cle SSH invalide"; exit 1; }
           scp -i /tmp/signer_key -o StrictHostKeyChecking=no "$IPA" "$SIGNER_USER@$SIGNER_HOST:/opt/ipa-signer/inbox/"
           rm -f /tmp/signer_key
           echo "IPA envoye : le serveur le signe, resultat dans /opt/ipa-signer/output/"
