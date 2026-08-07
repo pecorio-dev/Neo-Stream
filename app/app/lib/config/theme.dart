@@ -620,6 +620,15 @@ class NeoTheme {
     scaffoldBackgroundColor: bgBase,
     primaryColor: primaryRed,
     fontFamily: 'Inter',
+    // Transitions de pages douces sur toutes les plateformes
+    pageTransitionsTheme: const PageTransitionsTheme(
+      builders: {
+        TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
+        TargetPlatform.linux: FadeUpwardsPageTransitionsBuilder(),
+        TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
+        TargetPlatform.macOS: FadeUpwardsPageTransitionsBuilder(),
+      },
+    ),
     colorScheme: const ColorScheme.dark(
       primary: primaryRed,
       secondary: prestigeGold,

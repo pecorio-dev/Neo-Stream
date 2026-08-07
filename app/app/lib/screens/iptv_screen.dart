@@ -116,6 +116,7 @@ class _IptvScreenState extends State<IptvScreen> {
   }
 
   void _play(FstvChannel channel) {
+    HapticFeedback.mediumImpact();
     Navigator.of(context).push(
       PageRouteBuilder(
         pageBuilder: (_1, _2, _3) => _LivePlayerScreen(channel: channel),
@@ -175,7 +176,7 @@ class _IptvScreenState extends State<IptvScreen> {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  gradient: Neo.heroGradient,
+                  gradient: Neo.heroGradient(context),
                   borderRadius: BorderRadius.circular(Neo.radiusMd),
                   boxShadow: [
                     BoxShadow(
@@ -185,7 +186,7 @@ class _IptvScreenState extends State<IptvScreen> {
                     ),
                   ],
                 ),
-                child: const Icon(Icons.live_tv_rounded, color: Colors.white),
+                child: Icon(Icons.live_tv_rounded, color: Neo.onHeroGradient(context)),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -720,6 +721,7 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
   int _openGeneration = 0;
   bool _userClosedNative = false;
   bool _isSwitching = false;
+  bool _didRefreshRetry = false;
   List<String> _streamUrls = const [];
 
   StreamSubscription<String>? _errorSub;
@@ -753,6 +755,7 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
     _openGeneration++;
     _userClosedNative = false;
     _desktopSourceIndex = 0;
+    _didRefreshRetry = false;
     if (mounted) {
       setState(() {
         _loading = true;
@@ -782,6 +785,31 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
           _error = 'Chaîne indisponible.\n${FstvProxyService.humanize(e)}';
         });
       }
+    }
+  }
+
+  /// Les jetons CDN amont (FSTV) expirent vite : si TOUTES les sources
+  /// échouent, on force un rafraîchissement des chaînes (ids neufs) et on
+  /// retente une fois avant d'afficher l'erreur.
+  Future<bool> _tryRefreshAndReplay(int generation) async {
+    if (_didRefreshRetry) return false;
+    _didRefreshRetry = true;
+    try {
+      await _proxy.getChannels(forceRefresh: true);
+      final fresh = await _proxy.streamUrlsFor(widget.channel.slug);
+      if (!mounted || generation != _openGeneration) return false;
+      if (fresh.isEmpty || listEquals(fresh, _streamUrls)) return false;
+      debugPrint('[LivePlayer] refresh → nouvelles sources, 2e tentative');
+      _streamUrls = fresh;
+      _desktopSourceIndex = 0;
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+      await _playAllSources();
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -825,6 +853,8 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
 
         // Toutes les sources ont déjà été essayées côté natif (1 try chacune)
         debugPrint('[LivePlayer] all native sources failed: $errMsg');
+        // 2e chance : les jetons ont peut-être expiré côté amont
+        if (await _tryRefreshAndReplay(generation)) return;
         if (mounted) {
           setState(() {
             _loading = false;
@@ -851,6 +881,11 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
 
   Future<void> _playDesktopSource(int generation) async {
     if (_desktopSourceIndex >= _streamUrls.length) {
+      // Toutes les sources épuisées : 2e chance avec des jetons frais
+      if (generation == _openGeneration &&
+          await _tryRefreshAndReplay(generation)) {
+        return;
+      }
       if (mounted && generation == _openGeneration) {
         setState(() {
           _loading = false;
@@ -1058,7 +1093,7 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
                 label: const Text('Réessayer'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Theme.of(context).colorScheme.primary,
-                  foregroundColor: Colors.white,
+                  foregroundColor: Neo.readableOnPrimary(context),
                 ),
               ),
               const SizedBox(height: 12),

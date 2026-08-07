@@ -105,7 +105,9 @@ class UniversalPlayerController {
     final out = <String>[];
     void add(String u) {
       final t = u.trim();
-      if ((t.startsWith('http://') || t.startsWith('https://')) &&
+      if ((t.startsWith('http://') ||
+              t.startsWith('https://') ||
+              t.startsWith('file://')) &&
           !out.contains(t)) {
         out.add(t);
       }

@@ -84,7 +84,7 @@ class _NeoGlassCardState extends State<NeoGlassCard> {
       // ── Surface sombre (thème sombre) ─────────────────────────────────
       content = Container(
         decoration: BoxDecoration(
-          gradient: Neo.surfaceGradient,
+          gradient: Neo.surfaceGradient(context),
           borderRadius: BorderRadius.circular(radius),
           border: Border.all(
             color: Neo.bgBorder(context).withValues(alpha: 0.6),

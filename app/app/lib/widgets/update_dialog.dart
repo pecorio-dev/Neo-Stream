@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../config/constants.dart';
+import '../config/neo.dart';
 import '../config/tv_config.dart';
 import '../models/github_release.dart';
 import '../providers/update_provider.dart';
@@ -523,20 +524,28 @@ class _MobileUpdateDialog extends StatelessWidget {
                 launchUrl(AppConstants.githubReleasesPageUri),
             child: const Text('GitHub'),
           ),
-        FilledButton(
-          onPressed:
-              update.isDownloading ? null : () => update.downloadAndInstall(),
-          child: update.isDownloading
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-              : const Text('Mettre à jour'),
-        ),
+        Builder(builder: (context) {
+          final btnBg = Theme.of(context).colorScheme.primary;
+          final onBtn = Neo.readableOn(btnBg);
+          return FilledButton(
+            onPressed:
+                update.isDownloading ? null : () => update.downloadAndInstall(),
+            style: FilledButton.styleFrom(
+              backgroundColor: btnBg,
+              foregroundColor: onBtn,
+            ),
+            child: update.isDownloading
+                ? SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: onBtn,
+                    ),
+                  )
+                : const Text('Mettre à jour'),
+          );
+        }),
       ],
     );
   }

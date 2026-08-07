@@ -76,7 +76,7 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              backgroundColor: Color(0xFF18182A),
+              backgroundColor: Neo.bgOverlay(context),
               title: Text(
                 existing == null ? 'Nouveau profil' : 'Modifier le profil',
                 style: Neo.titleLarge(context),
@@ -245,7 +245,7 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
           context: context,
           builder: (dialogContext) {
             return AlertDialog(
-              backgroundColor: Color(0xFF18182A),
+              backgroundColor: Neo.bgOverlay(context),
               title: Text(
                 'Supprimer ce profil ?',
                 style: Neo.titleLarge(context),
@@ -304,7 +304,12 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
     }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
+        content: Text(
+          message,
+          style: TextStyle(
+            color: error ? Colors.white : Neo.readableOnPrimary(context),
+          ),
+        ),
         backgroundColor: error ? NeoTheme.errorRed : Theme.of(context).colorScheme.primary,
       ),
     );
@@ -356,7 +361,7 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
                 label: Text('Ajouter'),
                 style: FilledButton.styleFrom(
                   backgroundColor: Theme.of(context).colorScheme.primary,
-                  foregroundColor: Colors.white,
+                  foregroundColor: Neo.readableOnPrimary(context),
                 ),
               ),
             ),
@@ -367,7 +372,7 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
           ? FloatingActionButton.extended(
               onPressed: _showCreateDialog,
               backgroundColor: Theme.of(context).colorScheme.primary,
-              foregroundColor: Colors.white,
+              foregroundColor: Neo.readableOnPrimary(context),
               icon: Icon(Icons.add_rounded),
               label: Text('Ajouter un profil'),
             )
@@ -452,13 +457,17 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
                 Text(
                   'Fonction reservee au Premium',
                   textAlign: TextAlign.center,
-                  style: Neo.headlineMedium(context),
+                  // Carte volontairement sombre (les deux thèmes) :
+                  // texte figé clair.
+                  style: Neo.headlineMedium(context)
+                      .copyWith(color: NeoTheme.textPrimary),
                 ),
                 SizedBox(height: 10),
                 Text(
                   'Creez jusqu a 4 profils supplementaires pour la famille, avec mot de passe optionnel et historique separe.',
                   textAlign: TextAlign.center,
-                  style: Neo.bodyMedium(context),
+                  style: Neo.bodyMedium(context)
+                      .copyWith(color: NeoTheme.textSecondary),
                 ),
                 SizedBox(height: 18),
                 FilledButton.icon(
@@ -596,7 +605,7 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
                 height: 84,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  gradient: Neo.surfaceGradient,
+                  gradient: Neo.surfaceGradient(context),
                   border: Border.all(
                     color: Neo.bgBorder(context).withValues(alpha: 0.15),
                   ),
@@ -624,7 +633,7 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
                   onPressed: _showCreateDialog,
                   style: FilledButton.styleFrom(
                     backgroundColor: Theme.of(context).colorScheme.primary,
-                    foregroundColor: Colors.white,
+                    foregroundColor: Neo.readableOnPrimary(context),
                   ),
                   icon: Icon(Icons.add_rounded),
                   label: Text('Creer un profil'),
@@ -703,7 +712,7 @@ class _ProfileCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        gradient: Neo.surfaceGradient,
+        gradient: Neo.surfaceGradient(context),
         borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
         border: Border.all(
           color: Neo.bgBorder(context).withValues(alpha: 0.15),
@@ -722,16 +731,16 @@ class _ProfileCard extends StatelessWidget {
                 height: 54,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  gradient: NeoTheme.heroGradient,
+                  gradient: Neo.heroGradient(context),
                 ),
                 child: Center(
                   child: Text(
                     subAccount.username.isNotEmpty
                         ? subAccount.username[0].toUpperCase()
                         : '?',
-                    style: NeoTheme.headlineMedium(
+                    style: Neo.headlineMedium(
                       context,
-                    ).copyWith(color: Colors.white),
+                    ).copyWith(color: Neo.onHeroGradient(context)),
                   ),
                 ),
               ),
@@ -843,7 +852,12 @@ class _SummaryStat extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: Neo.labelMedium(context)),
+                Text(
+                  label,
+                  // Toujours posé sur la carte sombre du résumé → figé clair.
+                  style: Neo.labelMedium(context)
+                      .copyWith(color: NeoTheme.textTertiary),
+                ),
                 SizedBox(height: 4),
                 Text(
                   value,

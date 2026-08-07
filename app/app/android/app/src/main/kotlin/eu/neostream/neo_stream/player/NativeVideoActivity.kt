@@ -18,6 +18,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -62,6 +63,12 @@ class NativeVideoActivity : Activity(), Player.Listener {
     private var finishedWithError = false
     private var hasPlayedSuccessfully = false
     private var switchingSource = false
+
+    /** Retries du flux live : les playlists HLS tournent et tombent
+     *  momentanément (STATE_ENDED/erreur réseau transitoire). On réessaie
+     *  en boucle courte au lieu d'afficher une page d'erreur. */
+    private var liveRetryCount = 0
+    private val maxLiveRetries = 5
 
     private val streamUrl: String
         get() = if (sourceIndex in streamUrls.indices) streamUrls[sourceIndex] else ""
@@ -126,6 +133,10 @@ class NativeVideoActivity : Activity(), Player.Listener {
             setPadding(24, 16, 24, 16)
             visibility = if (streamUrls.size > 1) View.VISIBLE else View.GONE
             setBackgroundColor(0x66000000.toInt())
+            // Sélecteur de source dans le lecteur (phone : tap, TV : D-pad OK)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { showSourcePicker() }
         }
         root.addView(
             sourceLabelView,
@@ -157,14 +168,124 @@ class NativeVideoActivity : Activity(), Player.Listener {
 
         setContentView(root)
         updateSourceLabel()
+        buildControlPanel(root)
         buildAndStartPlayer()
+    }
+
+    // ── Panneau de contrôle : vitesse de lecture + minuteur de sommeil ──
+
+    private val speedSteps = floatArrayOf(1.0f, 1.25f, 1.5f, 2.0f, 0.5f, 0.75f)
+    private var speedIndex = 0
+    private val currentRate: Float get() = speedSteps[speedIndex]
+    private var speedButton: TextView? = null
+    private var timerButton: TextView? = null
+
+    private val sleepStepsMin = intArrayOf(0, 15, 30, 45, 60)
+    private var sleepStepIndex = 0
+    private var sleepRunnable: Runnable? = null
+
+    private fun buildControlPanel(root: FrameLayout) {
+        fun chip(): TextView = TextView(this).apply {
+            setTextColor(0xE6FFFFFF.toInt())
+            textSize = 13f
+            setPadding(24, 12, 24, 12)
+            setBackgroundColor(0x66000000.toInt())
+            isFocusable = true
+        }
+
+        speedButton = chip().apply {
+            text = "1.0x"
+            visibility = if (isLive) View.GONE else View.VISIBLE
+            setOnClickListener {
+                speedIndex = (speedIndex + 1) % speedSteps.size
+                text = "${currentRate}x"
+                if (!isLive) player?.setPlaybackSpeed(currentRate)
+                Toast.makeText(context, "Vitesse ${currentRate}x", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        timerButton = chip().apply {
+            text = "⏱"
+            setOnClickListener { cycleSleepTimer(this) }
+        }
+
+        val panel = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+        }
+        panel.addView(speedButton)
+        panel.addView(timerButton)
+
+        root.addView(
+            panel,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP or Gravity.START
+            ).apply {
+                topMargin = 24
+                marginStart = 24
+            }
+        )
+    }
+
+    private fun cycleSleepTimer(button: TextView) {
+        sleepRunnable?.let { mainHandler.removeCallbacks(it) }
+        sleepRunnable = null
+        sleepStepIndex = (sleepStepIndex + 1) % sleepStepsMin.size
+        val minutes = sleepStepsMin[sleepStepIndex]
+        if (minutes <= 0) {
+            button.text = "⏱"
+            Toast.makeText(this, "Minuteur désactivé", Toast.LENGTH_SHORT).show()
+            return
+        }
+        button.text = "⏱ ${minutes}\""
+        Toast.makeText(this, "Pause dans $minutes min", Toast.LENGTH_SHORT).show()
+        val r = Runnable {
+            player?.pause()
+            playerView?.showController()
+            sleepStepIndex = 0
+            timerButton?.text = "⏱"
+            Toast.makeText(this, "Minuteur : lecture mise en pause", Toast.LENGTH_LONG).show()
+        }
+        sleepRunnable = r
+        mainHandler.postDelayed(r, minutes * 60_000L)
     }
 
     private fun updateSourceLabel() {
         sourceLabelView?.text =
-            "Source ${sourceIndex + 1}/${streamUrls.size}"
+            "Source ${sourceIndex + 1}/${streamUrls.size} ▾"
         sourceLabelView?.visibility =
             if (streamUrls.size > 1) View.VISIBLE else View.GONE
+    }
+
+    /** Dialogue de choix manuel de la source (navigation D-pad compatible). */
+    private fun showSourcePicker() {
+        if (streamUrls.size <= 1) return
+        val labels = streamUrls.mapIndexed { i, _ ->
+            (if (i == sourceIndex) "● " else "○ ") + "Source ${i + 1}"
+        }.toTypedArray()
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Choisir la source")
+            .setItems(labels) { _, which -> switchToSource(which) }
+            .show()
+    }
+
+    private fun switchToSource(index: Int) {
+        if (index == sourceIndex || index !in streamUrls.indices) return
+        if (!isLive) {
+            val pos = player?.currentPosition ?: 0L
+            if (pos > 1000L) resumePositionOnSwitch = pos
+        }
+        switchingSource = true
+        sourceIndex = index
+        Toast.makeText(this, "Source ${index + 1}", Toast.LENGTH_SHORT).show()
+        // Bascule sans fermer (comme le failover automatique)
+        switchRunnable?.let { mainHandler.removeCallbacks(it) }
+        val runnable = Runnable {
+            if (!isFinishing) buildAndStartPlayer()
+        }
+        switchRunnable = runnable
+        mainHandler.postDelayed(runnable, 150L)
     }
 
     /** Headers pour la source courante (liste par index ou fallback global). */
@@ -248,7 +369,8 @@ class NativeVideoActivity : Activity(), Player.Listener {
                     created.addListener(this)
                     created.playWhenReady = true
                     created.volume = 1.0f
-                    if (isLive) created.setPlaybackSpeed(1.0f)
+                    // Vitesse de lecture : 1.0 imposée en direct, sinon la dernière choisie
+                    created.setPlaybackSpeed(if (isLive) 1.0f else currentRate)
                     player = created
                     playerView?.player = created
                 }
@@ -269,12 +391,21 @@ class NativeVideoActivity : Activity(), Player.Listener {
                 )
                 .build()
 
+            // Fichiers locaux (téléchargements) → DefaultDataSource adaptatif,
+            // sinon le HTTP DataSource avec headers pour le streaming.
+            val sourceFactory: androidx.media3.datasource.DataSource.Factory =
+                if (url.startsWith("file:") || url.startsWith("content:")) {
+                    DefaultDataSource.Factory(this, dsFactory)
+                } else {
+                    dsFactory
+                }
+
             // DataSource headers : rebuild media source with current factory
             val source = when {
-                isHls(url) -> HlsMediaSource.Factory(dsFactory)
+                isHls(url) -> HlsMediaSource.Factory(sourceFactory)
                     .setAllowChunklessPreparation(true)
                     .createMediaSource(mediaItem)
-                else -> ProgressiveMediaSource.Factory(dsFactory)
+                else -> ProgressiveMediaSource.Factory(sourceFactory)
                     .createMediaSource(mediaItem)
             }
 
@@ -288,6 +419,7 @@ class NativeVideoActivity : Activity(), Player.Listener {
                     else -> 0L
                 }
                 if (seekPos > 0L) p.seekTo(seekPos)
+                resumePositionOnSwitch = 0L // consommée (évite re-seek ultérieur)
             }
             p.prepare()
             p.playWhenReady = true
@@ -324,6 +456,7 @@ class NativeVideoActivity : Activity(), Player.Listener {
                 finishedWithError = false
                 hasPlayedSuccessfully = true
                 switchingSource = false
+                liveRetryCount = 0 // flux reparti → compteur de pannes remis à zéro
             }
             Player.STATE_ENDED -> {
                 if (isLive) {
@@ -356,6 +489,26 @@ class NativeVideoActivity : Activity(), Player.Listener {
      */
     private fun tryNextSourceOrFail(reason: String) {
         if (switchingSource || isFinishing) return
+
+        // Live : avant de déclarer l'échec, repartir de la 1re source
+        // (les flux HLS coupent/rétablissent naturellement)
+        if (isLive && liveRetryCount < maxLiveRetries) {
+            liveRetryCount++
+            android.util.Log.i(TAG, "live retry $liveRetryCount/$maxLiveRetries ($reason)")
+            switchingSource = true
+            errorView?.apply {
+                text = "Reconnexion au direct… ($liveRetryCount)"
+                visibility = View.VISIBLE
+            }
+            val runnable = Runnable {
+                sourceIndex = 0
+                if (!isFinishing) buildAndStartPlayer()
+            }
+            switchRunnable?.let { mainHandler.removeCallbacks(it) }
+            switchRunnable = runnable
+            mainHandler.postDelayed(runnable, 1_000L)
+            return
+        }
 
         val next = sourceIndex + 1
         if (next < streamUrls.size) {
@@ -484,6 +637,8 @@ class NativeVideoActivity : Activity(), Player.Listener {
         switchRunnable = null
         finishRunnable?.let { mainHandler.removeCallbacks(it) }
         finishRunnable = null
+        sleepRunnable?.let { mainHandler.removeCallbacks(it) }
+        sleepRunnable = null
         playerView?.player = null
         player?.removeListener(this)
         player?.release()
@@ -564,15 +719,18 @@ class NativeVideoActivity : Activity(), Player.Listener {
         /** Accepte `urls` (liste) et/ou `url` (single) — déduplique en gardant l'ordre. */
         private fun readUrls(intent: Intent): List<String> {
             val out = LinkedHashSet<String>()
+            fun ok(t: String) = t.startsWith("http://") ||
+                t.startsWith("https://") ||
+                t.startsWith("file://")
             val list = intent.getStringArrayListExtra(EXTRA_URLS)
             if (list != null) {
                 for (u in list) {
                     val t = u?.trim().orEmpty()
-                    if (t.startsWith("http://") || t.startsWith("https://")) out.add(t)
+                    if (ok(t)) out.add(t)
                 }
             }
             intent.getStringExtra(EXTRA_URL)?.trim()?.let { u ->
-                if (u.startsWith("http://") || u.startsWith("https://")) out.add(u)
+                if (ok(u)) out.add(u)
             }
             return out.toList()
         }

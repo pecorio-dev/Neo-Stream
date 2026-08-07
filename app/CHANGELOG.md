@@ -1,5 +1,24 @@
 # Changelog — Neo-Stream
 
+## v1.4.0 (pré-release) — 8 août 2026
+
+### Nouveautés
+- **Téléchargements hors-ligne** : films, épisodes de séries et anime téléchargeables depuis les fiches (par épisode, saison ou série entière) — extraction via le moteur existant, MP4 direct ou HLS concaténé ; écran Téléchargements dédié (progression, reprise, lecture hors-ligne)
+- **Épisode suivant automatique** : carte façon Netflix avec compte à rebours 10 s et enchaînement (lecteur natif Android inclus) + bouton « épisode suivant » manuel
+- **Sélecteur de source dans le lecteur** : choix manuel du serveur pendant la lecture (téléphone tactile, TV D-pad, desktop)
+- **Vitesse de lecture** : 0.5x → 2x, mémorisée (natif Android + desktop)
+- **Minuteur de sommeil** : 15/30/45/60 min, pause automatique
+- **Recherche avancée** : historique local + filtres Films / Séries / Anime / ⭐ 7+
+- **Catalogue hors-ligne** : cache local accueil + listes (démarrage instantané, repli sans réseau)
+
+### Corrections
+- **Blanc sur blanc** : fix complet (~40 cas) — bouton Connexion, avatars, sélecteurs, snackbars, sheets PayPal, focus TV, tous les thèmes clair/sombre
+- **Live TV** : retries natifs quand le flux HLS tourne/saute au lieu d'une page d'erreur ; tentative de rafraîchissement automatique quand toutes les sources échouent
+- **Fausses vidéos « troll »** : détecteur à l'extraction (clip < 120 s / MP4 < 8 Mo écartés automatiquement)
+- **API** : accueil ~20-40x plus rapide (cache global 10 min partagé), gzip, search/détail/anime cachés, `ensureExtendedSchema` limité à 1×/jour, corrections requêtes (plages de dates indexables, suppression `ORDER BY RAND()`)
+
+---
+
 ## v1.3.2 — 29 juillet 2026
 
 ### Corrections

@@ -155,12 +155,14 @@ class _ProfileSelectionScreenState extends State<ProfileSelectionScreen>
                     height: 52,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      gradient: NeoTheme.heroGradient,
+                      gradient: Neo.heroGradient(ctx),
                     ),
                     child: Center(
                       child: Text(
                         username.isNotEmpty ? username[0].toUpperCase() : '?',
-                        style: NeoTheme.headlineMedium(ctx),
+                        style: Neo.headlineMedium(ctx).copyWith(
+                          color: Neo.onHeroGradient(ctx),
+                        ),
                       ),
                     ),
                   ),
@@ -271,6 +273,8 @@ class _ProfileSelectionScreenState extends State<ProfileSelectionScreen>
                       style: Neo.headlineLarge(context).copyWith(
                         fontWeight: FontWeight.w800,
                         fontSize: isTv ? 40 : null,
+                        // Écran toujours sombre → texte figé clair.
+                        color: NeoTheme.textPrimary,
                       ),
                     ),
                     SizedBox(height: 4),
@@ -278,7 +282,7 @@ class _ProfileSelectionScreenState extends State<ProfileSelectionScreen>
                       'Choisissez votre profil',
                       textAlign: TextAlign.center,
                       style: Neo.bodySmall(context).copyWith(
-                        color: Neo.textSecondary(context),
+                        color: NeoTheme.textSecondary,
                       ),
                     ),
                   ],
@@ -553,7 +557,7 @@ class _ProfileTileState extends State<_ProfileTile>
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             gradient:
-                isMain ? NeoTheme.premiumGradient : NeoTheme.heroGradient,
+                isMain ? NeoTheme.premiumGradient : Neo.heroGradient(context),
             boxShadow: [
               BoxShadow(
                 color: accent.withValues(alpha: 0.25),
@@ -568,7 +572,7 @@ class _ProfileTileState extends State<_ProfileTile>
                   ? widget.data.label[0].toUpperCase()
                   : '?',
               style: Neo.headlineMedium(context).copyWith(
-                color: isMain ? Colors.black : Colors.white,
+                color: isMain ? Colors.black : Neo.onHeroGradient(context),
               ),
             ),
           ),

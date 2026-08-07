@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/constants.dart';
 import '../models/content.dart';
@@ -280,6 +281,42 @@ class ApiService {
     return humanizeApiError(fallback);
   }
 
+  // ── Cache local des lectures publiques (navigation hors-ligne) ──────
+  //
+  // Stratégie :
+  //  1. Cache plus frais que [ttl] → servi immédiatement (démarrage instantané)
+  //  2. Sinon requête réseau → succès → cache mis à jour
+  //  3. Échec réseau → cache périmé servi en secours (mode hors-ligne)
+  static const String _cachePrefix = 'api_json_cache_v1_';
+
+  Future<Map<String, dynamic>?> _readJsonCache(String key, Duration ttl, {bool allowStale = false}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('$_cachePrefix$key');
+      if (raw == null) return null;
+      final envelope = json.decode(raw) as Map<String, dynamic>;
+      final ts = (envelope['ts'] as num?)?.toInt() ?? 0;
+      final age = DateTime.now().millisecondsSinceEpoch - ts;
+      if (!allowStale && age > ttl.inMilliseconds) return null;
+      return envelope['data'] as Map<String, dynamic>?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _writeJsonCache(String key, Map<String, dynamic> data) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        '$_cachePrefix$key',
+        json.encode({
+          'ts': DateTime.now().millisecondsSinceEpoch,
+          'data': data,
+        }),
+      );
+    } catch (_) {}
+  }
+
   Future<dynamic> _get(
     String endpoint, {
     Duration? timeout,
@@ -474,7 +511,20 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> getHome() async {
-    return (await _get('content/home')) as Map<String, dynamic>;
+    const key = 'content/home';
+    // Cache frais → démarrage instantané de l'écran d'accueil.
+    final fresh = await _readJsonCache(key, const Duration(minutes: 5));
+    if (fresh != null) return fresh;
+    try {
+      final data = (await _get(key)) as Map<String, dynamic>;
+      await _writeJsonCache(key, data);
+      return data;
+    } catch (e) {
+      // Hors-ligne : dernier cache connu, même périmé.
+      final stale = await _readJsonCache(key, Duration.zero, allowStale: true);
+      if (stale != null) return stale;
+      rethrow;
+    }
   }
 
   Future<Map<String, dynamic>> getContentList({
@@ -496,7 +546,18 @@ class ApiService {
     final query = params.entries
         .map((e) => '${e.key}=${Uri.encodeComponent(e.value)}')
         .join('&');
-    return (await _get('content/list?$query')) as Map<String, dynamic>;
+    final key = 'content/list?$query';
+    final fresh = await _readJsonCache(key, const Duration(minutes: 3));
+    if (fresh != null) return fresh;
+    try {
+      final data = (await _get(key)) as Map<String, dynamic>;
+      await _writeJsonCache(key, data);
+      return data;
+    } catch (e) {
+      final stale = await _readJsonCache(key, Duration.zero, allowStale: true);
+      if (stale != null) return stale;
+      rethrow;
+    }
   }
 
   Future<Content> getContentDetail(int id) async {

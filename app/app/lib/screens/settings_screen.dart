@@ -80,10 +80,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               width: 32 * scale,
               height: 32 * scale,
               decoration: BoxDecoration(
-                gradient: NeoTheme.heroGradient,
+                gradient: Neo.heroGradient(context),
                 borderRadius: BorderRadius.circular(NeoTheme.radiusSm),
               ),
-              child: Icon(Icons.tune_rounded, color: Colors.white, size: 16 * scale),
+              child: Icon(Icons.tune_rounded, color: Neo.onHeroGradient(context), size: 16 * scale),
             ),
             SizedBox(width: 10 * scale),
             Text('Parametres', style: Neo.headlineMedium(context)),
@@ -181,7 +181,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             height: avatarSize,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              gradient: auth.isPremium ? NeoTheme.premiumGradient : NeoTheme.heroGradient,
+              gradient: auth.isPremium ? NeoTheme.premiumGradient : Neo.heroGradient(context),
               boxShadow: [
                 BoxShadow(color: accent.withValues(alpha: 0.35), blurRadius: 16, spreadRadius: 1),
               ],
@@ -190,7 +190,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Text(
                 (user?.username?.isNotEmpty ?? false) ? user!.username[0].toUpperCase() : 'U',
                 style: Neo.headlineMedium(context).copyWith(
-                  color: auth.isPremium ? Colors.black : Colors.white,
+                  color: auth.isPremium ? Colors.black : Neo.onHeroGradient(context),
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -671,7 +671,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     return Container(
       decoration: BoxDecoration(
-        gradient: Neo.surfaceGradient,
+        gradient: Neo.surfaceGradient(context),
         borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
         border: Border.all(color: Neo.bgBorder(context).withValues(alpha: 0.12), width: 0.5),
         boxShadow: NeoTheme.shadowLevel1,
@@ -867,7 +867,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (mounted) {
         setState(() {});
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Session de securite rafraichie'), backgroundColor: Theme.of(context).colorScheme.primary),
+          SnackBar(content: Text('Session de securite rafraichie', style: TextStyle(color: Neo.readableOnPrimary(context))), backgroundColor: Theme.of(context).colorScheme.primary),
         );
       }
     } catch (e) {
@@ -1017,7 +1017,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 await _api.changePassword(oldCtrl.text, newCtrl.text);
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Mot de passe modifie'), backgroundColor: Theme.of(context).colorScheme.primary),
+                    SnackBar(content: Text('Mot de passe modifie', style: TextStyle(color: Neo.readableOnPrimary(context))), backgroundColor: Theme.of(context).colorScheme.primary),
                   );
                 }
               } catch (e) {
@@ -1058,7 +1058,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 await _api.deleteHistory();
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Historique supprime'), backgroundColor: Theme.of(context).colorScheme.primary),
+                    SnackBar(content: Text('Historique supprime', style: TextStyle(color: Neo.readableOnPrimary(context))), backgroundColor: Theme.of(context).colorScheme.primary),
                   );
                 }
               } catch (e) {
@@ -1099,7 +1099,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 await _api.clearLibrary();
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Favoris vides'), backgroundColor: Theme.of(context).colorScheme.primary),
+                    SnackBar(content: Text('Favoris vides', style: TextStyle(color: Neo.readableOnPrimary(context))), backgroundColor: Theme.of(context).colorScheme.primary),
                   );
                 }
               } catch (e) {
@@ -1159,7 +1159,7 @@ class _QuickActionTileState extends State<_QuickActionTile> {
           width: isTV ? 160 : 120,
           padding: EdgeInsets.symmetric(vertical: 14, horizontal: 14),
           decoration: BoxDecoration(
-            gradient: Neo.surfaceGradient,
+            gradient: Neo.surfaceGradient(context),
             borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
             border: Border.all(
               color: _pressed ? action.color.withValues(alpha: 0.5) : action.color.withValues(alpha: 0.12),

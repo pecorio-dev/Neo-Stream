@@ -35,19 +35,21 @@ class SurfacePlayerController {
   }) async {
     if (_disposed) return null;
     try {
+      bool ok(String t) =>
+          t.startsWith('http://') ||
+          t.startsWith('https://') ||
+          t.startsWith('file://');
       final allUrls = <String>[];
       if (urls != null) {
         for (final u in urls) {
           final t = u.trim();
-          if ((t.startsWith('http://') || t.startsWith('https://')) &&
-              !allUrls.contains(t)) {
+          if (ok(t) && !allUrls.contains(t)) {
             allUrls.add(t);
           }
         }
       }
       final primary = url.trim();
-      if ((primary.startsWith('http://') || primary.startsWith('https://')) &&
-          !allUrls.contains(primary)) {
+      if (ok(primary) && !allUrls.contains(primary)) {
         allUrls.insert(0, primary);
       }
       if (allUrls.isEmpty) {

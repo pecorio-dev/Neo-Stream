@@ -7,8 +7,10 @@ import '../config/theme.dart';
 import '../config/neo.dart';
 import '../models/content.dart';
 import '../services/api_service.dart';
+import '../services/download_service.dart';
 import '../utils/watch_link_utils.dart';
 import '../widgets/content_card.dart';
+import '../widgets/download_button.dart';
 import 'player_screen.dart';
 
 class DetailScreen extends StatefulWidget {
@@ -482,7 +484,7 @@ class _DetailScreenState extends State<DetailScreen>
                   duration: NeoTheme.durationFast,
                   padding: EdgeInsets.symmetric(vertical: 10),
                   decoration: BoxDecoration(
-                    gradient: isSelected ? NeoTheme.heroGradient : null,
+                    gradient: isSelected ? Neo.heroGradient(context) : null,
                     borderRadius: BorderRadius.circular(NeoTheme.radiusSm),
                     boxShadow: isSelected
                         ? [
@@ -499,7 +501,7 @@ class _DetailScreenState extends State<DetailScreen>
                     WatchLinkUtils.labelForLanguage(lang),
                     textAlign: TextAlign.center,
                     style: Neo.labelMedium(context).copyWith(
-                      color: isSelected ? Colors.white : Neo.textSecondary(context),
+                      color: isSelected ? Neo.onHeroGradient(context) : Neo.textSecondary(context),
                       fontWeight:
                           isSelected ? FontWeight.w800 : FontWeight.w500,
                       letterSpacing: 0.8,
@@ -592,6 +594,36 @@ class _DetailScreenState extends State<DetailScreen>
           ),
         ),
         SizedBox(width: 12),
+        // Téléchargement hors-ligne :
+        // — film : le meilleur lien classé
+        // — série : bouton présent sur chaque épisode (cartes ci-dessous)
+        if (!content.isSerie)
+          Builder(builder: (context) {
+            final links = _rankLinks(content.watchLinks);
+            if (links.isEmpty) return const SizedBox.shrink();
+            final link = links.first;
+            return Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: DownloadIconButton(
+                sourceUrl: link.url,
+                size: 30,
+                onStart: () async {
+                  final messenger = ScaffoldMessenger.of(context);
+                  final task = await DownloadService.instance.addFilm(
+                    title: content.title,
+                    posterUrl: content.poster,
+                    link: link,
+                  );
+                  messenger.showSnackBar(SnackBar(
+                    content: Text(task != null
+                        ? 'Téléchargement lancé — voir l’onglet Téléchargements.'
+                        : 'Déjà en file ou téléchargé.'),
+                    backgroundColor: Neo.bgOverlay(context),
+                  ));
+                },
+              ),
+            );
+          }),
         _FocusableActionIconButton(
           isActive: content.inLibrary,
           activeIcon: Icons.check_rounded,
@@ -642,7 +674,32 @@ class _DetailScreenState extends State<DetailScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Épisodes', style: Neo.titleLarge(context)),
+        Row(
+          children: [
+            Expanded(child: Text('Épisodes', style: Neo.titleLarge(context))),
+            // Télécharger toute la saison (file séquentielle)
+            TextButton.icon(
+              onPressed: () => _downloadSeason(content, selectedEpisodes),
+              icon: const Icon(Icons.download_rounded, size: 18),
+              label: const Text('Saison'),
+              style: TextButton.styleFrom(
+                foregroundColor: NeoTheme.infoCyan,
+                textStyle: Neo.labelMedium(context),
+              ),
+            ),
+            // ... et toute la série
+            if (seasonNumbers.length > 1)
+              TextButton.icon(
+                onPressed: () => _downloadAllSeasons(content, seasonNumbers),
+                icon: const Icon(Icons.download_done_rounded, size: 18),
+                label: const Text('Série'),
+                style: TextButton.styleFrom(
+                  foregroundColor: NeoTheme.infoCyan,
+                  textStyle: Neo.labelMedium(context),
+                ),
+              ),
+          ],
+        ),
         SizedBox(height: 10),
         if (seasonNumbers.length > 1) ...[
           _buildSeasonSelector(context, seasonNumbers),
@@ -709,7 +766,7 @@ class _DetailScreenState extends State<DetailScreen>
                       padding: EdgeInsets.symmetric(
                           horizontal: 18, vertical: 10),
                       decoration: BoxDecoration(
-                        gradient: isSelected ? NeoTheme.heroGradient : null,
+                        gradient: isSelected ? Neo.heroGradient(context) : null,
                         color: isSelected ? null : Neo.bgElevated(context),
                         borderRadius:
                             BorderRadius.circular(NeoTheme.radiusMd),
@@ -732,9 +789,11 @@ class _DetailScreenState extends State<DetailScreen>
                       child: Text(
                         'Saison $num',
                         style: Neo.labelMedium(context).copyWith(
-                          color: (isSelected || isFocused)
-                              ? Colors.white
-                              : Neo.textSecondary(context),
+                          color: isSelected
+                              ? Neo.onHeroGradient(context)
+                              : (isFocused
+                                  ? Neo.textPrimary(context)
+                                  : Neo.textSecondary(context)),
                           fontWeight: isSelected
                               ? FontWeight.w700
                               : FontWeight.normal,
@@ -796,7 +855,7 @@ class _DetailScreenState extends State<DetailScreen>
                         Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
                         Neo.bgElevated(context),
                       ])
-                    : Neo.surfaceGradient,
+                    : Neo.surfaceGradient(context),
                 borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
                 border: Border.all(
                   color: isFocused
@@ -914,8 +973,29 @@ class _DetailScreenState extends State<DetailScreen>
                           ],
                         ),
                       ),
-                      SizedBox(width: 8),
-                      Icon(
+                       SizedBox(width: 8),
+                       if (isPlayable)
+                        DownloadIconButton(
+                          sourceUrl: preferredLinks.first.url,
+                          size: 28,
+                          onStart: () async {
+                            final messenger = ScaffoldMessenger.of(context);
+                            final task =
+                                await DownloadService.instance.addEpisode(
+                              seriesTitle: content.title,
+                              posterUrl: content.poster,
+                              episode: episode,
+                              link: preferredLinks.first,
+                            );
+                            messenger.showSnackBar(SnackBar(
+                              content: Text(task != null
+                                  ? '${episode.label} ajouté aux téléchargements'
+                                  : 'Déjà en file ou téléchargé'),
+                              backgroundColor: Neo.bgOverlay(context),
+                            ));
+                          },
+                        ),
+                       Icon(
                         isPlayable
                             ? Icons.play_circle_fill_rounded
                             : Icons.lock_outline_rounded,
@@ -1035,6 +1115,42 @@ class _DetailScreenState extends State<DetailScreen>
     return ep != null ? _rankLinks(ep.watchLinks) : const [];
   }
 
+  Future<void> _enqueueEpisodes(Content content, List<Episode> episodes) async {
+    final messenger = ScaffoldMessenger.of(context);
+    var added = 0;
+    for (final ep in episodes) {
+      final links = _rankLinks(ep.watchLinks);
+      if (links.isEmpty) continue;
+      final task = await DownloadService.instance.addEpisode(
+        seriesTitle: content.title,
+        posterUrl: content.poster,
+        episode: ep,
+        link: links.first,
+      );
+      if (task != null) added++;
+    }
+    messenger.showSnackBar(SnackBar(
+      content: Text(added > 0
+          ? '$added épisode(s) ajouté(s) aux téléchargements'
+          : 'Rien à télécharger (déjà en file ou sources absentes)'),
+      backgroundColor: Neo.bgOverlay(context),
+    ));
+  }
+
+  Future<void> _downloadSeason(Content content, List<Episode> episodes) async {
+    HapticFeedback.selectionClick();
+    await _enqueueEpisodes(content, episodes);
+  }
+
+  Future<void> _downloadAllSeasons(
+      Content content, List<int> seasonNumbers) async {
+    HapticFeedback.mediumImpact();
+    final all = <Episode>[
+      for (final s in seasonNumbers) ...(content.seasons[s] ?? const <Episode>[]),
+    ];
+    await _enqueueEpisodes(content, all);
+  }
+
   void _playPrimaryAction(Content content) {
     if (content.isSerie) {
       final episode = _resumeEpisode(content) ?? _firstPlayableEpisode(content);
@@ -1094,6 +1210,9 @@ class _DetailScreenState extends State<DetailScreen>
 
   void _launchPlayer(Content content, List<WatchLink> candidates,
       {String? episodeId}) {
+    if (candidates.isNotEmpty) {
+      HapticFeedback.mediumImpact();
+    }
     if (candidates.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text('Aucune source disponible.'),
@@ -1250,7 +1369,7 @@ class _FocusablePlayButtonState extends State<_FocusablePlayButton> {
               padding: EdgeInsets.symmetric(vertical: 14),
               decoration: BoxDecoration(
                 gradient:
-                    widget.canPlay ? NeoTheme.heroGradient : null,
+                    widget.canPlay ? Neo.heroGradient(context) : null,
                 color: widget.canPlay ? null : Neo.bgElevated(context),
                 borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
                 border: (_focused && useFocus)
@@ -1274,7 +1393,7 @@ class _FocusablePlayButtonState extends State<_FocusablePlayButton> {
                   Icon(
                     Icons.play_arrow_rounded,
                     color: widget.canPlay
-                        ? Colors.white
+                        ? Neo.onHeroGradient(context)
                         : Neo.textDisabled(context),
                     size: 22,
                   ),
@@ -1283,7 +1402,7 @@ class _FocusablePlayButtonState extends State<_FocusablePlayButton> {
                     widget.label,
                     style: Neo.labelLarge(context).copyWith(
                       color: widget.canPlay
-                          ? Colors.white
+                          ? Neo.onHeroGradient(context)
                           : Neo.textDisabled(context),
                       fontWeight: FontWeight.w800,
                       letterSpacing: 0.5,

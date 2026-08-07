@@ -12,6 +12,7 @@ import '../providers/providers.dart';
 import '../services/api_service.dart';
 import 'anime_detail_screen.dart';
 import 'detail_screen.dart';
+import 'downloads_screen.dart';
 import 'history_screen.dart';
 import 'login_screen.dart';
 import 'settings_screen.dart';
@@ -143,14 +144,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 Navigator.of(dialogContext).pop();
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('Code copie.'),
+                    content: Text(
+                      'Code copie.',
+                      style: TextStyle(color: Neo.readableOnPrimary(context)),
+                    ),
                     backgroundColor: Theme.of(context).colorScheme.primary,
                   ),
                 );
               },
               style: FilledButton.styleFrom(
                 backgroundColor: Theme.of(context).colorScheme.primary,
-                foregroundColor: Colors.white,
+                foregroundColor: Neo.readableOnPrimary(context),
               ),
               icon: Icon(Icons.copy_all_rounded),
               label: Text('Copier'),
@@ -362,13 +366,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   Navigator.of(sheetContext).pop();
                                   _openPayPalCheckout(referralCode);
                                 },
-                          style: FilledButton.styleFrom(
-                            backgroundColor: hasAffiliateCode && isCodeValid
-                                ? NeoTheme.prestigeGold
-                                : Theme.of(context).colorScheme.primary,
-                            foregroundColor: hasAffiliateCode && isCodeValid
-                                ? Colors.black
-                                : Colors.white,
+                           style: FilledButton.styleFrom(
+                             backgroundColor: hasAffiliateCode && isCodeValid
+                                 ? NeoTheme.prestigeGold
+                                 : Theme.of(context).colorScheme.primary,
+                             foregroundColor: hasAffiliateCode && isCodeValid
+                                 ? Colors.black
+                                 : Neo.readableOnPrimary(context),
                             disabledBackgroundColor: Neo.bgElevated(context),
                             disabledForegroundColor: Neo.textDisabled(context),
                             padding: EdgeInsets.symmetric(vertical: 16),
@@ -427,21 +431,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.payment_rounded, color: Colors.white),
+                    // topPanelGradient dispatche (clair en thème clair) :
+                    // icônes/titre suivent le thème.
+                    Icon(Icons.payment_rounded, color: Neo.textPrimary(context)),
                     SizedBox(width: 10),
                     Expanded(
                       child: Text(
                         'Paiement securise PayPal',
-                        style: NeoTheme.titleMedium(
-                          context,
-                        ).copyWith(color: Colors.white),
+                        style: Neo.titleMedium(context),
                       ),
                     ),
                     IconButton(
                       onPressed: () => Navigator.of(sheetContext).pop(),
                       icon: Icon(
                         Icons.close_rounded,
-                        color: Colors.white,
+                        color: Neo.textPrimary(context),
                       ),
                     ),
                   ],
@@ -544,7 +548,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Container(
       padding: EdgeInsets.all(isTV ? 20 : 16),
       decoration: BoxDecoration(
-        gradient: Neo.surfaceGradient,
+        gradient: Neo.surfaceGradient(context),
         borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
         border: Border.all(color: color.withValues(alpha: 0.15), width: 0.5),
         boxShadow: NeoTheme.shadowLevel1,
@@ -608,6 +612,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Navigator.of(
             context,
           ).push(MaterialPageRoute(builder: (_) => HistoryScreen()));
+        },
+      ),
+      _ActionItem(
+        icon: Icons.download_rounded,
+        title: 'Telechargements',
+        subtitle: 'Regarder hors-ligne vos films et episodes',
+        color: NeoTheme.successGreen,
+        onTap: () {
+          Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => const DownloadsScreen()));
         },
       ),
       _ActionItem(
@@ -704,7 +719,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               shape: BoxShape.circle,
                               gradient: auth.isPremium
                                   ? NeoTheme.premiumGradient
-                                  : NeoTheme.heroGradient,
+                                  : Neo.heroGradient(context),
                               boxShadow: [
                                 BoxShadow(
                                   color: (auth.isPremium ? NeoTheme.prestigeGold : Theme.of(context).colorScheme.primary).withValues(alpha: 0.3),
@@ -721,7 +736,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 style: Neo.displayMedium(context).copyWith(
                                   color: auth.isPremium
                                       ? Colors.black
-                                      : Colors.white,
+                                      : Neo.onHeroGradient(context),
                                 ),
                               ),
                             ),
@@ -786,13 +801,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   );
                                 }
                               : _showUpgradeSheet,
-                          style: FilledButton.styleFrom(
-                            backgroundColor: auth.isPremium
-                                ? Theme.of(context).colorScheme.primary
-                                : NeoTheme.prestigeGold,
-                            foregroundColor: auth.isPremium
-                                ? Colors.white
-                                : Colors.black,
+                           style: FilledButton.styleFrom(
+                             backgroundColor: auth.isPremium
+                                 ? Theme.of(context).colorScheme.primary
+                                 : NeoTheme.prestigeGold,
+                             foregroundColor: auth.isPremium
+                                 ? Neo.readableOnPrimary(context)
+                                 : Colors.black,
                             minimumSize: isTV ? const Size.fromHeight(54) : null,
                           ),
                           icon: Icon(
@@ -878,7 +893,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               Container(
                 padding: EdgeInsets.all(18),
                 decoration: BoxDecoration(
-                  gradient: Neo.surfaceGradient,
+                  gradient: Neo.surfaceGradient(context),
                   borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
                   border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15), width: 0.5),
                   boxShadow: NeoTheme.shadowLevel1,
@@ -1089,14 +1104,17 @@ class _ActionCardState extends State<_ActionCard> {
                         item.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: Neo.titleMedium(context),
+                        // Carte volontairement sombre → textes figés clairs.
+                        style: Neo.titleMedium(context)
+                            .copyWith(color: NeoTheme.textPrimary),
                       ),
                       SizedBox(height: 4),
                       Text(
                         item.subtitle,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: Neo.bodySmall(context),
+                        style: Neo.bodySmall(context)
+                            .copyWith(color: NeoTheme.textTertiary),
                       ),
                     ],
                   ),
@@ -1145,7 +1163,7 @@ class _FavoriteTileState extends State<_FavoriteTile> {
           duration: Duration(milliseconds: 100),
           child: Container(
             decoration: BoxDecoration(
-              gradient: Neo.surfaceGradient,
+              gradient: Neo.surfaceGradient(context),
               borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
               border: Border.all(
                 color: _pressed

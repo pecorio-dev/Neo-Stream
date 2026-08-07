@@ -294,6 +294,14 @@ class NeoLightTheme {
         brightness: Brightness.light,
         primaryColor: primaryRed,
         scaffoldBackgroundColor: bgBase,
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
+            TargetPlatform.linux: FadeUpwardsPageTransitionsBuilder(),
+            TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
+            TargetPlatform.macOS: FadeUpwardsPageTransitionsBuilder(),
+          },
+        ),
         colorScheme: const ColorScheme.light(
           primary: primaryRed,
           secondary: accentBlue,

@@ -12,10 +12,14 @@ import 'providers/providers.dart';
 import 'providers/theme_provider.dart';
 import 'providers/update_provider.dart';
 import 'screens/splash_screen.dart';
+import 'services/download_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
+  // Restaure la file de téléchargements (et relance ceux interrompus).
+  // Non bloquant pour le démarrage.
+  DownloadService.instance.init();
 
   // Les overflows RenderFlex sont ignorés silencieusement plutôt que de
   // planter l'app en debug — on garde le reste du comportement par défaut.

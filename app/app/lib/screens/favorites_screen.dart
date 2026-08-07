@@ -70,10 +70,10 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
             Container(
               width: 32, height: 32,
               decoration: BoxDecoration(
-                gradient: NeoTheme.heroGradient,
+                gradient: Neo.heroGradient(context),
                 borderRadius: BorderRadius.circular(NeoTheme.radiusSm),
               ),
-              child: Icon(Icons.favorite_rounded, color: Colors.white, size: 18),
+              child: Icon(Icons.favorite_rounded, color: Neo.onHeroGradient(context), size: 18),
             ),
             SizedBox(width: 10),
             Text('Mes Favoris', style: Neo.headlineMedium(context)),

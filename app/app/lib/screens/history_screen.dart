@@ -101,7 +101,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
           context: context,
           builder: (dialogContext) {
             return AlertDialog(
-              backgroundColor: Color(0xFF18182A),
+              backgroundColor: Neo.bgOverlay(context),
               title: Text(
                 'Supprimer l historique ?',
                 style: Neo.titleLarge(context),
@@ -147,7 +147,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
       setState(() => _items = <Map<String, dynamic>>[]);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Historique supprime'),
+          content: Text(
+            'Historique supprime',
+            style: TextStyle(color: Neo.readableOnPrimary(context)),
+          ),
           backgroundColor: Theme.of(context).colorScheme.primary,
         ),
       );
@@ -277,11 +280,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Reprises recentes', style: Neo.titleLarge(context)),
+                Text(
+                  'Reprises recentes',
+                  // Carte volontairement sombre → textes figés clairs.
+                  style: Neo.titleLarge(context)
+                      .copyWith(color: NeoTheme.textPrimary),
+                ),
                 SizedBox(height: 4),
                 Text(
                   '${_items.length} contenus suivis sur cet appareil et votre session.',
-                  style: Neo.bodySmall(context),
+                  style: Neo.bodySmall(context)
+                      .copyWith(color: NeoTheme.textTertiary),
                 ),
               ],
             ),
@@ -317,7 +326,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
               height: 88,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: Neo.surfaceGradient,
+                gradient: Neo.surfaceGradient(context),
                 border: Border.all(
                   color: Neo.bgBorder(context).withValues(alpha: 0.15),
                 ),
@@ -432,7 +441,7 @@ class _HistoryListCard extends StatelessWidget {
       child: Container(
         height: NeoTheme.searchCardHeight(context),
         decoration: BoxDecoration(
-          gradient: Neo.surfaceGradient,
+          gradient: Neo.surfaceGradient(context),
           borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
           border: Border.all(
             color: Neo.bgBorder(context).withValues(alpha: 0.15),
@@ -574,7 +583,7 @@ class _HistoryGridCard extends StatelessWidget {
       onTap: () => onTap(contentId),
       child: Container(
         decoration: BoxDecoration(
-          gradient: Neo.surfaceGradient,
+          gradient: Neo.surfaceGradient(context),
           borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
           border: Border.all(
             color: Neo.bgBorder(context).withValues(alpha: 0.15),

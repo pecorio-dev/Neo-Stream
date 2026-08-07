@@ -9,6 +9,7 @@ import '../config/neo.dart';
 import '../models/anime.dart';
 import '../models/content.dart';
 import '../services/api_service.dart';
+import '../services/search_history.dart';
 import '../widgets/content_card.dart';
 import 'anime_detail_screen.dart';
 import 'detail_screen.dart';
@@ -36,10 +37,16 @@ class _SearchScreenState extends State<SearchScreen> {
   int _focusedResultIndex = 0;
   bool _autoFocusFirstResult = false;
 
+  // ── Filtres de résultats ─────────────────────────────────────────────
+  // '' = tous, 'film', 'serie', 'anime' ; note 7+ en option.
+  String _typeFilter = '';
+  bool _topRatedOnly = false;
+
   @override
   void initState() {
     super.initState();
     _focusNode.addListener(_onFocus);
+    SearchHistory.instance.load();
     // Ne pas ouvrir automatiquement le dialogue - l'utilisateur doit cliquer explicitement
   }
 
@@ -83,6 +90,7 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() { _loading = true; _query = q; _error = null; });
     try {
       final raw = await _api.searchContent(q);
+      SearchHistory.instance.add(q);
       if (!mounted) return;
       final films = raw.where((c) => c.contentType != 'anime').toList();
       final animeAsContent = raw.where((c) => c.contentType == 'anime').toList();
@@ -185,7 +193,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     ),
             ),
 
-            // ── Header résultats ─────────────────────────────────────
+             // ── Header résultats ─────────────────────────────────────
             if (_query.isNotEmpty)
               Padding(
                 padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, 8),
@@ -204,6 +212,26 @@ class _SearchScreenState extends State<SearchScreen> {
                 ),
               ),
 
+            // ── Filtres rapides ────────────────────────────────────────
+            if (_query.isNotEmpty && !_loading)
+              Padding(
+                padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, 4),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _filterChip('', 'Tous'),
+                      _filterChip('film', 'Films'),
+                      _filterChip('serie', 'Séries'),
+                      _filterChip('anime', 'Anime'),
+                      _toggleChip('⭐ 7+', _topRatedOnly, (v) {
+                        setState(() => _topRatedOnly = v);
+                      }),
+                    ],
+                  ),
+                ),
+              ),
+
             // ── Contenu ──────────────────────────────────────────────
             Expanded(child: _buildContent(context, pad, isTV)),
           ],
@@ -213,13 +241,143 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
+  Widget _filterChip(String value, String label) {
+    final selected = _typeFilter == value;
+    return _toggleChip(label, selected, (v) {
+      setState(() => _typeFilter = value);
+    });
+  }
+
+  Widget _toggleChip(String label, bool selected, ValueChanged<bool> onChanged) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8, right: 8),
+      child: GestureDetector(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onChanged(!selected);
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: selected
+                ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.18)
+                : Neo.bgOverlay(context),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: selected
+                  ? Theme.of(context).colorScheme.primary
+                  : Neo.bgBorder(context).withValues(alpha: 0.25),
+              width: selected ? 1.5 : 0.5,
+            ),
+          ),
+          child: Text(
+            label,
+            style: Neo.labelMedium(context).copyWith(
+              color: selected
+                  ? Theme.of(context).colorScheme.primary
+                  : Neo.textSecondary(context),
+              fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// État initial : historique de recherche + suggestions.
+  Widget _buildInitial(BuildContext context, EdgeInsets pad) {
+    return AnimatedBuilder(
+      animation: SearchHistory.instance,
+      builder: (context, _) {
+        final recent = SearchHistory.instance.items;
+        return ListView(
+          padding: EdgeInsets.fromLTRB(pad.left, 8, pad.right, 32),
+          children: [
+            if (recent.isNotEmpty) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: Text('Recherches récentes', style: Neo.titleMedium(context)),
+                  ),
+                  TextButton(
+                    onPressed: () => SearchHistory.instance.clear(),
+                    child: Text(
+                      'Effacer',
+                      style: Neo.labelMedium(context)
+                          .copyWith(color: Neo.textTertiary(context)),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final q in recent)
+                    GestureDetector(
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        _controller.text = q;
+                        _search(q);
+                      },
+                      onLongPress: () {
+                        HapticFeedback.mediumImpact();
+                        SearchHistory.instance.remove(q);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 9),
+                        decoration: BoxDecoration(
+                          color: Neo.bgOverlay(context),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: Neo.bgBorder(context).withValues(alpha: 0.25),
+                            width: 0.5,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.history_rounded,
+                                size: 15, color: Neo.textTertiary(context)),
+                            const SizedBox(width: 6),
+                            Text(q, style: Neo.bodyMedium(context)),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 28),
+            ],
+            _buildEmpty(context, false, compact: true),
+          ],
+        );
+      },
+    );
+  }
+
   Widget _buildContent(BuildContext context, EdgeInsets pad, bool isTV) {
-    if (_query.isEmpty) return _buildEmpty(context, false);
+    if (_query.isEmpty) return _buildInitial(context, pad);
     if (_loading && _results.isEmpty) return _buildShimmer(context, isTV, pad);
     if (_error != null) return _buildEmpty(context, true);
     if (_results.isEmpty && _animeResults.isEmpty) return _buildEmpty(context, false);
 
-    final all = <dynamic>[..._results, ..._animeResults];
+    var films = _results;
+    var animes = _animeResults;
+    if (_typeFilter == 'film') animes = [];
+    if (_typeFilter == 'serie') {
+      films = films.where((c) => c.contentType == 'serie').toList();
+      animes = [];
+    }
+    if (_typeFilter == 'anime') films = [];
+    if (_topRatedOnly) {
+      films = films.where((c) => (c.rating ?? 0) >= 7).toList();
+    }
+
+    final all = <dynamic>[...films, ...animes];
     final cols = isTV ? 5 : (MediaQuery.of(context).size.width >= 900 ? 4 : 2);
     final useGrid = isTV || MediaQuery.of(context).size.width >= 600;
 
@@ -305,10 +463,10 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  Widget _buildEmpty(BuildContext context, bool isError) {
+  Widget _buildEmpty(BuildContext context, bool isError, {bool compact = false}) {
     return Center(
       child: Padding(
-        padding: EdgeInsets.all(32),
+        padding: EdgeInsets.all(compact ? 16 : 32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -359,7 +517,9 @@ class _SearchScreenState extends State<SearchScreen> {
         ),
         style: ElevatedButton.styleFrom(
           backgroundColor: hasQuery ? Theme.of(context).colorScheme.primary : Neo.bgOverlay(context),
-          foregroundColor: Colors.white,
+          foregroundColor: hasQuery
+              ? Neo.readableOnPrimary(context)
+              : Neo.textPrimary(context),
           minimumSize: Size(double.infinity, 52),
           alignment: Alignment.centerLeft,
           padding: EdgeInsets.symmetric(horizontal: 20),
@@ -427,7 +587,7 @@ class _SearchDialogState extends State<_SearchDialog> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      backgroundColor: Color(0xFF0D1827),
+      backgroundColor: Neo.bgOverlay(context),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: EdgeInsets.all(24),
@@ -474,7 +634,7 @@ class _SearchDialogState extends State<_SearchDialog> {
                   label: Text('Rechercher'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Theme.of(context).colorScheme.primary,
-                    foregroundColor: Colors.white,
+                    foregroundColor: Neo.readableOnPrimary(context),
                   ),
                 ),
               ],

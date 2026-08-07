@@ -6,7 +6,10 @@ import 'package:flutter/services.dart';
 import '../config/theme.dart';
 import '../config/neo.dart';
 import '../models/anime.dart';
+import '../services/anime_extractor.dart';
 import '../services/api_service.dart';
+import '../services/download_service.dart';
+import '../widgets/download_button.dart';
 import 'player_screen.dart';
 
 class AnimeDetailScreen extends StatefulWidget {
@@ -134,6 +137,7 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
     AnimeEpisode episode,
     List<Map<String, String>> sources,
   ) {
+    HapticFeedback.mediumImpact();
     Navigator.of(context)
         .push(MaterialPageRoute(
           builder: (_) => PlayerScreen(
@@ -220,13 +224,21 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                   ),
                 ),
               ),
-              if (season != null && season.episodes.isNotEmpty)
-                SliverPadding(
+               if (season != null && season.episodes.isNotEmpty)
+                 SliverPadding(
                   padding: EdgeInsets.fromLTRB(20, 0, 20, 40),
                   sliver: SliverList(
                     delegate: SliverChildBuilderDelegate(
-                      (context, i) =>
-                          _buildEpisodeCard(season.episodes[i], _selectedSeason),
+                      (context, i) => i == 0
+                          ? Column(
+                              children: [
+                                _buildSeasonDownloadBar(season),
+                                _buildEpisodeCard(
+                                    season.episodes[i], _selectedSeason),
+                              ],
+                            )
+                          : _buildEpisodeCard(
+                              season.episodes[i], _selectedSeason),
                       childCount: season.episodes.length,
                     ),
                   ),
@@ -622,9 +634,9 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
               child: AnimatedContainer(
                 duration: NeoTheme.durationFast,
                 padding: EdgeInsets.symmetric(vertical: 10),
-                decoration: BoxDecoration(
-                  gradient: isSelected ? NeoTheme.heroGradient : null,
-                  borderRadius: BorderRadius.circular(NeoTheme.radiusSm),
+                 decoration: BoxDecoration(
+                   gradient: isSelected ? Neo.heroGradient(context) : null,
+                   borderRadius: BorderRadius.circular(NeoTheme.radiusSm),
                   boxShadow: isSelected
                       ? [
                           BoxShadow(
@@ -638,11 +650,11 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                 child: Text(
                   lang.toUpperCase(),
                   textAlign: TextAlign.center,
-                  style: Neo.labelMedium(context).copyWith(
-                    color: isSelected ? Colors.white : Neo.textSecondary(context),
-                    fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
-                    letterSpacing: 1,
-                  ),
+                   style: Neo.labelMedium(context).copyWith(
+                     color: isSelected ? Neo.onHeroGradient(context) : Neo.textSecondary(context),
+                     fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
+                     letterSpacing: 1,
+                   ),
                 ),
               ),
             ),
@@ -695,7 +707,7 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                       padding: EdgeInsets.symmetric(
                           horizontal: 18, vertical: 10),
                       decoration: BoxDecoration(
-                        gradient: isSelected ? NeoTheme.heroGradient : null,
+                        gradient: isSelected ? Neo.heroGradient(context) : null,
                         color: isSelected ? null : Neo.bgElevated(context),
                         borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
                         border: Border.all(
@@ -717,9 +729,11 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                       child: Text(
                         label,
                         style: Neo.labelMedium(context).copyWith(
-                          color: (isSelected || isFocused)
-                              ? Colors.white
-                              : Neo.textSecondary(context),
+                          color: isSelected
+                              ? Neo.onHeroGradient(context)
+                              : (isFocused
+                                  ? Neo.textPrimary(context)
+                                  : Neo.textSecondary(context)),
                           fontWeight: isSelected
                               ? FontWeight.w700
                               : FontWeight.normal,
@@ -737,6 +751,52 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
   }
 
   // ── EPISODE CARD ──────────────────────────────────────────────────────
+
+  Widget _buildSeasonDownloadBar(dynamic season) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          TextButton.icon(
+            onPressed: () => _downloadAnimeSeason(season),
+            icon: const Icon(Icons.download_rounded, size: 18),
+            label: const Text('Télécharger la saison'),
+            style: TextButton.styleFrom(
+              foregroundColor: NeoTheme.infoCyan,
+              textStyle: Neo.labelMedium(context),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _downloadAnimeSeason(dynamic season) async {
+    HapticFeedback.mediumImpact();
+    final messenger = ScaffoldMessenger.of(context);
+    var added = 0;
+    for (final ep in season.episodes) {
+      if (ep.players.isEmpty) continue;
+      final best = AnimeExtractor.sortSources(ep.players).first;
+      final url = best['url'] ?? '';
+      if (url.isEmpty) continue;
+      final task = await DownloadService.instance.addAnimeEpisode(
+        animeTitle: _anime!.title,
+        posterUrl: _anime!.posterUrl,
+        episodeLabel:
+            'S${_selectedSeason}E${ep.episodeNumber} · ${_selectedLanguage.toUpperCase()}',
+        sourceUrl: url,
+      );
+      if (task != null) added++;
+    }
+    messenger.showSnackBar(SnackBar(
+      content: Text(added > 0
+          ? '$added épisode(s) ajouté(s) aux téléchargements'
+          : 'Rien à télécharger (déjà en file ou sources absentes)'),
+      backgroundColor: Neo.bgOverlay(context),
+    ));
+  }
 
   Widget _buildEpisodeCard(AnimeEpisode episode, int seasonNumber) {
     final useFocus = NeoTheme.needsFocusNavigation(context);
@@ -773,7 +833,7 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                           Neo.bgElevated(context),
                         ],
                       )
-                    : Neo.surfaceGradient,
+                    : Neo.surfaceGradient(context),
                 borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
                 border: Border.all(
                   color: isFocused
@@ -869,7 +929,34 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                       ],
                     ),
                   ),
-                  // Play icon
+                  // Download (hors-ligne) + Play icon
+                  if (sources.isNotEmpty)
+                    Builder(builder: (context) {
+                      final best = AnimeExtractor.sortSources(sources).first;
+                      final url = best['url'] ?? '';
+                      if (url.isEmpty) return const SizedBox.shrink();
+                      return DownloadIconButton(
+                        sourceUrl: url,
+                        size: 28,
+                        onStart: () async {
+                          final messenger = ScaffoldMessenger.of(context);
+                          final task = await DownloadService.instance
+                              .addAnimeEpisode(
+                            animeTitle: _anime!.title,
+                            posterUrl: _anime!.posterUrl,
+                            episodeLabel:
+                                'S${seasonNumber}E${episode.episodeNumber} · ${_selectedLanguage.toUpperCase()}',
+                            sourceUrl: url,
+                          );
+                          messenger.showSnackBar(SnackBar(
+                            content: Text(task != null
+                                ? 'Épisode ${episode.episodeNumber} ajouté aux téléchargements'
+                                : 'Déjà en file ou téléchargé'),
+                            backgroundColor: Neo.bgOverlay(context),
+                          ));
+                        },
+                      );
+                    }),
                   Icon(
                     Icons.play_circle_fill_rounded,
                     color: isFocused
@@ -1027,7 +1114,7 @@ class _FocusablePlayButtonState extends State<_FocusablePlayButton> {
               padding: EdgeInsets.symmetric(vertical: 14),
               decoration: BoxDecoration(
                 gradient:
-                    widget.canPlay ? NeoTheme.heroGradient : null,
+                    widget.canPlay ? Neo.heroGradient(context) : null,
                 color: widget.canPlay ? null : Neo.bgElevated(context),
                 borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
                 border: (_focused && useFocus)
@@ -1051,7 +1138,7 @@ class _FocusablePlayButtonState extends State<_FocusablePlayButton> {
                   Icon(
                     Icons.play_arrow_rounded,
                     color: widget.canPlay
-                        ? Colors.white
+                        ? Neo.onHeroGradient(context)
                         : Neo.textDisabled(context),
                     size: 22,
                   ),
@@ -1060,7 +1147,7 @@ class _FocusablePlayButtonState extends State<_FocusablePlayButton> {
                     widget.label,
                     style: Neo.labelLarge(context).copyWith(
                       color: widget.canPlay
-                          ? Colors.white
+                          ? Neo.onHeroGradient(context)
                           : Neo.textDisabled(context),
                       fontWeight: FontWeight.w800,
                       letterSpacing: 0.5,

@@ -84,9 +84,29 @@ class Neo {
           : NeoTheme.pillDecoration(color: color, selected: selected);
 
   // ── Gradients ────────────────────────────────────────────────────────
-  static const LinearGradient heroGradient = NeoTheme.heroGradient;
+  // heroGradient : blanc→gris en sombre, rouge en clair. Le contenu posé
+  // dessus doit utiliser [onHeroGradient].
+  static LinearGradient heroGradient(BuildContext c) =>
+      _isLight(c) ? NeoLightTheme.heroGradient : NeoTheme.heroGradient;
   static const LinearGradient premiumGradient = NeoTheme.premiumGradient;
-  static const LinearGradient surfaceGradient = NeoTheme.surfaceGradient;
+  static LinearGradient surfaceGradient(BuildContext c) =>
+      _isLight(c) ? NeoLightTheme.surfaceGradient : NeoTheme.surfaceGradient;
+
+  /// Couleur de texte/icône lisible sur [heroGradient] dans le thème actif
+  /// (noir sur le dégradé blanc du thème sombre, blanc sur rouge en clair).
+  static Color onHeroGradient(BuildContext c) =>
+      _isLight(c) ? Colors.white : Colors.black;
+
+  /// Couleur de texte lisible sur une couleur de fond donnée (luminance).
+  /// Pattern de référence déjà utilisé dans hero_banner.dart.
+  static Color readableOn(Color background) =>
+      background.computeLuminance() > 0.5 ? Colors.black : Colors.white;
+
+  /// Couleur de texte lisible sur [ColorScheme.primary] du thème actif
+  /// (ColorScheme.primary vaut blanc en sombre / rouge en clair).
+  static Color readableOnPrimary(BuildContext c) =>
+      readableOn(Theme.of(c).colorScheme.primary);
+
   static LinearGradient topPanelGradient(BuildContext c) =>
       _isLight(c) ? NeoLightTheme.topPanelGradient : NeoTheme.topPanelGradient;
   static LinearGradient glassGradient(BuildContext c) =>

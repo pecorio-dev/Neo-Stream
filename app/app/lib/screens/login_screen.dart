@@ -227,11 +227,12 @@ class _LoginScreenState extends State<LoginScreen>
               SizedBox(width: 6),
               Text(
                 'STREAM',
-                style: Neo.displayLarge(context).copyWith(
-                  fontWeight: FontWeight.w200,
-                  letterSpacing: 6,
-                  color: Neo.textPrimary(context).withValues(alpha: 0.9),
-                ),
+                  style: Neo.displayLarge(context).copyWith(
+                    fontWeight: FontWeight.w200,
+                    letterSpacing: 6,
+                    // Panneau héro toujours sombre → texte figé clair.
+                    color: NeoTheme.textPrimary.withValues(alpha: 0.9),
+                  ),
               ),
             ],
           ),
@@ -250,7 +251,7 @@ class _LoginScreenState extends State<LoginScreen>
                 ? 'Vos films, séries et anime — toujours là où vous êtes.'
                 : 'Un catalogue vivant de films, séries et anime, en un accès à vie.',
             style: Neo.bodyLarge(context).copyWith(
-              color: Neo.textTertiary(context),
+              color: NeoTheme.textTertiary,
               height: 1.5,
             ),
           ),
@@ -307,12 +308,18 @@ class _LoginScreenState extends State<LoginScreen>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: Neo.titleMedium(context)),
+              // Panneau héro toujours sombre → textes figés clairs.
+              Text(
+                title,
+                style: Neo.titleMedium(context).copyWith(
+                  color: NeoTheme.textPrimary,
+                ),
+              ),
               SizedBox(height: 3),
               Text(
                 subtitle,
                 style: Neo.bodySmall(context).copyWith(
-                  color: Neo.textDisabled(context),
+                  color: NeoTheme.textTertiary,
                 ),
               ),
             ],
@@ -328,7 +335,7 @@ class _LoginScreenState extends State<LoginScreen>
     return Container(
       padding: EdgeInsets.all(isTV ? 32 : 24),
       decoration: BoxDecoration(
-        gradient: Neo.surfaceGradient,
+        gradient: Neo.surfaceGradient(context),
         borderRadius: BorderRadius.circular(NeoTheme.radiusXl),
         border: Border.all(
           color: Neo.bgBorder(context).withValues(alpha: 0.2),
@@ -530,51 +537,58 @@ class _LoginScreenState extends State<LoginScreen>
                 }
                 return KeyEventResult.ignored;
               },
-              child: Builder(
-                builder: (ctx) {
-                  final isFocused = Focus.of(ctx).hasFocus;
-                  return AnimatedScale(
-                    scale: isFocused ? 1.04 : 1.0,
-                    duration: NeoTheme.durationFast,
-                    child: SizedBox(
-                      height: isTV ? 58 : 52,
-                      child: ElevatedButton(
-                        onPressed: auth.isLoading ? null : _submit,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: isFocused ? NeoTheme.primaryRedHover : Theme.of(context).colorScheme.primary,
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
-                            side: BorderSide(
-                              color: isFocused ? Colors.white : Colors.transparent,
-                              width: isFocused ? 2.0 : 0.0,
-                            ),
-                          ),
-                          shadowColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
-                          overlayColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
-                        ),
-                        child: auth.isLoading
-                            ? SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : Text(
-                                _isRegisterMode ? 'Creer mon compte' : 'Se connecter',
-                                style: Neo.titleMedium(context).copyWith(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                      ),
-                    ),
-                  );
-                }
-              ),
+               child: Builder(
+                 builder: (ctx) {
+                   final isFocused = Focus.of(ctx).hasFocus;
+                   // Fond = couleur primaire (blanche en sombre, rouge en clair)
+                   // → texte/icône calculés par luminance (plus de blanc sur blanc).
+                   final primaryBg = Theme.of(context).colorScheme.primary;
+                   final btnBg = isFocused
+                       ? primaryBg.withValues(alpha: 0.85)
+                       : primaryBg;
+                   final onBtn = Neo.readableOn(btnBg);
+                   return AnimatedScale(
+                     scale: isFocused ? 1.04 : 1.0,
+                     duration: NeoTheme.durationFast,
+                     child: SizedBox(
+                       height: isTV ? 58 : 52,
+                       child: ElevatedButton(
+                         onPressed: auth.isLoading ? null : _submit,
+                         style: ElevatedButton.styleFrom(
+                           backgroundColor: btnBg,
+                           foregroundColor: onBtn,
+                           elevation: 0,
+                           shape: RoundedRectangleBorder(
+                             borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
+                             side: BorderSide(
+                               color: isFocused ? onBtn : Colors.transparent,
+                               width: isFocused ? 2.0 : 0.0,
+                             ),
+                           ),
+                           shadowColor: primaryBg.withValues(alpha: 0.3),
+                           overlayColor: primaryBg.withValues(alpha: 0.3),
+                         ),
+                         child: auth.isLoading
+                             ? SizedBox(
+                                 width: 22,
+                                 height: 22,
+                                 child: CircularProgressIndicator(
+                                   strokeWidth: 2.2,
+                                   color: onBtn,
+                                 ),
+                               )
+                             : Text(
+                                 _isRegisterMode ? 'Creer mon compte' : 'Se connecter',
+                                 style: Neo.titleMedium(context).copyWith(
+                                   color: onBtn,
+                                   fontWeight: FontWeight.w700,
+                                 ),
+                               ),
+                       ),
+                     ),
+                   );
+                 }
+               ),
             ),
             SizedBox(height: 14),
             Focus(

@@ -115,9 +115,14 @@
 |---|---|
 | 🎬 **Catalogue complet** | Films, séries et anime avec fiches détaillées, saisons, épisodes |
 | 📺 **TV en direct** | Chaînes IPTV HD françaises via proxy FSTV (option premium) |
-| ▶️ **Lecteur universel** | ExoPlayer natif (Android), media_kit (Windows/Linux), fallback automatique multi-sources |
-| 🚫 **Zéro pub** | Extraction côté client vers URL directe HLS/MP4 sur 15+ hébergeurs |
+| 📥 **Téléchargements hors-ligne** | Films, épisodes, saisons ou séries entières — extraction intégrée, lecture hors-ligne (v1.4.0) |
+| ⏭️ **Épisode suivant auto** | Enchaînement façon Netflix avec compte à rebours (v1.4.0) |
+| ⏩ **Vitesse de lecture** | 0.5x → 2x mémorisée + minuteur de sommeil (v1.4.0) |
+| ▶️ **Lecteur universel** | ExoPlayer natif (Android), media_kit (Windows/Linux), fallback automatique multi-sources + sélecteur de source intégré |
+| 🚫 **Zéro pub** | Extraction côté client vers URL directe HLS/MP4 sur 15+ hébergeurs, filtre anti-faux-flux (v1.4.0) |
 | 🔄 **Reprise auto** | Continue exactement où tu t'es arrêté, synchronisé sur tous tes appareils |
+| 🔍 **Recherche avancée** | Historique local + filtres Films / Séries / Anime / ⭐ 7+ (v1.4.0) |
+| 📡 **Catalogue hors-ligne** | Cache local — l'accueil reste instantané, même sans réseau (v1.4.0) |
 | ❤️ **Favoris & historique** | Bibliothèque personnelle et historique de visionnage |
 | 👤 **Multi-profils** | Jusqu'à 4 sous-comptes par compte |
 | 🤖 **Recherche IA** | Recherche en langage naturel optionnelle |
@@ -136,7 +141,7 @@
 | 📱 Android | APK universel | [Télécharger](https://github.com/pecorio-dev/Neo-Stream/releases/latest) |
 | 📺 Android TV | APK (navigation D-pad) | [Télécharger](https://github.com/pecorio-dev/Neo-Stream/releases/latest) |
 | 🖥️ Windows 10/11 | Installateur `.exe` (Inno Setup) | [Télécharger](https://github.com/pecorio-dev/Neo-Stream/releases/latest) |
-| 🐧 Linux | AppImage | [Télécharger](https://github.com/pecorio-dev/Neo-Stream/releases/latest) |
+| 🐧 Linux | AppImage / `.deb` (Debian, Ubuntu…) / `.tar.gz` | [Télécharger](https://github.com/pecorio-dev/Neo-Stream/releases/latest) |
 
 > L'application se met à jour automatiquement via GitHub Releases.
 
@@ -277,13 +282,14 @@ Neo-Stream/
 │   │   │   ├── config/       → Thème, constantes, config TV
 │   │   │   ├── models/       → Content, Anime, User, SubAccount
 │   │   │   ├── providers/    → Theme, Auth, Content, Update
-│   │   │   ├── screens/      → 20 écrans (mobile + TV)
+│   │   │   ├── screens/      → 20+ écrans (mobile + TV), Téléchargements
 │   │   │   │   └── tv/       → Interface dédiée Android TV
-│   │   │   ├── services/     → API, VideoExtractor, AnimeExtractor, FSTV, AI Search
+│   │   │   ├── services/     → API, VideoExtractor, AnimeExtractor, FSTV, AI Search,
+│   │   │   │                  DownloadService, SearchHistory, PlayerPrefs
 │   │   │   ├── utils/        → TVDetector, Semver, helpers
-│   │   │   └── widgets/      → ContentCard, HeroBanner, Shimmer, etc.
+│   │   │   └── widgets/      → ContentCard, HeroBanner, Shimmer, DownloadButton, etc.
 │   │   ├── assets/           → Icônes, logo, images
-│   │   └── pubspec.yaml      → Dépendances (v1.3.2)
+│   │   └── pubspec.yaml      → Dépendances (v1.4.0)
 │   ├── neo_stream_setup.iss  → Script Inno Setup (Windows)
 │   └── CHANGELOG.md
 ├── screenshots/              → Captures d'écran (utilisées par neo-stream.eu)
@@ -333,6 +339,7 @@ Voir [app/CHANGELOG.md](app/CHANGELOG.md) pour l'historique complet.
 
 | Version | Date | Highlights |
 |---|---|---|
+| v1.4.0 (pré-release) | 08/08/2026 | **Téléchargements hors-ligne** (films/séries/anime), épisode suivant auto façon Netflix, sélecteur de source dans le lecteur, vitesse 0.5-2x mémorisée, minuteur de sommeil, recherche avancée (historique + filtres), catalogue hors-ligne, fix blanc-sur-blanc (~40 cas), live TV anti-coupure, filtre anti-faux-flux, API accueil ~20-40x plus rapide |
 | v1.3.2 | 29/07/2026 | Fix focus recherche TV, extraction vidéo, lecteur, favoris, perfs, screenshots |
 | v1.3.1 | 27/07/2026 | Migration Android TV ExoPlayer, fallback multi-source, correctifs IPTV |
 | v1.2.2 | 19/07/2026 | Fix carousel thème clair, stop re-extraction Sibnet |

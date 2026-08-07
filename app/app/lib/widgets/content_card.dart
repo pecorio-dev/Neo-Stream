@@ -355,7 +355,7 @@ class _ContentCardState extends State<ContentCard> {
               style: Neo.displayLarge(context).copyWith(
                 fontSize: 52,
                 foreground: Paint()
-                  ..shader = NeoTheme.heroGradient.createShader(
+                  ..shader = Neo.heroGradient(context).createShader(
                     const Rect.fromLTWH(0, 0, 56, 64),
                   ),
                 shadows: [

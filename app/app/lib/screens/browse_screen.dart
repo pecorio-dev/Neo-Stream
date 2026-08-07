@@ -312,7 +312,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
                     child: Container(
                       padding: EdgeInsets.all(22),
                       decoration: BoxDecoration(
-                        gradient: Neo.surfaceGradient,
+                        gradient: Neo.surfaceGradient(context),
                         borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
                         border: Border.all(
                           color: Neo.bgBorder(context).withValues(alpha: 0.15),
@@ -622,7 +622,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
                         Text(
                           labelForItem(item),
                           style: Neo.labelMedium(context).copyWith(
-                            color: (selected || isFocused) ? (isFocused ? Colors.white : selectedColor) : Neo.textSecondary(context),
+                            color: (selected || isFocused) ? (isFocused ? Neo.textPrimary(context) : selectedColor) : Neo.textSecondary(context),
                           ),
                         ),
                       ],

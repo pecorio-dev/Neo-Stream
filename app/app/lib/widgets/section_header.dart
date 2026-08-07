@@ -38,9 +38,9 @@ class SectionHeader extends StatelessWidget {
                 Container(
                   width: 3,
                   height: isTV ? 26 : 20,
-                  decoration: BoxDecoration(
-                    gradient: NeoTheme.heroGradient,
-                    borderRadius: BorderRadius.circular(2),
+                decoration: BoxDecoration(
+                  gradient: Neo.heroGradient(context),
+                  borderRadius: BorderRadius.circular(2),
                     boxShadow: [
                       BoxShadow(
                         color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'dart:async';
 import 'dart:io';
@@ -47,6 +48,11 @@ class PlayerScreen extends StatefulWidget {
   final AnimeEpisode? episode;
   final List<Map<String, String>>? sources;
 
+  /// Lecture d'un fichier téléchargé (bypass extraction + réseau).
+  final String? localFilePath;
+  final String? localTitle;
+  final String? localSubtitle;
+
   const PlayerScreen({
     super.key,
     this.content,
@@ -58,6 +64,9 @@ class PlayerScreen extends StatefulWidget {
     this.seasonNumber,
     this.episode,
     this.sources,
+    this.localFilePath,
+    this.localTitle,
+    this.localSubtitle,
   });
 
   @override
@@ -98,6 +107,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
   StreamSubscription<String>? _errSub;
   StreamSubscription<void>? _compSub;
 
+  // ── Épisode suivant (autoplay) ──
+  Timer? _autoplayTimer;
+  int _autoplaySecondsLeft = 0;
+  Episode? _nextEpisode;
+  bool _showNextUp = false;
+
   String _debugInfo = '';
   bool _showDebug = !kIsWeb && Platform.isAndroid;
 
@@ -113,6 +128,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ]);
     }
     _startLoading();
+    // Restaure la vitesse de lecture mémorisée.
+    PlayerPrefs.load().then((prefs) {
+      if (mounted && prefs.playbackRate != 1.0) {
+        _currentRate = prefs.playbackRate;
+        _playerController?.setRate(prefs.playbackRate);
+      }
+    });
   }
 
   @override
@@ -126,6 +148,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _progressTimer?.cancel();
     _controlsTimer?.cancel();
     _networkRetryTimer?.cancel();
+    _autoplayTimer?.cancel();
+    _sleepTimer?.cancel();
     WakelockPlus.disable();
     if (!NeoTheme.isDesktopPlatform) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -140,6 +164,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   String get _progressKey {
+    if (widget.localFilePath != null) {
+      return 'local_${widget.localFilePath}';
+    }
     if (widget.episodeId != null) {
       return '${widget.content?.id ?? ''}_${widget.episodeId}';
     }
@@ -155,7 +182,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _desktopSourceIndex = 0;
     _preparedStreams = [];
 
-    if (widget.anime != null && widget.sources != null) {
+    if (widget.localFilePath != null) {
+      // Fichier téléchargé : lecture directe, pas d'extraction.
+      final uri = Uri.file(widget.localFilePath!).toString();
+      _preparedStreams = [
+        _PreparedStream(
+          url: uri,
+          label: widget.localTitle ?? 'Fichier local',
+        ),
+      ];
+      _totalSources = 1;
+      final generation = ++_extractionGeneration;
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+      await _playPreparedStreams(generation: generation);
+    } else if (widget.anime != null && widget.sources != null) {
       await _prepareAndPlay(isAnime: true);
     } else if (widget.candidateServers != null &&
         widget.candidateServers!.isNotEmpty) {
@@ -210,9 +253,79 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return;
     }
 
-    _preparedStreams = prepared;
-    _totalSources = prepared.length;
+    // Anti-troll : écarter les faux flux (clips courts / mini-fichiers)
+    if (prepared.length > 1) {
+      if (mounted) setState(() => _statusLabel = 'Vérification des sources...');
+      final filtered = await _filterTrollStreams(prepared);
+      if (!mounted || generation != _extractionGeneration) return;
+      _preparedStreams = filtered;
+    } else {
+      _preparedStreams = prepared;
+    }
+    _totalSources = _preparedStreams.length;
     await _playPreparedStreams(generation: generation);
+  }
+
+  // ─── Détecteur de faux flux « troll » (FStream/FrenchStream & co) ─────
+  //
+  // Certains agrégateurs servent, au lieu du vrai flux, un clip très court
+  // (pub/troll) ou un mini-fichier. Détection sans télécharger le média :
+  //   - HLS  : somme des #EXTINF de la media playlist < 120 s  → suspect
+  //   - MP4  : HEAD Content-Length < 8 Mo                      → suspect
+  // Les sources indéterminées (master playlist, HEAD impossible) sont gardées.
+  // Si TOUT est suspect, on conserve la liste initiale (mieux vaut tenter).
+  Future<List<_PreparedStream>> _filterTrollStreams(
+    List<_PreparedStream> streams,
+  ) async {
+    final verdicts = await Future.wait(streams.map(_assessStream));
+    final kept = <_PreparedStream>[];
+    for (var i = 0; i < streams.length; i++) {
+      final verdict = verdicts[i];
+      if (verdict == false) {
+        _addDebug('source troll/fake écartée: ${streams[i].label}');
+      } else {
+        kept.add(streams[i]);
+      }
+    }
+    if (kept.isEmpty) {
+      _addDebug('toutes les sources semblent fausses → liste conservée');
+      return streams;
+    }
+    return kept;
+  }
+
+  /// true = source saine, false = troll/fake suspecté, null = indéterminé.
+  Future<bool?> _assessStream(_PreparedStream s) async {
+    final client = http.Client();
+    try {
+      final headers = s.headers ?? <String, String>{};
+      if (s.url.contains('.m3u8')) {
+        final req = http.Request('GET', Uri.parse(s.url))
+          ..headers.addAll(headers);
+        final resp = await client.send(req).timeout(const Duration(seconds: 8));
+        if (resp.statusCode != 200) return null;
+        final body = await resp.stream.bytesToString();
+        // Master playlist (variantes) → indéterminé
+        if (body.contains('#EXT-X-STREAM-INF')) return null;
+        if (!body.contains('#EXTINF')) return null;
+        var total = 0.0;
+        for (final m in RegExp(r'#EXTINF:([\d.]+)').allMatches(body)) {
+          total += double.tryParse(m.group(1)!) ?? 0;
+        }
+        if (total <= 0) return null;
+        return total >= 120;
+      }
+
+      final req = http.Request('HEAD', Uri.parse(s.url))..headers.addAll(headers);
+      final resp = await client.send(req).timeout(const Duration(seconds: 8));
+      final len = resp.contentLength ?? 0;
+      if (len <= 0) return null;
+      return len >= 8 * 1024 * 1024;
+    } catch (_) {
+      return null;
+    } finally {
+      client.close();
+    }
   }
 
   /// URL directe (sans liste de candidats).
@@ -432,6 +545,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
           }
           return;
         }
+
+        // Session terminée sans erreur. Si la vidéo est allée au bout et
+        // qu'un épisode suivant existe → NE PAS pop : la carte "épisode
+        // suivant" gère la suite (compte à rebours → enchaînement).
+        final completed = result?['completed'] == true;
+        if (completed && mounted && _findNextEpisode() != null) {
+          _startNextUpCountdown();
+          return;
+        }
       } catch (e) {
         _addDebug('native player error: $e');
         if (mounted) {
@@ -565,8 +687,101 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
 
     _compSub = _playerController!.completedStream.listen((_) {
-      if (mounted) _saveProgressSync();
+      if (!mounted) return;
+      _saveProgressSync();
+      _startNextUpCountdown();
     });
+  }
+
+  // ─── Épisode suivant (autoplay façon Netflix) ───────────────────────
+
+  Episode? _findNextEpisode() {
+    final content = widget.content;
+    final epId = widget.episodeId;
+    if (content == null || !content.isSerie || epId == null) return null;
+    final m = RegExp(r'^S(\d+)E(\d+)$').firstMatch(epId);
+    if (m == null) return null;
+    final s = int.parse(m.group(1)!);
+    final e = int.parse(m.group(2)!);
+    final seasons = content.seasons;
+
+    bool playable(Episode ep) =>
+        WatchLinkUtils.filterPlayable(ep.watchLinks).isNotEmpty;
+
+    // Même saison, épisode +1
+    for (final ep in seasons[s] ?? const <Episode>[]) {
+      if (ep.episode == e + 1 && playable(ep)) return ep;
+    }
+    // Sinon premier épisode jouable d'une saison suivante
+    final keys = seasons.keys.toList()..sort();
+    final idx = keys.indexOf(s);
+    for (var k = (idx < 0 ? 0 : idx + 1); k < keys.length; k++) {
+      for (final ep in seasons[keys[k]] ?? const <Episode>[]) {
+        if (playable(ep)) return ep;
+      }
+    }
+    return null;
+  }
+
+  void _startNextUpCountdown() {
+    _autoplayTimer?.cancel();
+    final next = _findNextEpisode();
+    if (next == null) return;
+    setState(() {
+      _nextEpisode = next;
+      _showNextUp = true;
+      _autoplaySecondsLeft = 10;
+    });
+    _autoplayTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      setState(() => _autoplaySecondsLeft--);
+      if (_autoplaySecondsLeft <= 0) {
+        t.cancel();
+        _goToNextEpisode();
+      }
+    });
+  }
+
+  void _cancelAutoplay() {
+    _autoplayTimer?.cancel();
+    if (mounted) {
+      setState(() {
+        _showNextUp = false;
+        _nextEpisode = null;
+      });
+    }
+  }
+
+  void _goToNextEpisode() {
+    final next = _nextEpisode;
+    if (next == null) {
+      _cancelAutoplay();
+      return;
+    }
+    _autoplayTimer?.cancel();
+    final links = WatchLinkUtils.prioritize(
+      WatchLinkUtils.filterPlayable(next.watchLinks),
+      preferredLanguage: widget.preferredLanguage,
+    );
+    if (links.isEmpty) {
+      _cancelAutoplay();
+      return;
+    }
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PlayerScreen(
+          content: widget.content,
+          videoSourceUrl: links.first.url,
+          candidateServers: links,
+          preferredLanguage: widget.preferredLanguage,
+          episodeId: 'S${next.season}E${next.episode}',
+        ),
+      ),
+    );
   }
 
   void _cleanupPlayer() {
@@ -866,11 +1081,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (_useSurfaceView) {
       return Scaffold(
         backgroundColor: Colors.black,
-        body: _isLoading
-            ? _buildLoading()
-            : _errorMessage != null
-                ? _buildError()
-                : const SizedBox.shrink(),
+        body: Stack(
+          children: [
+            _isLoading
+                ? _buildLoading()
+                : _errorMessage != null
+                    ? _buildError()
+                    : const SizedBox.shrink(),
+            // Suite à la fermeture du lecteur natif : proposition d'enchaîner
+            // sur l'épisode suivant si la vidéo s'est terminée.
+            if (_showNextUp) _buildNextUpOverlay(),
+          ],
+        ),
       );
     }
     return Focus(
@@ -897,7 +1119,100 @@ class _PlayerScreenState extends State<PlayerScreen> {
               _buildBottomBar(),
 
             if (_showDebug) _buildDebugOverlay(),
+
+            if (_showNextUp) _buildNextUpOverlay(),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// Carte « épisode suivant » avec compte à rebours (style Netflix).
+  Widget _buildNextUpOverlay() {
+    final next = _nextEpisode;
+    if (next == null) return const SizedBox.shrink();
+    return Positioned(
+      right: 24,
+      bottom: 96,
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          width: 300,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF14141F).withValues(alpha: 0.96),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white24, width: 0.5),
+            boxShadow: const [
+              BoxShadow(color: Colors.black54, blurRadius: 24, spreadRadius: 2),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Épisode suivant dans $_autoplaySecondsLeft s',
+                      style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      value: _autoplaySecondsLeft / 10,
+                      strokeWidth: 2.5,
+                      color: Theme.of(context).colorScheme.primary,
+                      backgroundColor: Colors.white12,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                next.fullLabel,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        HapticFeedback.selectionClick();
+                        _goToNextEpisode();
+                      },
+                      icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                      label: const Text('Lecture'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Theme.of(context).colorScheme.primary,
+                        foregroundColor:
+                            Theme.of(context).colorScheme.primary.computeLuminance() > 0.5
+                                ? Colors.black
+                                : Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  TextButton(
+                    onPressed: _cancelAutoplay,
+                    child: const Text('Annuler',
+                        style: TextStyle(color: Colors.white70)),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1186,7 +1501,147 @@ class _PlayerScreenState extends State<PlayerScreen> {
             _showControlsBriefly();
           },
         ),
+        // Épisode suivant manuel (séries)
+        if (widget.episodeId != null && _findNextEpisode() != null) ...[
+          const SizedBox(width: 8),
+          IconButton(
+            tooltip: 'Épisode suivant',
+            icon: const Icon(Icons.skip_next_rounded, color: Colors.white, size: 28),
+            onPressed: () {
+              _nextEpisode = _findNextEpisode();
+              _goToNextEpisode();
+            },
+          ),
+        ],
+        const SizedBox(width: 8),
+        _buildSourcesButton(),
+        const SizedBox(width: 8),
+        _buildSpeedButton(),
+        const SizedBox(width: 8),
+        _buildSleepTimerButton(),
       ],
     );
   }
+
+  /// Sélecteur de source directement dans le lecteur (desktop/Web).
+  Widget _buildSourcesButton() {
+    if (_preparedStreams.length <= 1) return const SizedBox.shrink();
+    return PopupMenuButton<int>(
+      tooltip: 'Changer de source',
+      color: const Color(0xFF1A1A2E),
+      icon: const Icon(Icons.dns_rounded, color: Colors.white, size: 24),
+      onSelected: (i) {
+        if (i == _desktopSourceIndex) return;
+        HapticFeedback.selectionClick();
+        final pos = _playerController?.currentPosition;
+        if (pos != null && pos.inSeconds > 0) _resumePosition = pos;
+        _desktopSourceIndex = i;
+        _playDesktopPreparedSource(generation: _extractionGeneration);
+        _showControlsBriefly();
+      },
+      itemBuilder: (context) => [
+        for (var i = 0; i < _preparedStreams.length; i++)
+          PopupMenuItem<int>(
+            value: i,
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _preparedStreams[i].label,
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ),
+                if (i == _desktopSourceIndex)
+                  const Icon(Icons.check_rounded,
+                      color: Colors.white70, size: 16),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  double _currentRate = 1.0;
+  Timer? _sleepTimer;
+  String? _sleepLabel;
+
+  Widget _buildSpeedButton() {
+    const rates = [1.0, 1.25, 1.5, 2.0, 0.5, 0.75];
+    return TextButton(
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        backgroundColor: Colors.white.withValues(alpha: 0.08),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+      ),
+      onPressed: () async {
+        final idx = (rates.indexOf(_currentRate) + 1) % rates.length;
+        _currentRate = rates[idx < 0 ? 0 : idx];
+        HapticFeedback.selectionClick();
+        await _playerController?.setRate(_currentRate);
+        final prefs = await PlayerPrefs.load();
+        prefs.playbackRate = _currentRate;
+        await prefs.save();
+        if (mounted) setState(() {});
+        _showControlsBriefly();
+      },
+      child: Text(
+        '${_currentRate}x',
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w700,
+          fontSize: 14,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSleepTimerButton() {
+    const options = [0, 15, 30, 45, 60];
+    return PopupMenuButton<int>(
+      tooltip: 'Minuteur de sommeil',
+      color: const Color(0xFF1A1A2E),
+      icon: Icon(
+        _sleepTimer != null ? Icons.bedtime_rounded : Icons.bedtime_outlined,
+        color: _sleepTimer != null ? NeoTheme.warningOrange : Colors.white,
+        size: 26,
+      ),
+      onSelected: (minutes) {
+        HapticFeedback.selectionClick();
+        _sleepTimer?.cancel();
+        _sleepTimer = null;
+        if (minutes > 0) {
+          _sleepTimer = Timer(Duration(minutes: minutes), () {
+            _playerController?.pause();
+            if (mounted) {
+              setState(() {
+                _sleepTimer = null;
+                _sleepLabel = null;
+                _showControls = true;
+              });
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Minuteur : lecture mise en pause')),
+              );
+            }
+          });
+          _sleepLabel = '$minutes min';
+        } else {
+          _sleepLabel = null;
+        }
+        setState(() {});
+        _showControlsBriefly();
+      },
+      itemBuilder: (context) => [
+        for (final m in options)
+          PopupMenuItem<int>(
+            value: m,
+            child: Text(
+              minutesLabel(m),
+              style: const TextStyle(color: Colors.white),
+            ),
+          ),
+      ],
+    );
+  }
+
+  String minutesLabel(int m) => m == 0 ? 'Désactivé' : 'Pause dans $m min';
 }

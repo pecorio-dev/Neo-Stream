@@ -396,7 +396,7 @@ class _PremiumHubScreenState extends State<PremiumHubScreen>
                 ShaderMask(
                   shaderCallback: (bounds) => (isPremium
                           ? NeoTheme.premiumGradient
-                          : NeoTheme.heroGradient)
+                          : Neo.heroGradient(context))
                       .createShader(bounds),
                   child: Text(
                     'NEO',
@@ -619,7 +619,7 @@ class _PremiumHubScreenState extends State<PremiumHubScreen>
     return Container(
       padding: EdgeInsets.all(20 * scale),
       decoration: BoxDecoration(
-        gradient: Neo.surfaceGradient,
+        gradient: Neo.surfaceGradient(context),
         borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
         border: Border.all(
           color: Neo.bgBorder(context).withValues(alpha: 0.22),
@@ -759,13 +759,15 @@ class _PremiumHubScreenState extends State<PremiumHubScreen>
                     height: 20 * scale,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation(Colors.white),
+                      valueColor: AlwaysStoppedAnimation(Neo.readableOn(buttonColor)),
                     ),
                   )
                 : Text(
                     buttonLabel,
                     style: Neo.labelLarge(context).copyWith(
-                      color: Colors.white,
+                      // Texte choisi par luminance (bouton blanc en sombre,
+                      // rouge en clair, or pour l'affiliation).
+                      color: Neo.readableOn(buttonColor),
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -935,7 +937,7 @@ class _PremiumHubScreenState extends State<PremiumHubScreen>
     return Container(
       padding: EdgeInsets.all(20 * scale),
       decoration: BoxDecoration(
-        gradient: Neo.surfaceGradient,
+        gradient: Neo.surfaceGradient(context),
         borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
         border: Border.all(
           color: Neo.bgBorder(context).withValues(alpha: 0.22),
@@ -1129,7 +1131,7 @@ class _PremiumHubScreenState extends State<PremiumHubScreen>
               width: double.infinity,
               padding: EdgeInsets.symmetric(vertical: 40, horizontal: 20),
               decoration: BoxDecoration(
-                gradient: Neo.surfaceGradient,
+                gradient: Neo.surfaceGradient(context),
                 borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
                 border: Border.all(
                   color: Neo.bgBorder(context).withValues(alpha: 0.15),
@@ -1209,7 +1211,7 @@ class _PremiumHubScreenState extends State<PremiumHubScreen>
               width: double.infinity,
               padding: EdgeInsets.symmetric(vertical: 40, horizontal: 20),
               decoration: BoxDecoration(
-                gradient: Neo.surfaceGradient,
+                gradient: Neo.surfaceGradient(context),
                 borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
                 border: Border.all(
                   color: Neo.bgBorder(context).withValues(alpha: 0.15),
@@ -1269,7 +1271,7 @@ class _PremiumHubScreenState extends State<PremiumHubScreen>
         child: Container(
           width: 240 * scale,
           decoration: BoxDecoration(
-            gradient: Neo.surfaceGradient,
+            gradient: Neo.surfaceGradient(context),
             borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
             border: Border.all(
               color: Neo.bgBorder(context).withValues(alpha: 0.2),
@@ -1399,7 +1401,7 @@ class _PremiumHubScreenState extends State<PremiumHubScreen>
           padding: padding,
           child: Container(
             decoration: BoxDecoration(
-              gradient: Neo.surfaceGradient,
+              gradient: Neo.surfaceGradient(context),
               borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
               border: Border.all(
                 color: Neo.bgBorder(context).withValues(alpha: 0.22),

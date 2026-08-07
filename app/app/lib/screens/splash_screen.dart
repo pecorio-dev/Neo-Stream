@@ -216,7 +216,8 @@ class _SplashScreenState extends State<SplashScreen>
                             Text(
                               'STREAM',
                               style: Neo.displayLarge(context).copyWith(
-                                color: Neo.textPrimary(context).withValues(alpha: 0.9),
+                                // Splash toujours sombre → texte figé clair.
+                                color: NeoTheme.textPrimary.withValues(alpha: 0.9),
                                 fontSize: 44 * NeoTheme.scaleFactor(context),
                                 fontWeight: FontWeight.w200,
                                 letterSpacing: 8,
@@ -228,7 +229,7 @@ class _SplashScreenState extends State<SplashScreen>
                         Text(
                           'CINEMA · REIMAGINED',
                           style: Neo.labelSmall(context).copyWith(
-                            color: Neo.textTertiary(context).withValues(alpha: 0.6),
+                            color: NeoTheme.textTertiary.withValues(alpha: 0.6),
                             letterSpacing: 6,
                             fontSize: 9 * NeoTheme.scaleFactor(context),
                           ),

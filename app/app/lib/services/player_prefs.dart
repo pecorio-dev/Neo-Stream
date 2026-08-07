@@ -4,15 +4,18 @@ class PlayerPrefs {
   static const _keyHwdec = 'player_hwdec';
   static const _keyAudioDelay = 'player_audio_delay_ms';
   static const _keySubScale = 'player_sub_scale';
+  static const _keyRate = 'player_playback_rate';
 
   bool hwdecEnabled;
   int audioDelayMs;
   double subScale;
+  double playbackRate;
 
   PlayerPrefs({
     this.hwdecEnabled = true,
     this.audioDelayMs = 0,
     this.subScale = 1.0,
+    this.playbackRate = 1.0,
   });
 
   static Future<PlayerPrefs> load() async {
@@ -21,6 +24,7 @@ class PlayerPrefs {
       hwdecEnabled: prefs.getBool(_keyHwdec) ?? true,
       audioDelayMs: prefs.getInt(_keyAudioDelay) ?? 0,
       subScale: prefs.getDouble(_keySubScale) ?? 1.0,
+      playbackRate: prefs.getDouble(_keyRate) ?? 1.0,
     );
   }
 
@@ -29,6 +33,7 @@ class PlayerPrefs {
     await prefs.setBool(_keyHwdec, hwdecEnabled);
     await prefs.setInt(_keyAudioDelay, audioDelayMs);
     await prefs.setDouble(_keySubScale, subScale);
+    await prefs.setDouble(_keyRate, playbackRate);
   }
 
   // ── Cache local de la position de lecture ─────────────────────────

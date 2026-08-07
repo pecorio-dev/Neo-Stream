@@ -441,7 +441,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               width: 56,
               height: 56,
               decoration: BoxDecoration(
-                gradient: NeoTheme.heroGradient,
+                gradient: Neo.heroGradient(context),
                 borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
                 boxShadow: [
                   BoxShadow(
@@ -453,7 +453,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               ),
               child: Icon(
                 Icons.play_circle_fill_rounded,
-                color: Colors.white,
+                color: Neo.onHeroGradient(context),
                 size: 28,
               ),
             ),
@@ -605,7 +605,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     Icon(
                       isSelected ? activeIcon : icon,
                       color: isFocused
-                          ? Colors.white
+                          ? Neo.textPrimary(context)
                           : (isSelected ? Theme.of(context).colorScheme.primary : Neo.textDisabled(context)),
                       size: 26,
                     ),
@@ -615,7 +615,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         label,
                         style: Neo.labelLarge(context).copyWith(
                           color: isFocused
-                              ? Colors.white
+                              ? Neo.textPrimary(context)
                               : (isSelected ? Neo.textPrimary(context) : Neo.textDisabled(context)),
                           fontWeight: isFocused ? FontWeight.bold : FontWeight.normal,
                         ),
@@ -685,7 +685,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 children: [
                   Icon(
                     Icons.settings_rounded,
-                    color: isFocused ? Colors.white : Neo.textDisabled(context),
+                    color: isFocused ? Neo.textPrimary(context) : Neo.textDisabled(context),
                     size: 26,
                   ),
                   SizedBox(width: 14),
@@ -693,7 +693,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     child: Text(
                       'Parametres',
                       style: Neo.labelLarge(context).copyWith(
-                        color: isFocused ? Colors.white : Neo.textDisabled(context),
+                        color: isFocused ? Neo.textPrimary(context) : Neo.textDisabled(context),
                         fontWeight: isFocused ? FontWeight.bold : FontWeight.normal,
                       ),
                     ),
@@ -729,7 +729,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           child: Container(
             padding: EdgeInsets.all(28),
             decoration: BoxDecoration(
-              gradient: Neo.surfaceGradient,
+              gradient: Neo.surfaceGradient(context),
               borderRadius: BorderRadius.circular(NeoTheme.radiusXl),
               border: Border.all(
                 color: NeoTheme.errorRed.withValues(alpha: 0.15),

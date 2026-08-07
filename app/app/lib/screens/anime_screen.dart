@@ -390,7 +390,7 @@ class _AnimeScreenState extends State<AnimeScreen> {
       child: Container(
         padding: EdgeInsets.all(16),
         decoration: BoxDecoration(
-          gradient: Neo.surfaceGradient,
+          gradient: Neo.surfaceGradient(context),
           borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
           border: Border.all(
             color: Neo.bgBorder(context).withValues(alpha: 0.15),
@@ -699,7 +699,7 @@ class _AnimeScreenState extends State<AnimeScreen> {
     return Container(
       padding: EdgeInsets.all(22),
       decoration: BoxDecoration(
-        gradient: Neo.surfaceGradient,
+        gradient: Neo.surfaceGradient(context),
         borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
         border: Border.all(
           color: Neo.bgBorder(context).withValues(alpha: 0.15),

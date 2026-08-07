@@ -127,26 +127,27 @@ class _PaymentWallScreenState extends State<PaymentWallScreen> {
                 color: Colors.white.withValues(alpha: 0.05),
                 border: Border(
                   bottom: BorderSide(
-                    color: Colors.white.withValues(alpha: 0.1),
+                    color: Neo.bgBorder(context),
                     width: 0.5,
                   ),
                 ),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.payment_rounded, color: Colors.white),
+                  // Le fond du sheet dispatche (clair en thème clair) :
+                  // icônes/titre doivent suivre le thème.
+                  Icon(Icons.payment_rounded, color: Neo.textPrimary(context)),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       'Paiement PayPal',
-                      style: Neo.titleMedium(context)
-                          .copyWith(color: Colors.white),
+                      style: Neo.titleMedium(context),
                     ),
                   ),
                   IconButton(
                     onPressed: () => Navigator.of(sheetCtx).pop(),
                     icon:
-                        const Icon(Icons.close_rounded, color: Colors.white),
+                        Icon(Icons.close_rounded, color: Neo.textPrimary(context)),
                   ),
                 ],
               ),

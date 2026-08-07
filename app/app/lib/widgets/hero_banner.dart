@@ -512,7 +512,7 @@ class _HeroBannerState extends State<HeroBanner> {
             end: Alignment.bottomRight,
             colors: [Color(0xF0FFFFFF), Color(0xECF5F5FA)],
           )
-        : Neo.surfaceGradient;
+        : Neo.surfaceGradient(context);
 
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 16 * NeoTheme.scaleFactor(context), vertical: 14 * NeoTheme.scaleFactor(context)),
