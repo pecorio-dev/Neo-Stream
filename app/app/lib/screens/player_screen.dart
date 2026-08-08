@@ -404,72 +404,102 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await _playPreparedStreams(generation: generation);
   }
 
-  /// Extrait jusqu'à [_maxSourcesToExtract] sources dans l'ordre de priorité.
+  /// Extrait jusqu'à [_maxSourcesToExtract] sources **en parallèle**
+  /// (3 concurrentes), dans l'ordre de priorité. Le temps d'extraction
+  /// devient celui du plus lent des deux premiers tiers traités au lieu
+  /// de la somme de tous (_max 6 au lieu de ~18 s).
   Future<List<_PreparedStream>> _extractAllSources({
     required bool isAnime,
     required int generation,
   }) async {
-    final prepared = <_PreparedStream>[];
+    const concurrency = 3;
 
     if (isAnime) {
       final sources = AnimeExtractor.sortSources(widget.sources!);
       final limit = sources.length.clamp(0, _maxSourcesToExtract);
 
-      for (int i = 0; i < limit; i++) {
-        if (!mounted || generation != _extractionGeneration) break;
-
-        final source = sources[i];
-        final sourceUrl = source['url'] ?? '';
-        final playerName = source['player'] ?? '?';
-        final label = '$playerName (${i + 1}/$limit)';
-
-        if (mounted) setState(() => _statusLabel = 'Extraction $label...');
-        _addDebug('anime extract ${i + 1}/$limit $playerName');
-
-        final result = await _extractOne(sourceUrl, isAnime: true);
-        if (result == null) continue;
-
-        _currentSourceIndex = i;
-        prepared.add(_PreparedStream(
-          url: result['video_url'] as String,
-          headers: result['headers'] as Map<String, String>?,
-          label: label,
-        ));
-        _extractorUsed =
-            result['extractor']?.toString() ?? result['server']?.toString();
-        _addDebug('extracted OK: $_extractorUsed');
-      }
+      final results = await _parallelExtract(
+        jobs: [
+          for (int i = 0; i < limit; i++)
+            _ExtractJob(
+              url: sources[i]['url'] ?? '',
+              label: '${sources[i]['player'] ?? '?'} (${i + 1}/$limit)',
+              index: i,
+              isAnime: true,
+              generation: generation,
+            ),
+        ],
+        concurrency: concurrency,
+      );
+      return results;
     } else {
-      final servers =
-          WatchLinkUtils.filterPlayable(widget.candidateServers!);
+      final servers = WatchLinkUtils.filterPlayable(widget.candidateServers!);
       final limit = servers.length.clamp(0, _maxSourcesToExtract);
 
-      for (int i = 0; i < limit; i++) {
-        if (!mounted || generation != _extractionGeneration) break;
+      final results = await _parallelExtract(
+        jobs: [
+          for (int i = 0; i < limit; i++)
+            _ExtractJob(
+              url: servers[i].url,
+              label:
+                  '${WatchLinkUtils.serverDisplayName(servers[i])} (${i + 1}/$limit)',
+              index: i,
+              isAnime: false,
+              serverName: servers[i].serverName,
+              generation: generation,
+            ),
+        ],
+        concurrency: concurrency,
+      );
+      return results;
+    }
+  }
 
-        final link = servers[i];
-        final label =
-            '${WatchLinkUtils.serverDisplayName(link)} (${i + 1}/$limit)';
+  /// Exécute les extractions par vague parallèle ; préserve l'ordre d'entrée.
+  Future<List<_PreparedStream>> _parallelExtract({
+    required List<_ExtractJob> jobs,
+    required int concurrency,
+  }) async {
+    final results = List<_PreparedStream?>.filled(jobs.length, null);
+    var done = 0;
+    final total = jobs.length;
 
-        if (mounted) setState(() => _statusLabel = 'Extraction $label...');
-        _addDebug('VOD extract ${i + 1}/$limit ${link.serverName}');
-
-        final result = await _extractOne(link.url, isAnime: false);
-        if (result == null) continue;
-
-        _vodServerIndex = i;
-        prepared.add(_PreparedStream(
-          url: result['video_url'] as String,
-          headers: result['headers'] as Map<String, String>?,
-          label: label,
-        ));
-        _extractorUsed =
-            result['server']?.toString() ?? link.serverName;
-        _addDebug('extracted OK: $_extractorUsed');
+    Future<void> runOne(_ExtractJob job) async {
+      if (!mounted || job.generation != _extractionGeneration) return;
+      try {
+        if (mounted) {
+          setState(() => _statusLabel =
+              'Extraction des sources… ${done + 1}/$total');
+        }
+        final result = await _extractOne(job.url, isAnime: job.isAnime);
+        if (result != null && job.generation == _extractionGeneration) {
+          results[job.index] = _PreparedStream(
+            url: result['video_url'] as String,
+            headers: result['headers'] as Map<String, String>?,
+            label: job.label,
+          );
+          final server = (result['extractor'] ?? result['server'])?.toString();
+          if (server != null && server.isNotEmpty) _extractorUsed = server;
+          if (job.isAnime) _currentSourceIndex = job.index;
+        }
+      } finally {
+        done++;
+        if (mounted) {
+          setState(() => _statusLabel = 'Extraction des sources… $done/$total');
+        }
       }
     }
 
-    return prepared;
+    // Vagues parallèles de taille [concurrency], dans l'ordre d'entrée
+    for (var start = 0; start < jobs.length; start += concurrency) {
+      if (!mounted || jobs.first.generation != _extractionGeneration) break;
+      final end = (start + concurrency).clamp(0, jobs.length);
+      await Future.wait(
+        [for (var i = start; i < end; i++) runOne(jobs[i])],
+      );
+    }
+
+    return [for (final r in results) if (r != null) r];
   }
 
   /// Extraction d'une URL : serveur en priorité (o2switch n'est pas bloqué
@@ -507,15 +537,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
         try {
           final serverResult = await _api.extractVideoUrlServer(sourceUrl);
           if (serverResult['success'] == true) result = serverResult;
-        } catch (_) {}
-      }
-
-      // 4) Portails sous Cloudflare/challenge JS : émulation navigateur
-      //    (WebView headless + sniff réseau) — couvre kakaflix & co.
-      if (result['success'] != true || result['needs_browser'] == true) {
-        try {
-          final wb = await WebViewExtractor.extract(sourceUrl);
-          if (wb != null) result = wb;
         } catch (_) {}
       }
 
@@ -1759,4 +1780,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   String minutesLabel(int m) => m == 0 ? 'Désactivé' : 'Pause dans $m min';
+}
+
+/// Tâche d'extraction unitaire pour la vague parallèle.
+class _ExtractJob {
+  final String url;
+  final String label;
+  final int index;
+  final bool isAnime;
+  final String? serverName;
+  final int generation;
+
+  const _ExtractJob({
+    required this.url,
+    required this.label,
+    required this.index,
+    required this.isAnime,
+    required this.generation,
+    this.serverName,
+  });
 }

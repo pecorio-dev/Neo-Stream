@@ -113,7 +113,8 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
 
   Widget _buildList(List<DownloadTask> tasks) {
     return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+      // Espace libéré pour la barre de navigation flottante.
+      padding: EdgeInsets.fromLTRB(16, 8, 16, NeoTheme.isTV(context) ? 32 : 132),
       itemCount: tasks.length,
       itemBuilder: (context, i) {
         final task = tasks[i];

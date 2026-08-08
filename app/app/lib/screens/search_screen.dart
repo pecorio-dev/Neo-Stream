@@ -1,16 +1,23 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../config/theme.dart';
 import '../config/neo.dart';
 import '../models/anime.dart';
 import '../models/content.dart';
+import '../providers/providers.dart';
 import '../services/api_service.dart';
 import '../services/search_history.dart';
 import '../widgets/content_card.dart';
+import '../widgets/floating_search_bar.dart';
+import '../widgets/satisfying_animations.dart';
+import '../widgets/section_header.dart';
 import 'anime_detail_screen.dart';
 import 'detail_screen.dart';
 
@@ -33,6 +40,10 @@ class _SearchScreenState extends State<SearchScreen> {
   String _query = '';
   String? _error;
   int _searchId = 0;
+
+  /// Panneau de prévisualisation des résultats affiché pendant la saisie
+  /// (mobile uniquement — le mode TV conserve son dialogue dédié).
+  bool _previewOpen = false;
 
   int _focusedResultIndex = 0;
   bool _autoFocusFirstResult = false;
@@ -78,16 +89,49 @@ class _SearchScreenState extends State<SearchScreen> {
   void _onChanged(String v) {
     _debounce?.cancel();
     setState(() {});
-    _debounce = Timer(Duration(milliseconds: 400), () {
+    _debounce = Timer(Duration(milliseconds: 320), () {
       final q = v.trim();
-      if (q.length >= 2 && q != _query) _search(q);
-      if (q.isEmpty) setState(() { _results = []; _animeResults = []; _query = ''; _error = null; });
+      if (q.length >= 2 && q != _query) _search(q, openPreview: true);
+      if (q.isEmpty) setState(() { _results = []; _animeResults = []; _query = ''; _error = null; _previewOpen = false; });
     });
   }
 
-  Future<void> _search(String q) async {
+  /// Validation explicite (touche « recherche » du clavier) : referme la
+  /// prévisualisation et épingle la grille complète des résultats.
+  void _commitSearch(String q) {
+    _debounce?.cancel();
+    final query = q.trim();
+    setState(() => _previewOpen = false);
+    _focusNode.unfocus();
+    if (query.length >= 2 && query != _query) {
+      _search(query);
+    }
+  }
+
+  void _closePreview() {
+    if (!_previewOpen) return;
+    setState(() => _previewOpen = false);
+    _focusNode.unfocus();
+  }
+
+  void _clearSearch() {
+    _controller.clear();
+    setState(() {
+      _results = [];
+      _animeResults = [];
+      _query = '';
+      _error = null;
+      _previewOpen = false;
+    });
+    _focusNode.requestFocus();
+  }
+
+  /// Recherche lancée par la saisie ([openPreview] = true) : le panneau de
+  /// prévisualisation s'ouvre dès l'arrivée des résultats. Les autres
+  /// déclencheurs (historique, validation) épinglent directement la grille.
+  Future<void> _search(String q, {bool openPreview = false}) async {
     final currentId = ++_searchId;
-    setState(() { _loading = true; _query = q; _error = null; });
+    setState(() { _loading = true; _query = q; _error = null; if (openPreview) _previewOpen = true; });
     try {
       final raw = await _api.searchContent(q);
       SearchHistory.instance.add(q);
@@ -116,6 +160,7 @@ class _SearchScreenState extends State<SearchScreen> {
         _results = films;
         _animeResults = [...animes, ...extraAnimes];
         _loading = false;
+        _previewOpen = openPreview && _previewOpen;
         _focusedResultIndex = 0;
         _autoFocusFirstResult = NeoTheme.isTV(context) &&
             (films.isNotEmpty || animes.isNotEmpty || extraAnimes.isNotEmpty);
@@ -123,7 +168,45 @@ class _SearchScreenState extends State<SearchScreen> {
     } catch (e) {
       if (currentId != _searchId) return; // stale request
       if (!mounted) return;
-      setState(() { _loading = false; _error = e.toString(); });
+      setState(() { _loading = false; _error = e.toString(); _previewOpen = false; });
+    }
+  }
+
+  /// Aplatit films / séries / anime pour le panneau de prévisualisation.
+  List<SearchPreviewItem> _previewItems() {
+    final items = <SearchPreviewItem>[
+      for (final c in _results)
+        SearchPreviewItem(
+          id: c.id,
+          title: c.displayTitle,
+          typeLabel: c.typeLabel,
+          posterUrl: c.fullPosterUrl,
+          year: c.releaseDate?.toString(),
+          rating: c.rating,
+          genres: c.genres,
+          isAnime: false,
+          source: c,
+        ),
+      for (final a in _animeResults)
+        SearchPreviewItem(
+          id: a.id,
+          title: a.title,
+          typeLabel: 'Anime',
+          posterUrl: a.posterUrl,
+          genres: a.genres,
+          isAnime: true,
+          source: a,
+        ),
+    ];
+    return items.take(6).toList();
+  }
+
+  void _openPreviewItem(SearchPreviewItem item) {
+    _closePreview();
+    if (item.isAnime) {
+      _openAnime(item.source as Anime);
+    } else {
+      _openDetail(item.source as Content);
     }
   }
 
@@ -133,11 +216,25 @@ class _SearchScreenState extends State<SearchScreen> {
   void _openAnime(Anime a) => Navigator.push(context,
       MaterialPageRoute(builder: (_) => AnimeDetailScreen(animeId: a.id)));
 
+  /// Navigation depuis le rail « Tendances » (un [Content] peut être un anime).
+  void _openTrending(Content c) {
+    if (c.contentType == 'anime') {
+      Navigator.push(context,
+          MaterialPageRoute(builder: (_) => AnimeDetailScreen(animeId: c.id)));
+    } else {
+      _openDetail(c);
+    }
+  }
+
+  /// Hauteur occupée par la barre flottante : padding haut + capsule.
+  static const double _searchBarSpace = 12 + FloatingSearchBar.barHeight;
+
   @override
   Widget build(BuildContext context) {
     final isTV = NeoTheme.isTV(context);
     final pad = NeoTheme.screenPadding(context);
     final total = _results.length + _animeResults.length;
+    final showPreview = _previewOpen && !isTV && _query.isNotEmpty;
 
     return Scaffold(
       backgroundColor: Neo.bgBase(context),
@@ -146,96 +243,111 @@ class _SearchScreenState extends State<SearchScreen> {
         child: Focus(
           canRequestFocus: false,
           skipTraversal: true,
-          child: Column(
-          children: [
-            // ── Barre de recherche ───────────────────────────────────
-            Padding(
-              padding: EdgeInsets.fromLTRB(pad.left, 12, pad.right, 8),
-              child: isTV
-                  ? _buildTVSearchButton(context)
-                  : Container(
-                      decoration: BoxDecoration(
-                        color: Neo.bgOverlay(context),
-                        borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
-                        border: Border.all(
-                          color: _focusNode.hasFocus
-                              ? Theme.of(context).colorScheme.primary
-                              : Neo.bgBorder(context).withValues(alpha: 0.3),
-                          width: _focusNode.hasFocus ? 2 : 0.5,
-                        ),
-                      ),
-                      child: TextField(
-                        controller: _controller,
-                        focusNode: _focusNode,
-                        autofocus: false,
-                        textInputAction: TextInputAction.search,
-                        onChanged: _onChanged,
-                        style: Neo.bodyLarge(context).copyWith(color: Neo.textPrimary(context)),
-                        decoration: InputDecoration(
-                          hintText: 'Titre, genre, acteur...',
-                          hintStyle: Neo.bodyMedium(context).copyWith(color: Neo.textDisabled(context)),
-                          prefixIcon: Icon(Icons.search_rounded, color: Theme.of(context).colorScheme.primary),
-                          suffixIcon: _controller.text.isNotEmpty
-                              ? IconButton(
-                                  icon: Icon(Icons.close_rounded, color: Neo.textTertiary(context)),
-                                  onPressed: () {
-                                    _controller.clear();
-                                    setState(() { _results = []; _animeResults = []; _query = ''; _error = null; });
-                                    _focusNode.requestFocus();
-                                  },
-                                )
-                              : null,
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(vertical: 16),
-                          isDense: true,
-                        ),
-                      ),
-                    ),
-            ),
+          child: Stack(
+            children: [
+              Column(
+                children: [
+                  // ── Barre de recherche flottante ─────────────────────
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(pad.left, 12, pad.right, 8),
+                    child: isTV
+                        ? _buildTVSearchButton(context)
+                        : FloatingSearchBar(
+                            controller: _controller,
+                            focusNode: _focusNode,
+                            loading: _loading,
+                            onChanged: _onChanged,
+                            onSubmitted: _commitSearch,
+                            onClear: _clearSearch,
+                          ),
+                  ),
 
-             // ── Header résultats ─────────────────────────────────────
-            if (_query.isNotEmpty)
-              Padding(
-                padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, 8),
-                child: Row(
-                  children: [
-                    Text(
-                      _loading ? 'Recherche...' : '$total résultat${total > 1 ? "s" : ""} pour "$_query"',
-                      style: Neo.bodySmall(context).copyWith(color: Neo.textSecondary(context)),
-                    ),
-                    if (_loading) ...[
-                      SizedBox(width: 8),
-                      SizedBox(width: 12, height: 12,
-                          child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary, strokeWidth: 2)),
-                    ],
-                  ],
-                ),
+                  // ── Header résultats ─────────────────────────────────
+                  if (_query.isNotEmpty && !showPreview)
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, 8),
+                      child: Row(
+                        children: [
+                          Text(
+                            _loading ? 'Recherche...' : '$total résultat${total > 1 ? "s" : ""} pour "$_query"',
+                            style: Neo.bodySmall(context).copyWith(color: Neo.textSecondary(context)),
+                          ),
+                          if (_loading) ...[
+                            SizedBox(width: 8),
+                            SizedBox(width: 12, height: 12,
+                                child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary, strokeWidth: 2)),
+                          ],
+                        ],
+                      ),
+                    )
+                        .animate()
+                        .fadeIn(duration: 220.ms, curve: Curves.easeOutCubic)
+                        .slideY(begin: -0.3, end: 0, duration: 260.ms, curve: Curves.easeOutCubic),
+
+                  // ── Filtres rapides ──────────────────────────────────
+                  if (_query.isNotEmpty && !_loading && !showPreview)
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, 4),
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            _filterChip('', 'Tous'),
+                            _filterChip('film', 'Films'),
+                            _filterChip('serie', 'Séries'),
+                            _filterChip('anime', 'Anime'),
+                            _toggleChip('⭐ 7+', _topRatedOnly, (v) {
+                              setState(() => _topRatedOnly = v);
+                            }),
+                          ],
+                        ),
+                      ),
+                    ).animate().fadeIn(duration: 240.ms).slideX(begin: 0.04, end: 0, duration: 280.ms, curve: Curves.easeOutCubic),
+
+                  // ── Contenu ──────────────────────────────────────────
+                  Expanded(child: _buildContent(context, pad, isTV)),
+                ],
               ),
 
-            // ── Filtres rapides ────────────────────────────────────────
-            if (_query.isNotEmpty && !_loading)
-              Padding(
-                padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, 4),
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      _filterChip('', 'Tous'),
-                      _filterChip('film', 'Films'),
-                      _filterChip('serie', 'Séries'),
-                      _filterChip('anime', 'Anime'),
-                      _toggleChip('⭐ 7+', _topRatedOnly, (v) {
-                        setState(() => _topRatedOnly = v);
-                      }),
-                    ],
+              // ── Prévisualisation des résultats (mobile) ────────────────
+              if (showPreview) ...[
+                // Voile flouté : tap = refermer la prévisualisation.
+                Positioned(
+                  top: _searchBarSpace,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _closePreview,
+                    child: ClipRect(
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+                        child: Container(
+                          color: Theme.of(context).brightness == Brightness.light
+                              ? Colors.white.withValues(alpha: 0.55)
+                              : Colors.black.withValues(alpha: 0.55),
+                        ),
+                      ),
+                    ),
+                  ).animate().fadeIn(duration: 280.ms, curve: Curves.easeOut),
+                ),
+                Positioned(
+                  top: _searchBarSpace + 6,
+                  left: pad.left,
+                  right: pad.right,
+                  child: SearchPreviewPanel(
+                    query: _query,
+                    items: _previewItems(),
+                    totalCount: total,
+                    loading: _loading && _results.isEmpty && _animeResults.isEmpty,
+                    onTapItem: _openPreviewItem,
+                    onViewAll: _closePreview,
                   ),
                 ),
-              ),
-
-            // ── Contenu ──────────────────────────────────────────────
-            Expanded(child: _buildContent(context, pad, isTV)),
-          ],
-        ),
+              ],
+            ],
+          ),
         ),
       ),
     );
@@ -285,74 +397,121 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  /// État initial : historique de recherche + suggestions.
+  /// État initial : historique de recherche + tendances en rail horizontal.
   Widget _buildInitial(BuildContext context, EdgeInsets pad) {
+    final content = context.watch<ContentProvider>();
+    // Tendances : Top du jour d'abord, complété par les recommandations.
+    final trending = <Content>[
+      ...content.dailyTop,
+      ...content.recommended,
+      ...content.popularFilms,
+    ];
+    final seenIds = <int>{};
+    trending.retainWhere((item) => seenIds.add(item.id));
+    final visibleTrending = trending.take(8).toList();
+    final isTV = NeoTheme.isTV(context);
+
     return AnimatedBuilder(
       animation: SearchHistory.instance,
       builder: (context, _) {
         final recent = SearchHistory.instance.items;
         return ListView(
-          padding: EdgeInsets.fromLTRB(pad.left, 8, pad.right, 32),
+          padding: EdgeInsets.fromLTRB(0, 8, 0, isTV ? 32 : 132),
           children: [
             if (recent.isNotEmpty) ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: Text('Recherches récentes', style: Neo.titleMedium(context)),
-                  ),
-                  TextButton(
-                    onPressed: () => SearchHistory.instance.clear(),
-                    child: Text(
-                      'Effacer',
-                      style: Neo.labelMedium(context)
-                          .copyWith(color: Neo.textTertiary(context)),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: pad.left),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text('Recherches récentes', style: Neo.titleMedium(context)),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final q in recent)
-                    GestureDetector(
-                      onTap: () {
-                        HapticFeedback.selectionClick();
-                        _controller.text = q;
-                        _search(q);
-                      },
-                      onLongPress: () {
-                        HapticFeedback.mediumImpact();
-                        SearchHistory.instance.remove(q);
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 9),
-                        decoration: BoxDecoration(
-                          color: Neo.bgOverlay(context),
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(
-                            color: Neo.bgBorder(context).withValues(alpha: 0.25),
-                            width: 0.5,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.history_rounded,
-                                size: 15, color: Neo.textTertiary(context)),
-                            const SizedBox(width: 6),
-                            Text(q, style: Neo.bodyMedium(context)),
-                          ],
-                        ),
+                    TextButton(
+                      onPressed: () => SearchHistory.instance.clear(),
+                      child: Text(
+                        'Effacer',
+                        style: Neo.labelMedium(context)
+                            .copyWith(color: Neo.textTertiary(context)),
                       ),
                     ),
-                ],
+                  ],
+                ),
               ),
-              const SizedBox(height: 28),
+              const SizedBox(height: 4),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: pad.left),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (var i = 0; i < recent.length; i++)
+                      GestureDetector(
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          _controller.text = recent[i];
+                          _search(recent[i]);
+                        },
+                        onLongPress: () {
+                          HapticFeedback.mediumImpact();
+                          SearchHistory.instance.remove(recent[i]);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 9),
+                          decoration: BoxDecoration(
+                            color: Neo.bgOverlay(context),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: Neo.bgBorder(context).withValues(alpha: 0.25),
+                              width: 0.5,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.history_rounded,
+                                  size: 15, color: Neo.textTertiary(context)),
+                              const SizedBox(width: 6),
+                              Text(recent[i], style: Neo.bodyMedium(context)),
+                            ],
+                          ),
+                        ),
+                      ).springPop(index: i),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
             ],
-            _buildEmpty(context, false, compact: true),
+            if (visibleTrending.isNotEmpty && !isTV) ...[
+              SectionHeader(
+                title: 'Tendances du moment',
+                subtitle: 'Les contenus les plus recherchés sur Neo-Stream.',
+                icon: Icons.trending_up_rounded,
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                height: NeoTheme.cardHeight(context) + 40,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  clipBehavior: Clip.none,
+                  padding: EdgeInsets.fromLTRB(pad.left, 20, pad.right, 20),
+                  itemCount: visibleTrending.length,
+                  itemBuilder: (context, index) {
+                    return Padding(
+                      padding: EdgeInsets.only(right: 16),
+                      child: ContentCard(
+                        content: visibleTrending[index],
+                        variant: CardVariant.standard,
+                        index: index,
+                        onTap: () => _openTrending(visibleTrending[index]),
+                      ),
+                    ).staggeredFade(index: index);
+                  },
+                ),
+              ),
+              const SizedBox(height: 24),
+            ] else
+              _buildEmpty(context, false, compact: true),
           ],
         );
       },
@@ -405,7 +564,7 @@ class _SearchScreenState extends State<SearchScreen> {
         child: FocusTraversalGroup(
           policy: ReadingOrderTraversalPolicy(),
           child: GridView.builder(
-            padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, 32),
+            padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, isTV ? 32 : 132),
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: cols,
               childAspectRatio: 2 / 3,
@@ -420,7 +579,7 @@ class _SearchScreenState extends State<SearchScreen> {
     }
 
     return ListView.builder(
-      padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, 32),
+      padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, isTV ? 32 : 132),
       itemCount: all.length,
       itemBuilder: (ctx, i) => Padding(
         padding: EdgeInsets.only(bottom: 10),
@@ -535,7 +694,7 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget _buildShimmer(BuildContext context, bool isTV, EdgeInsets pad) {
     final cols = isTV ? 5 : 2;
     return GridView.builder(
-      padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, 32),
+      padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, isTV ? 32 : 132),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: cols,
         childAspectRatio: 2 / 3,

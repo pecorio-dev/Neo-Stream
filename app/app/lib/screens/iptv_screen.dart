@@ -521,7 +521,8 @@ class _IptvScreenState extends State<IptvScreen> {
         width >= 1200 ? 6 : (width >= 900 ? 5 : (width >= 600 ? 4 : 2));
     return GridView.builder(
       controller: _scrollCtrl,
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+      // Espace libéré pour la barre de navigation flottante.
+      padding: EdgeInsets.fromLTRB(20, 12, 20, NeoTheme.isTV(context) ? 32 : 132),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: crossCount,
         mainAxisSpacing: 14,

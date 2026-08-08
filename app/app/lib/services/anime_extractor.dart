@@ -1,5 +1,10 @@
-import 'package:flutter/foundation.dart';
-
+import 'extractors/ansembed_extract.dart' as ansembedx;
+import 'extractors/dingtezuni_extract.dart' as dingx;
+import 'extractors/lpayer_extract.dart' as lpayerx;
+import 'extractors/minochinos_extract.dart' as minox;
+import 'extractors/sendvid_extract.dart' as sendvidx;
+import 'extractors/sibnet_extract.dart' as sibnetx;
+import 'extractors/streamwish_extract.dart' as streamwishx;
 import 'resilient_http.dart';
 import 'video_extractor.dart';
 
@@ -47,13 +52,24 @@ class AnimeExtractor {
   static Future<Map<String, dynamic>> _dispatchAnime(String url) async {
     final host = Uri.tryParse(url)?.host.toLowerCase() ?? '';
 
+    // Hébergeurs anime actuels (reverse-engineered 08/2026, prouvés sur liens réels)
+    if (host.contains('ansembed')) return ansembedx.extractAnsembedFinal(url);
+    if (host.contains('embed4me') || host.contains('lpayer')) return lpayerx.extractLpayerFinal(url);
+    if (host.contains('dingtezuni') || host.contains('callistanise')) {
+      return dingx.extractDingtezuniFinal(url);
+    }
+    if (host.contains('movearnpre') || host.contains('smoothpre') || host.contains('vidhide')) {
+      return streamwishx.extractStreamwishFamily(url);
+    }
+    if (host.contains('minochinos')) return minox.extractMinochinosFinal(url);
+
     if (host.contains('sibnet')) return _extractSibnet(url);
     if (host.contains('sendvid')) return _extractSendvid(url);
     if (host.contains('vidmoly')) return _extractVidmoly(url);
     if (host.contains('oneupload')) return _extractGeneric(url, 'oneupload');
     if (host.contains('goudcloud') || host.contains('gcloud')) return _extractGoudcloud(url);
     if (host.contains('streamwish') || host.contains('wish')) return _extractStreamwish(url);
-    if (host.contains('filelions') || host.contains('vidhide')) return _extractFilelions(url);
+    if (host.contains('filelions')) return _extractFilelions(url);
     if (host.contains('mega.nz') || host.contains('mega.co')) return _extractMega(url);
     if (host.contains('youtu') || host.contains('youtube')) return _extractYouTube(url);
 
@@ -119,21 +135,28 @@ class AnimeExtractor {
   }
 
   static int _playerPriority(String player) {
-    // Priorité décroissante — chiffre bas = priorité haute
-    // Sibnet reste disponible, mais son CDN peut interrompre les longues
-    // lectures. On le garde comme solution de secours plutôt que par défaut.
-    if (player == 'sendvid') return 0;
-    if (player == 'vidmoly') return 1;
-    if (player == 'streamtape') return 2;
+    // Priorité décroissante — chiffre bas = priorité haute.
+    // Sources prouvées (RE 08/2026) en tête : lpayer, ansembed, sibnet,
+    // dingtezuni/callistanise (familles VidHide), minochinos, streamwish.
+    // Sibnet reste utile (CDN parfois capricieux sur longue lecture).
+    if (player == 'lpayer') return 0;
+    if (player == 'ansembed') return 1;
+    if (player == 'dingtezuni' || player == 'callistanise') return 2;
+    if (player == 'sendvid') return 3;
     if (player == 'sibnet') return 99;
-    if (player == 'doodstream' || player.startsWith('doo')) return 4;
-    if (player == 'voe') return 5;
-    if (player == 'filemoon' || player.contains('moon')) return 6;
-    if (player == 'uqload') return 7;
-    if (player == 'okru' || player == 'ok.ru') return 8;
-    if (player == 'vk') return 9;
-    if (player == 'streamwish') return 10;
-    if (player == 'goudcloud') return 11;
+    if (player == 'vidmoly') return 10;
+    if (player == 'streamtape') return 11;
+    if (player == 'minochinos') return 4;
+    if (player == 'movearnpre' || player == 'smoothpre') return 5;
+    if (player == 'vidhide') return 6;
+    if (player == 'doodstream' || player.startsWith('doo')) return 12;
+    if (player == 'voe') return 13;
+    if (player == 'filemoon' || player.contains('moon')) return 14;
+    if (player == 'uqload') return 15;
+    if (player == 'okru' || player == 'ok.ru') return 16;
+    if (player == 'vk') return 17;
+    if (player == 'streamwish') return 18;
+    if (player == 'goudcloud') return 19;
     return 50;
   }
 
@@ -234,6 +257,15 @@ class AnimeExtractor {
   // ─────────────────────────────────────────────────────────────────
 
   static Future<Map<String, dynamic>> _extractSibnet(String url) async {
+    // Extraction reverse-engineered (08/2026) — prouvée sur de vrais liens.
+    try {
+      final r = await sibnetx.extractSibnet(url);
+      if (r['success'] == true) return r;
+    } catch (_) {}
+    return _extractSibnetLegacy(url);
+  }
+
+  static Future<Map<String, dynamic>> _extractSibnetLegacy(String url) async {
     try {
       final headers = _headers(referer: 'https://sibnet.ru/');
       final resp = await ResilientHttp.get(Uri.parse(url), headers: headers).timeout(_timeout);
@@ -305,6 +337,15 @@ class AnimeExtractor {
   // ─────────────────────────────────────────────────────────────────
 
   static Future<Map<String, dynamic>> _extractSendvid(String url) async {
+    // Extraction reverse-engineered (08/2026) — prouvée sur de vrais liens.
+    try {
+      final r = await sendvidx.extractSendvid(url);
+      if (r['success'] == true) return r;
+    } catch (_) {}
+    return _extractSendvidLegacy(url);
+  }
+
+  static Future<Map<String, dynamic>> _extractSendvidLegacy(String url) async {
     try {
       final headers = _headers(referer: 'https://sendvid.com/');
       final resp = await ResilientHttp.get(Uri.parse(url), headers: headers).timeout(_timeout);

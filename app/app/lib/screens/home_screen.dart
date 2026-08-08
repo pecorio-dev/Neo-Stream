@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 
 import '../config/theme.dart';
@@ -7,6 +8,7 @@ import '../config/neo.dart';
 import '../models/content.dart';
 import '../providers/providers.dart';
 import '../widgets/content_card.dart';
+import '../widgets/floating_nav_bar.dart';
 import '../widgets/hero_banner.dart';
 import '../widgets/satisfying_animations.dart';
 import '../widgets/section_header.dart';
@@ -251,6 +253,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           : Stack(
               children: [
                 shellContent,
+                // Barre de navigation flottante (glass) au-dessus du contenu.
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: FloatingNavBar(
+                    currentIndex: _currentIndex,
+                    items: _navItems,
+                    onTap: (index) {
+                      if (index != _currentIndex) {
+                        setState(() => _currentIndex = index);
+                      }
+                    },
+                  ),
+                ),
                 Positioned(
                   top: MediaQuery.of(context).padding.top + 8,
                   right: 12,
@@ -287,131 +304,55 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         ),
                       ),
                     ),
-                  ),
+                  )
+                      .animate()
+                      .fadeIn(duration: 400.ms, delay: 250.ms)
+                      .scale(
+                        begin: const Offset(0.7, 0.7),
+                        end: const Offset(1, 1),
+                        duration: 420.ms,
+                        delay: 250.ms,
+                        curve: Curves.easeOutBack,
+                      ),
                 ),
               ],
-            ),
-      bottomNavigationBar: isTV
-          ? null
-          : Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: Theme.of(context).brightness == Brightness.light
-                      ? [Neo.bgBase(context).withValues(alpha: 0.92), Neo.bgBase(context)]
-                      : [Color(0xE00C0C1C), Color(0xF506060C)],
-                ),
-                border: Border(
-                  top: BorderSide(
-                    color: Neo.bgBorder(context).withValues(alpha: 0.12),
-                    width: 0.5,
-                  ),
-                ),
-              ),
-              child: Theme(
-                data: Theme.of(context).copyWith(
-                  splashColor: Colors.transparent,
-                  highlightColor: Colors.transparent,
-                ),
-                child: BottomNavigationBar(
-                  currentIndex: _currentIndex,
-                  onTap: (index) {
-                    if (index != _currentIndex) {
-                      setState(() => _currentIndex = index);
-                    }
-                  },
-                  type: BottomNavigationBarType.fixed,
-                  backgroundColor: Colors.transparent,
-                  elevation: 0,
-                  selectedItemColor: Theme.of(context).colorScheme.primary,
-                  unselectedItemColor: Neo.textDisabled(context),
-                  selectedFontSize: 11,
-                  unselectedFontSize: 11,
-                  selectedLabelStyle: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.2,
-                  ),
-                  items: [
-                    _buildNavItem(
-                      Icons.home_outlined,
-                      Icons.home_rounded,
-                      'Accueil',
-                      0,
-                    ),
-                    _buildNavItem(
-                      Icons.grid_view_rounded,
-                      Icons.grid_view,
-                      'Catalogue',
-                      1,
-                    ),
-                    _buildNavItem(
-                      Icons.animation,
-                      Icons.animation_outlined,
-                      'Anime',
-                      2,
-                    ),
-                    _buildNavItem(
-                      Icons.live_tv_outlined,
-                      Icons.live_tv,
-                      'Direct',
-                      3,
-                    ),
-                    _buildNavItem(
-                      Icons.search_rounded,
-                      Icons.manage_search_rounded,
-                      'Recherche',
-                      4,
-                    ),
-                    _buildNavItem(
-                      Icons.download_outlined,
-                      Icons.download_rounded,
-                      'Télécharg.',
-                      5,
-                    ),
-                  ],
-                ),
-              ),
             ),
     );
   }
 
-  BottomNavigationBarItem _buildNavItem(
-    IconData icon,
-    IconData activeIcon,
-    String label,
-    int index,
-  ) {
-    final isSelected = _currentIndex == index;
-    return BottomNavigationBarItem(
-      icon: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AnimatedContainer(
-            duration: NeoTheme.durationFast,
-            curve: NeoTheme.smoothOut,
-            width: isSelected ? 24 : 0,
-            height: 2,
-            margin: EdgeInsets.only(bottom: 6),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary,
-              borderRadius: BorderRadius.circular(1),
-              boxShadow: isSelected
-                  ? [
-                      BoxShadow(
-                        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
-                        blurRadius: 6,
-                      ),
-                    ]
-                  : null,
-            ),
-          ),
-          Icon(isSelected ? activeIcon : icon, size: isSelected ? 24 : 22),
-        ],
-      ),
-      label: label,
-    );
-  }
+  /// Onglets de la barre de navigation flottante (mobile / desktop).
+  static const List<FloatingNavItem> _navItems = [
+    FloatingNavItem(
+      icon: Icons.home_outlined,
+      activeIcon: Icons.home_rounded,
+      label: 'Accueil',
+    ),
+    FloatingNavItem(
+      icon: Icons.grid_view_outlined,
+      activeIcon: Icons.grid_view_rounded,
+      label: 'Catalogue',
+    ),
+    FloatingNavItem(
+      icon: Icons.animation_outlined,
+      activeIcon: Icons.animation,
+      label: 'Anime',
+    ),
+    FloatingNavItem(
+      icon: Icons.live_tv_outlined,
+      activeIcon: Icons.live_tv,
+      label: 'Direct',
+    ),
+    FloatingNavItem(
+      icon: Icons.search_outlined,
+      activeIcon: Icons.search_rounded,
+      label: 'Recherche',
+    ),
+    FloatingNavItem(
+      icon: Icons.download_outlined,
+      activeIcon: Icons.download_rounded,
+      label: 'Téléch.',
+    ),
+  ];
 
   Widget _buildTVNavigationRail(BuildContext context) {
     final isPremium =
@@ -942,7 +883,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   recentAnime,
                   icon: Icons.fiber_new_outlined,
                 ),
-              SliverToBoxAdapter(child: SizedBox(height: 40)),
+              // Espace pour laisser respirer la barre de navigation flottante.
+              SliverToBoxAdapter(
+                child: SizedBox(height: NeoTheme.isTV(context) ? 40 : 132),
+              ),
             ],
           ),
         ),

@@ -285,7 +285,8 @@ class _AnimeScreenState extends State<AnimeScreen> {
                     NeoTheme.screenPadding(context).left,
                     0,
                     NeoTheme.screenPadding(context).right,
-                    100,
+                    // Espace libéré pour la barre de navigation flottante.
+                    NeoTheme.isTV(context) ? 100 : 132,
                   ),
                   sliver: SliverGrid(
                     gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(

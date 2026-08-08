@@ -7,6 +7,10 @@ class WatchLinkUtils {
   // ── Serveurs extractables (lecture directe HLS/MP4, sans pub) ──────────────
   static const _extractablePatterns = [
     'm3u8', '.mp4',
+    'ansembed.net',
+    'embed4me.com', 'lpayer',
+    'dingtezuni.com', 'callistanise.com',
+    'movearnpre.com', 'smoothpre.com', 'vidhide',
     'vidaraa.cc',
     'vidsonic.net',
     'savefiles.com',

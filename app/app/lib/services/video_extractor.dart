@@ -4,8 +4,12 @@ import 'dart:math';
 
 import 'package:http/http.dart' as http;
 
+import 'extractors/ansembed_extract.dart' as ansembedx;
+import 'extractors/dingtezuni_extract.dart' as dingx;
 import 'extractors/dood_extract.dart' as doodx;
 import 'extractors/filemoon_extract.dart' as fmx;
+import 'extractors/lpayer_extract.dart' as lpayerx;
+import 'extractors/streamwish_extract.dart' as streamwishx;
 import 'extractors/uqload_extract.dart' as uqx;
 import 'extractors/voe_extract.dart' as voex;
 import 'resilient_http.dart';
@@ -85,6 +89,12 @@ class VideoExtractor {
     if (RegExp(r'hlsplay\.com|evoload\.io|streamdav\.com|videovard\.sx|vido\.lol').hasMatch(u)) return 'genericHLS';
     // UPTOSTREAM — exact PHP domains
     if (RegExp(r'uptostream\.(com|eu|link)').hasMatch(u)) return 'uptostream';
+    // Anime embed hosts (reverse-engineered 08/2026)
+    if (u.contains('ansembed.net')) return 'ansembed';
+    if (u.contains('embed4me.com') || u.contains('lpayer')) return 'lpayer';
+    if (u.contains('dingtezuni.com') || u.contains('callistanise.com')) return 'dingtezuni';
+    if (u.contains('movearnpre.com') || u.contains('smoothpre.com') || u.contains('vidhide')) return 'streamwish_family';
+    if (u.contains('minochinos.com')) return 'minochinos';
     // Others not in PHP but kept for wider coverage
     if (RegExp(r'mp4upload\.com').hasMatch(u)) return 'mp4upload';
     if (RegExp(r'ok\.ru|odnoklassniki\.ru').hasMatch(u)) return 'okru';
@@ -108,6 +118,10 @@ class VideoExtractor {
       case 'savefiles':   return _extractPackerJwPlayer(url, 'savefiles', 'https://savefiles.com/');
       case 'vidmoly':     return _extractPackerJwPlayer(url, 'vidmoly', '');
       case 'minochinos':  return _extractMinochinos(url);
+      case 'ansembed':    return ansembedx.extractAnsembedFinal(url);
+      case 'lpayer':      return lpayerx.extractLpayerFinal(url);
+      case 'dingtezuni':  return dingx.extractDingtezuniFinal(url);
+      case 'streamwish_family': return streamwishx.extractStreamwishFamily(url);
       case 'proxy':       return _extractProxy(url);
       case 'doodstream':  return _extractDoodstream(url);
       case 'filemoon':    return _extractFilemoon(url);
@@ -1630,21 +1644,24 @@ class VideoExtractor {
       if (linksMatch != null) {
         final linksBody = linksMatch.group(1)!;
         // Extract each hls key
-        String? hls4, hls2, hls3;
+        final links = <String, String>{};
         for (final m in RegExp(r'''"(hls\d+)"\s*:\s*"([^"]+)"''').allMatches(linksBody)) {
-          final key = m.group(1)!;
-          final val = m.group(2)!.replaceAll(r'\/', '/');
-          if (key == 'hls4') hls4 = val;
-          if (key == 'hls2') hls2 = val;
-          if (key == 'hls3') hls3 = val;
+          links[m.group(1)!] = m.group(2)!.replaceAll(r'\/', '/');
         }
 
-        // Priority: hls4 > hls2 > hls3
-        final chosen = hls4 ?? hls2 ?? hls3;
-        if (chosen != null && chosen.isNotEmpty) {
-          // Resolve relative URL (hls4 is often /stream/...)
+        // 2026-08-08 — hls4 (/stream/ sur le domaine) est un TROLL : sa
+        // variante contient ~100 % de « segments » images pub
+        // (p1X-ad-site-sign-sg.tiktokcdn.com/ad-site-i18n-sg/...image).
+        // hls2 (CDN signé, ex. acek-cdn.com / dramiyos-cdn.com) est la vraie
+        // source. Priorité : hls2 > hls3 > hls4 + validation anti-troll.
+        final hdrs = {'Referer': '$base/', 'User-Agent': _ua};
+        for (final key in const ['hls2', 'hls3', 'hls4']) {
+          final chosen = links[key];
+          if (chosen == null || chosen.isEmpty) continue;
           final streamUrl = chosen.startsWith('http') ? chosen : '$base$chosen';
-          final qualities = await _parseHLSMaster(streamUrl, {'Referer': '$base/', 'User-Agent': _ua});
+          if (streamUrl.contains('/troll/')) continue;
+          if (!await _vidHidePlaylistLooksReal(streamUrl, hdrs)) continue;
+          final qualities = await _parseHLSMaster(streamUrl, hdrs);
           return {
             'success': true,
             'video_url': streamUrl,
@@ -1652,7 +1669,7 @@ class VideoExtractor {
             'type': 'hls',
             'is_hls': true,
             'qualities': qualities,
-            'headers': {'Referer': '$base/', 'User-Agent': _ua},
+            'headers': hdrs,
           };
         }
       }
@@ -1667,6 +1684,67 @@ class VideoExtractor {
   // ─────────────────────────────────────────────────────────────────
   // SÉLECTION DE QUALITÉ HLS MASTER
   // ─────────────────────────────────────────────────────────────────
+
+  /// Anti-troll VidHide (minochinos / dingtezuni & alias) : une playlist saine
+  /// a ses segments relatifs ou sur le même host. Une playlist troll a >10 %
+  /// de « segments » images pub (p1X-ad-site-sign-sg.tiktokcdn.com,
+  /// /ad-site-i18n-sg/, .image, chemins /troll/) ou sur un host tiers.
+  static Future<bool> _vidHidePlaylistLooksReal(
+      String masterUrl, Map<String, String> headers) async {
+    try {
+      final m = await ResilientHttp.get(Uri.parse(masterUrl), headers: headers)
+          .timeout(const Duration(seconds: 8));
+      if (m.statusCode != 200 || !m.body.contains('#EXTM3U')) return false;
+      final masterUri = Uri.parse(masterUrl);
+      String playlistUrl = masterUrl;
+      String playlistBody = m.body;
+      final lines = m.body.split('\n');
+      for (var i = 0; i < lines.length; i++) {
+        if (lines[i].startsWith('#EXT-X-STREAM-INF')) {
+          final next = lines
+              .skip(i + 1)
+              .map((l) => l.trim())
+              .firstWhere((l) => l.isNotEmpty, orElse: () => '');
+          if (next.isEmpty) return false;
+          playlistUrl =
+              next.startsWith('http') ? next : masterUri.resolve(next).toString();
+          final v = await ResilientHttp.get(Uri.parse(playlistUrl),
+                  headers: headers)
+              .timeout(const Duration(seconds: 8));
+          if (v.statusCode != 200 || !v.body.contains('#EXTM3U')) return false;
+          playlistBody = v.body;
+          break;
+        }
+      }
+      final segs = playlistBody
+          .split('\n')
+          .map((l) => l.trim())
+          .where((l) => l.isNotEmpty && !l.startsWith('#'))
+          .toList();
+      if (segs.isEmpty) return false;
+      final playlistHost = Uri.parse(playlistUrl).host.toLowerCase();
+      var ads = 0;
+      for (final s in segs) {
+        final su = Uri.tryParse(s);
+        if (su == null) {
+          ads++;
+          continue;
+        }
+        final p = su.path.toLowerCase();
+        final h = su.host.toLowerCase();
+        if (p.contains('/troll/') ||
+            h.contains('ad-site') ||
+            h.contains('tiktokcdn') ||
+            RegExp(r'\.(image|jpe?g|png|webp|gif|bmp)([?#].*)?$').hasMatch(p) ||
+            (s.startsWith('http') && h != playlistHost)) {
+          ads++;
+        }
+      }
+      return ads * 10 <= segs.length;
+    } catch (_) {
+      return false;
+    }
+  }
 
   static Future<List<Map<String, String>>> _parseHLSMaster(
     String masterUrl,
