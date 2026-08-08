@@ -193,9 +193,20 @@ class AnimeSeason {
               if (episodeNum != null) {
                 final players = <Map<String, String>>[];
                 
+                double? epProgress;
+                List<dynamic>? playersData;
                 if (value is List) {
+                  playersData = value;
+                } else if (value is Map) {
+                  // Nouvelle forme {players:[…], progress:x, current_time:y}
+                  playersData = value['players'] as List? ?? value['links'] as List?;
+                  final p = value['progress'];
+                  if (p is num) epProgress = p.toDouble();
+                }
+
+                if (playersData != null) {
                   // Chaque épisode a un tableau de players
-                  for (var playerData in value) {
+                  for (var playerData in playersData) {
                     if (playerData == null) continue;
                     
                     try {
@@ -224,6 +235,7 @@ class AnimeSeason {
                     url: players.first['url']!, // URL du premier player
                     episodeNumber: episodeNum,
                     players: players,
+                    progressPercent: epProgress,
                   ));
                 }
               }
@@ -278,18 +290,20 @@ class AnimeEpisode {
   final String url;
   final int episodeNumber;
   final List<Map<String, String>> players;
+  final double? progressPercent;
 
   AnimeEpisode({
     required this.title,
     required this.url,
     required this.episodeNumber,
     List<Map<String, String>>? players,
+    this.progressPercent,
   }) : players = players ?? [];
 
   factory AnimeEpisode.fromJson(Map<String, dynamic> json) {
     final playersData = json['players'];
     final players = <Map<String, String>>[];
-    
+
     if (playersData is List) {
       for (var playerData in playersData) {
         if (playerData is Map) {
@@ -300,12 +314,14 @@ class AnimeEpisode {
         }
       }
     }
-    
+
+    final p = json['progress'];
     return AnimeEpisode(
       title: json['title'] as String? ?? '',
       url: json['url'] as String? ?? '',
       episodeNumber: json['episode'] as int? ?? 0,
       players: players,
+      progressPercent: p is num ? p.toDouble() : null,
     );
   }
 }

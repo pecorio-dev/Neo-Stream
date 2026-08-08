@@ -20,7 +20,7 @@ class _AnimeScreenState extends State<AnimeScreen> {
   final ApiService _api = ApiService();
   final ScrollController _scrollController = ScrollController();
 
-  String _selectedGenre = 'all';
+  final Set<String> _selectedGenres = {}; // multi-sélection
   String _sortBy = 'recent';
   int _page = 1;
   bool _isLoading = false;
@@ -69,7 +69,7 @@ class _AnimeScreenState extends State<AnimeScreen> {
       final data = await _api.getAnimeList(
         page: 1,
         limit: 20,
-        genre: _selectedGenre == 'all' ? null : _selectedGenre,
+        genre: _selectedGenres.isEmpty ? null : _selectedGenres.join(','),
         sort: _sortBy,
       );
 
@@ -113,7 +113,7 @@ class _AnimeScreenState extends State<AnimeScreen> {
       final data = await _api.getAnimeList(
         page: _page,
         limit: 20,
-        genre: _selectedGenre == 'all' ? null : _selectedGenre,
+        genre: _selectedGenres.isEmpty ? null : _selectedGenres.join(','),
         sort: _sortBy,
       );
 
@@ -266,9 +266,9 @@ class _AnimeScreenState extends State<AnimeScreen> {
               else ...[
                 SliverToBoxAdapter(
                   child: SectionHeader(
-                    title: _selectedGenre == 'all'
+                    title: _selectedGenres.isEmpty
                         ? 'Tous les animes'
-                        : 'Genre: $_selectedGenre',
+                        : 'Genres : ${_selectedGenres.join(', ')}',
                     subtitle: '$_totalResults anime${_totalResults > 1 ? 's' : ''} disponible${_totalResults > 1 ? 's' : ''}',
                     icon: Icons.grid_view_rounded,
                     padding: EdgeInsets.fromLTRB(
@@ -494,15 +494,29 @@ class _AnimeScreenState extends State<AnimeScreen> {
     );
   }
 
+  void _toggleGenre(String genre) {
+    setState(() {
+      if (genre == 'all') {
+        _selectedGenres.clear();
+      } else if (!_selectedGenres.contains(genre)) {
+        _selectedGenres.add(genre);
+      } else {
+        _selectedGenres.remove(genre);
+      }
+    });
+    _loadContent();
+  }
+
   Widget _buildGenreRow(BuildContext context) {
     final useFocus = NeoTheme.needsFocusNavigation(context);
     final genres = ['all', ..._genreFacets.map((g) => g['name'].toString())];
-    
+
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: genres.take(15).map((genre) {
-        final isSelected = _selectedGenre == genre;
+      children: genres.take(40).map((genre) {
+        final isSelected =
+            genre == 'all' ? _selectedGenres.isEmpty : _selectedGenres.contains(genre);
         final genreColor = NeoTheme.getGenreColor(genre);
         final count = genre == 'all'
             ? null
@@ -517,8 +531,7 @@ class _AnimeScreenState extends State<AnimeScreen> {
                       (event.logicalKey == LogicalKeyboardKey.enter ||
                        event.logicalKey == LogicalKeyboardKey.select ||
                        event.logicalKey == LogicalKeyboardKey.space)) {
-                    setState(() => _selectedGenre = genre);
-                    _loadContent();
+                    _toggleGenre(genre);
                     return KeyEventResult.handled;
                   }
                   return KeyEventResult.ignored;
@@ -528,10 +541,7 @@ class _AnimeScreenState extends State<AnimeScreen> {
             builder: (ctx) {
               final isFocused = Focus.of(ctx).hasFocus;
               return GestureDetector(
-                onTap: () {
-                  setState(() => _selectedGenre = genre);
-                  _loadContent();
-                },
+                onTap: () => _toggleGenre(genre),
                 child: AnimatedContainer(
                   duration: NeoTheme.durationFast,
                   padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),

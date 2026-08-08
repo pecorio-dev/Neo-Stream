@@ -52,6 +52,7 @@ class _SearchScreenState extends State<SearchScreen> {
   // '' = tous, 'film', 'serie', 'anime' ; note 7+ en option.
   String _typeFilter = '';
   bool _topRatedOnly = false;
+  int _minYear = 0; // 0 = toutes années
 
   @override
   void initState() {
@@ -292,13 +293,17 @@ class _SearchScreenState extends State<SearchScreen> {
                         scrollDirection: Axis.horizontal,
                         child: Row(
                           children: [
-                            _filterChip('', 'Tous'),
-                            _filterChip('film', 'Films'),
-                            _filterChip('serie', 'Séries'),
-                            _filterChip('anime', 'Anime'),
-                            _toggleChip('⭐ 7+', _topRatedOnly, (v) {
-                              setState(() => _topRatedOnly = v);
-                            }),
+                      _filterChip('', 'Tous'),
+                      _filterChip('film', 'Films'),
+                      _filterChip('serie', 'Séries'),
+                      _filterChip('anime', 'Anime'),
+                      _toggleChip('⭐ 7+', _topRatedOnly, (v) {
+                        setState(() => _topRatedOnly = v);
+                      }),
+                      _yearChip(0, 'Toutes années'),
+                      _yearChip(2020, '≥ 2020'),
+                      _yearChip(2024, '≥ 2024'),
+                      _yearChip(2025, '≥ 2025'),
                           ],
                         ),
                       ),
@@ -351,6 +356,13 @@ class _SearchScreenState extends State<SearchScreen> {
         ),
       ),
     );
+  }
+
+  Widget _yearChip(int year, String label) {
+    final selected = _minYear == year;
+    return _toggleChip(label, selected, (v) {
+      setState(() => _minYear = year);
+    });
   }
 
   Widget _filterChip(String value, String label) {
@@ -534,6 +546,9 @@ class _SearchScreenState extends State<SearchScreen> {
     if (_typeFilter == 'anime') films = [];
     if (_topRatedOnly) {
       films = films.where((c) => (c.rating ?? 0) >= 7).toList();
+    }
+    if (_minYear > 0) {
+      films = films.where((c) => (c.releaseDate ?? 0) >= _minYear).toList();
     }
 
     final all = <dynamic>[...films, ...animes];

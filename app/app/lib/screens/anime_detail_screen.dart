@@ -853,7 +853,9 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                     )
                 ],
               ),
-              child: Row(
+              child: Column(
+                children: [
+                  Row(
                 children: [
                   // Episode number badge
                   Container(
@@ -921,11 +923,34 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                               ),
                             ),
                             SizedBox(width: 8),
-                            Text(
-                              '${sources.length} source${sources.length > 1 ? 's' : ''}',
-                              style: Neo.bodySmall(context)
-                                  .copyWith(color: Neo.textSecondary(context)),
+                        Text(
+                          '${sources.length} source${sources.length > 1 ? 's' : ''}',
+                          style: Neo.bodySmall(context)
+                              .copyWith(color: Neo.textSecondary(context)),
+                        ),
+                        if (episode.progressPercent != null &&
+                            episode.progressPercent! > 0) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.primary
+                                  .withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(4),
                             ),
+                            child: Text(
+                              episode.progressPercent! >= 95
+                                  ? 'Terminé'
+                                  : '${episode.progressPercent!.round()}%',
+                              style: Neo.labelSmall(context).copyWith(
+                                color: Theme.of(context).colorScheme.primary,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
                           ],
                         ),
                       ],
@@ -963,20 +988,37 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                         },
                       );
                     }),
-                  Icon(
-                    Icons.play_circle_fill_rounded,
-                    color: isFocused
-                        ? Theme.of(context).colorScheme.primary
-                        : Theme.of(context).colorScheme.primary.withValues(alpha: 0.6),
-                    size: 34,
+                   Icon(
+                     Icons.play_circle_fill_rounded,
+                     color: isFocused
+                         ? Theme.of(context).colorScheme.primary
+                         : Theme.of(context).colorScheme.primary.withValues(alpha: 0.6),
+                     size: 34,
+                   ),
+                  ],
+                ),
+                // Progression épisode (reprise) — barre pleine largeur sous la ligne
+                if (episode.progressPercent != null && episode.progressPercent! > 0) ...[
+                  const SizedBox(height: 12),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(3),
+                    child: LinearProgressIndicator(
+                      value: (episode.progressPercent! / 100).clamp(0.0, 1.0),
+                      backgroundColor:
+                          Neo.bgOverlay(context).withValues(alpha: 0.4),
+                      valueColor: AlwaysStoppedAnimation(
+                          Theme.of(context).colorScheme.primary),
+                      minHeight: 4,
+                    ),
                   ),
                 ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
+               ],
+             ),
+             ),
+           );
+         },
+       ),
+     );
   }
 
   // ── SKELETON ──────────────────────────────────────────────────────────

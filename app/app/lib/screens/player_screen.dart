@@ -649,7 +649,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
         );
 
         if (hadError) {
-          // Dernière chance : relais serveur pur (si le proxy local n'a pas suffi)
+          // Sortie volontaire pendant une lecture déjà entamée → retour
+          // propre SANS écran d'erreur (aucun relais après un exit utilisateur).
+          if (posMs > 1000 || !mounted) {
+            final completed = result?['completed'] == true;
+            if (completed && mounted && _findNextEpisode() != null) {
+              _startNextUpCountdown();
+              return;
+            }
+            if (mounted) Navigator.of(context).pop();
+            return;
+          }
+          // Échec d'OUVERTURE (jamais rien lu) : tentative relais serveur pur,
+          // une seule fois (si le proxy local n'a pas suffi).
           final relayed = urls
               .map((u) => ResilientHttp.relayFor(u))
               .toList(growable: false);
@@ -670,15 +682,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
           final hadError2 =
               result2?['hadError'] == true || result2?['ok'] == false;
           if (hadError2) {
-            if (mounted) {
-              setState(() {
-                _errorMessage =
-                    'Erreur de lecture: ${result2?['error'] ?? result?['error'] ?? 'flux indisponible'}';
-                _isLoading = false;
-              });
-            }
+            // Après le relais : ne jamais ré-afficher une erreur pour un
+            // retour arrière pendant le relais lui-même → revenir à la fiche.
+            if (mounted) Navigator.of(context).pop();
             return;
           }
+          final completed2 = result2?['completed'] == true;
+          if (completed2 && mounted && _findNextEpisode() != null) {
+            _startNextUpCountdown();
+            return;
+          }
+          if (mounted) Navigator.of(context).pop();
+          return;
         }
 
         // Session terminée sans erreur. Si la vidéo est allée au bout et

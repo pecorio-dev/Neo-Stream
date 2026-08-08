@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VERSION="1.4.0"
+VERSION="1.4.1"
 APP_DIR="/tmp/Neo-Stream.AppDir"
 BUILD_DIR="/home/pecorio/neo-iptv-stream/app/app/build/linux/x64/release/bundle"
 ICON_SRC="/home/pecorio/neo-iptv-stream/app/app/assets/icon.png"

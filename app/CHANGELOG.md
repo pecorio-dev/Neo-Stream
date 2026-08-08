@@ -1,5 +1,16 @@
 # Changelog — Neo-Stream
 
+## v1.4.1 — 8 août 2026
+
+### Correctifs et/mise à jour
+- **Anime genres : multi-sélection** (tous les genres de l'API, combinaisons OR)
+- **Progression par épisode d'anime** affichée sur les fiches (sync serveur)
+- **Filtres recherche étendus** : années min (≥2020/2024/2025) en plus des types et ⭐7+
+- **Fix boucle de mise à jour** : version harmonisée (app ↔ pubspec ↔ release)
+- **Retour arrière en lecture** : plus d'écran d'erreur intempestif, relais seulement si ouverture échouée
+
+---
+
 ## v1.4.0 (pré-release) — 8 août 2026
 
 ### Nouveautés
