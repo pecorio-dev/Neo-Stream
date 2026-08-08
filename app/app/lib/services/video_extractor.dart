@@ -1,6 +1,14 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+
 import 'package:http/http.dart' as http;
+
+import 'extractors/dood_extract.dart' as doodx;
+import 'extractors/filemoon_extract.dart' as fmx;
+import 'extractors/uqload_extract.dart' as uqx;
+import 'extractors/voe_extract.dart' as voex;
+import 'resilient_http.dart';
 
 /// Neo-Stream Video Extractor — v2
 /// Couverture ~90% des hébergeurs francophones
@@ -46,7 +54,7 @@ class VideoExtractor {
     // UQLOAD — exact PHP domains
     if (RegExp(r'uqload\.(bz|is|org|co|to|net)').hasMatch(u)) return 'uqload';
     // VOE — voe.sx + all its JS-redirect alias domains (from PHP)
-    if (RegExp(r'voe\.sx|dianaavoidthey\.com|lancewhosedifficult\.com|sandratableother\.com|maxfinishseveral\.com|alejandrocenturyoil\.com|voe\.monster|voe\.bar|voe\.click|voe\.ninja|voe\.lol|voe\.pm|voe\.wtf|voe\.earth|voe\.xyz|voe\.wiki|voe\.party|voe\.bond').hasMatch(u)) return 'voe';
+    if (RegExp(r'voe\.sx|stevenfamilyedge\.com|dianaavoidthey\.com|lancewhosedifficult\.com|sandratableother\.com|maxfinishseveral\.com|alejandrocenturyoil\.com|voe\.monster|voe\.bar|voe\.click|voe\.ninja|voe\.lol|voe\.pm|voe\.wtf|voe\.earth|voe\.xyz|voe\.wiki|voe\.party|voe\.bond').hasMatch(u)) return 'voe';
     // DOODSTREAM — exact PHP domains (do7go added, kokoflix/kakaflix removed)
     if (RegExp(r'do7go\.com|dood\.(li|wf|pm|ws|re|to)|myvidplay\.com|dsvplay\.com|doodstream|d0o0d|d000d|do0od|ds2play|doods|dooood|vvide0|playmogo|doo\.cx|d0000d|vidveto').hasMatch(u)) return 'doodstream';
     // VIDARAA — POST API extractor (extractable, no ads)
@@ -134,8 +142,22 @@ class VideoExtractor {
   // ─────────────────────────────────────────────────────────────────
 
   static Future<Map<String, dynamic>> _extractDoodstream(String url) async {
+    // Chaîne prouvée 2026 (pass_md5 + rand10 + token&expiry, fingerprint TLS
+    // Dart) — avec repli legacy.
     try {
-      final resp = await http.get(Uri.parse(url), headers: _headers()).timeout(_timeout);
+      final r = await doodx.extractDoodFinal(url);
+      if (r['success'] == true) return r;
+      if (r['needs_browser'] == true) return r;
+      return _extractDoodstreamLegacy(url);
+    } catch (_) {
+      return _extractDoodstreamLegacy(url);
+    }
+  }
+
+  static Future<Map<String, dynamic>> _extractDoodstreamLegacy(String url) async {
+    try {
+      final resp = await ResilientHttp.get(Uri.parse(url), headers: _headers()).timeout(_timeout);
+      if (_isCfChallenge(resp.statusCode, resp.body)) return cfChallengeFailure;
       if (resp.statusCode != 200) return {'error': 'Dood: HTTP ${resp.statusCode}'};
 
       final html = resp.body;
@@ -150,7 +172,7 @@ class VideoExtractor {
       final token = tokenMatch?.group(1) ?? passPath.split('/').last;
       if (token.isEmpty) return {'error': 'Dood: token absent'};
 
-      final passResp = await http.get(
+      final passResp = await ResilientHttp.get(
         Uri.parse('$base$passPath'),
         headers: {
           ..._headers(referer: finalUrl),
@@ -184,13 +206,31 @@ class VideoExtractor {
   // ─────────────────────────────────────────────────────────────────
 
   static Future<Map<String, dynamic>> _extractFilemoon(String url) async {
+    // Pipeline API Byse complet (attestation ECDSA + PoW + AES-GCM) —
+    // reverse-engineered et prouvé. Repli legacy (packed) si indisponible.
+    try {
+      final r = await fmx.extractFilemoonFinal(url);
+      if (r['success'] == true) {
+        final type = (r['type'] == 'hls') ? 'hls' : 'mp4';
+        return {
+          ...r,
+          'is_hls': type == 'hls',
+        };
+      }
+      return _extractFilemoonLegacy(url);
+    } catch (_) {
+      return _extractFilemoonLegacy(url);
+    }
+  }
+
+  static Future<Map<String, dynamic>> _extractFilemoonLegacy(String url) async {
     try {
       // Normaliser vers /e/ si nécessaire
       final normUrl = url.contains('/v/') ? url.replaceFirst('/v/', '/e/') : url;
       final uri = Uri.parse(normUrl);
       final base = '${uri.scheme}://${uri.host}';
 
-      final resp = await http.get(
+      final resp = await ResilientHttp.get(
         Uri.parse(normUrl),
         headers: _headers(referer: '$base/'),
       ).timeout(_timeout);
@@ -241,7 +281,7 @@ class VideoExtractor {
 
   static Future<Map<String, dynamic>> _extractStreamtape(String url) async {
     try {
-      final resp = await http.get(
+      final resp = await ResilientHttp.get(
         Uri.parse(url),
         headers: _headers(referer: 'https://streamtape.com/'),
       ).timeout(_timeout);
@@ -294,10 +334,39 @@ class VideoExtractor {
   // ─────────────────────────────────────────────────────────────────
 
   static Future<Map<String, dynamic>> _extractVoe(String url) async {
+    // Décodeur propriétaire prouvé (ROT13 → opérateurs → atob → Caesar−3 →
+    // reverse → atob → JSON) — nouvelle génération voe. Refuse les leurres.
+    try {
+      final r = await voex.extractVoeFinal(url);
+      final videoUrl = (r['source'] ?? '').toString();
+      if (videoUrl.isNotEmpty && videoUrl.contains('m3u8')) {
+        final headersTa = (r['headers'] as Map?)?.map(
+            (k, v) => MapEntry(k.toString(), v.toString())) ??
+            <String, String>{};
+        final base = (r['alias_base'] ?? '').toString();
+        return {
+          'success': true,
+          'video_url': videoUrl,
+          'server': 'voe',
+          'type': 'hls',
+          'is_hls': true,
+          'headers': {
+            'Referer': base.isNotEmpty ? '$base/' : url,
+            ...headersTa,
+          },
+        };
+      }
+      return _extractVoeLegacy(url);
+    } catch (_) {
+      return _extractVoeLegacy(url);
+    }
+  }
+
+  static Future<Map<String, dynamic>> _extractVoeLegacy(String url) async {
     try {
       final uri = Uri.parse(url);
       final base = '${uri.scheme}://${uri.host}';
-      final resp = await http.get(Uri.parse(url), headers: _headers(referer: '$base/')).timeout(_timeout);
+      final resp = await ResilientHttp.get(Uri.parse(url), headers: _headers(referer: '$base/')).timeout(_timeout);
       var html = resp.body;
 
       // VOE step 1: follow window.location.href JS redirect (voe.sx → dianaavoidthey.com etc.)
@@ -305,7 +374,7 @@ class VideoExtractor {
       if (jsRedirect != null) {
         final redirectUrl = jsRedirect.group(1)!;
         if (redirectUrl.startsWith('http')) {
-          final resp2 = await http.get(Uri.parse(redirectUrl), headers: _headers(referer: '$base/')).timeout(_timeout);
+          final resp2 = await ResilientHttp.get(Uri.parse(redirectUrl), headers: _headers(referer: '$base/')).timeout(_timeout);
           html = resp2.body;
         }
       }
@@ -369,7 +438,7 @@ class VideoExtractor {
 
   static Future<Map<String, dynamic>> _extractMixdrop(String url) async {
     try {
-      final resp = await http.get(Uri.parse(url), headers: _headers(referer: 'https://mixdrop.ag/')).timeout(_timeout);
+      final resp = await ResilientHttp.get(Uri.parse(url), headers: _headers(referer: 'https://mixdrop.ag/')).timeout(_timeout);
       final html = resp.body;
 
       // Mixdrop encode l'URL dans MDCore.wurl après eval()
@@ -408,7 +477,7 @@ class VideoExtractor {
 
   static Future<Map<String, dynamic>> _extractMp4upload(String url) async {
     try {
-      final resp = await http.get(Uri.parse(url), headers: _headers(referer: 'https://mp4upload.com/')).timeout(_timeout);
+      final resp = await ResilientHttp.get(Uri.parse(url), headers: _headers(referer: 'https://mp4upload.com/')).timeout(_timeout);
       final html = resp.body;
 
       // jwplayer setup
@@ -455,7 +524,7 @@ class VideoExtractor {
       final mid = midMatch.group(1)!;
       final apiUrl = 'https://ok.ru/dk?cmd=videoPlayerMetadata&mid=$mid';
 
-      final resp = await http.get(
+      final resp = await ResilientHttp.get(
         Uri.parse(apiUrl),
         headers: {
           ..._headers(referer: 'https://ok.ru/'),
@@ -509,7 +578,7 @@ class VideoExtractor {
 
   static Future<Map<String, dynamic>> _extractVK(String url) async {
     try {
-      final resp = await http.get(
+      final resp = await ResilientHttp.get(
         Uri.parse(url),
         headers: _headers(referer: 'https://vk.com/'),
       ).timeout(_timeout);
@@ -568,7 +637,7 @@ class VideoExtractor {
         'https://www.dailymotion.com/player/metadata/video/$id?embedder=https://www.dailymotion.com&locale=fr_FR&dmV1st=&dmTs=',
       );
 
-      final resp = await http.get(
+      final resp = await ResilientHttp.get(
         apiUrl,
         headers: {
           ..._headers(referer: 'https://www.dailymotion.com/'),
@@ -638,7 +707,7 @@ class VideoExtractor {
       final hexHex = hexId.codeUnits.map((c) => c.toRadixString(16).padLeft(2, '0')).join();
 
       final apiUrl = 'https://$host/sources48/$hexHex/';
-      final resp = await http.get(
+      final resp = await ResilientHttp.get(
         Uri.parse(apiUrl),
         headers: {
           ..._headers(referer: 'https://$host/'),
@@ -680,7 +749,7 @@ class VideoExtractor {
 
   static Future<Map<String, dynamic>> _extractVidguard(String url) async {
     try {
-      final resp = await http.get(Uri.parse(url), headers: _headers(referer: url)).timeout(_timeout);
+      final resp = await ResilientHttp.get(Uri.parse(url), headers: _headers(referer: url)).timeout(_timeout);
       final html = resp.body;
       final unpacked = _unpackJs(html);
       final src = unpacked.isNotEmpty ? unpacked : html;
@@ -721,7 +790,7 @@ class VideoExtractor {
 
   static Future<Map<String, dynamic>> _extractVidoza(String url) async {
     try {
-      final resp = await http.get(Uri.parse(url), headers: _headers(referer: url)).timeout(_timeout);
+      final resp = await ResilientHttp.get(Uri.parse(url), headers: _headers(referer: url)).timeout(_timeout);
       final html = resp.body;
 
       // sourcesCode:
@@ -748,7 +817,7 @@ class VideoExtractor {
 
   static Future<Map<String, dynamic>> _extractSmashystream(String url) async {
     try {
-      final resp = await http.get(Uri.parse(url), headers: _headers(referer: url)).timeout(_timeout);
+      final resp = await ResilientHttp.get(Uri.parse(url), headers: _headers(referer: url)).timeout(_timeout);
       final html = resp.body;
       final unpacked = _unpackJs(html);
       final src = unpacked.isNotEmpty ? unpacked : html;
@@ -770,6 +839,21 @@ class VideoExtractor {
   // ─────────────────────────────────────────────────────────────────
 
   static Future<Map<String, dynamic>> _extractUqload(String url) async {
+    // Extraction reverse-engineered (unpack statique multi-eval) — éprouvée
+    // en conditions réelles (liens actifs du catalogue). Repli legacy si échec.
+    try {
+      final r = await uqx.extractUqloadFinal(url);
+      if (r['success'] == true) return r;
+      if ((r['error'] ?? '').toString().isNotEmpty) {
+        return _extractUqloadLegacy(url);
+      }
+    } catch (_) {
+      return _extractUqloadLegacy(url);
+    }
+    return _extractUqloadLegacy(url);
+  }
+
+  static Future<Map<String, dynamic>> _extractUqloadLegacy(String url) async {
     try {
       // Normalize all uqload domains to uqload.is
       url = url.replaceAll(RegExp(r'uqload\.\w+'), 'uqload.is');
@@ -779,7 +863,7 @@ class VideoExtractor {
           (m) => '/embed-${m.group(1)}.html',
         );
       }
-      final resp = await http
+      final resp = await ResilientHttp
           .get(
             Uri.parse(url),
             headers: _headers(referer: 'https://uqload.is/'),
@@ -830,7 +914,7 @@ class VideoExtractor {
 
   static Future<Map<String, dynamic>> _extractNinjastream(String url) async {
     try {
-      final resp = await http.get(Uri.parse(url), headers: _headers(referer: url)).timeout(_timeout);
+      final resp = await ResilientHttp.get(Uri.parse(url), headers: _headers(referer: url)).timeout(_timeout);
       final html = resp.body;
       final unpacked = _unpackJs(html);
       final src = unpacked.isNotEmpty ? unpacked : html;
@@ -853,7 +937,7 @@ class VideoExtractor {
 
   static Future<Map<String, dynamic>> _extractVidzy(String url) async {
     try {
-      final resp = await http.get(Uri.parse(url), headers: _headers(referer: url)).timeout(_timeout);
+      final resp = await ResilientHttp.get(Uri.parse(url), headers: _headers(referer: url)).timeout(_timeout);
       final html = resp.body;
       final unpacked = _unpackJs(html);
       final src = unpacked.isNotEmpty ? unpacked : html;
@@ -880,7 +964,7 @@ class VideoExtractor {
 
   static Future<Map<String, dynamic>> _extractYourupload(String url) async {
     try {
-      final resp = await http.get(Uri.parse(url), headers: _headers(referer: url)).timeout(_timeout);
+      final resp = await ResilientHttp.get(Uri.parse(url), headers: _headers(referer: url)).timeout(_timeout);
       final html = resp.body;
       final m3u8 = _findM3u8(html);
       if (m3u8 != null) return {'success': true, 'video_url': m3u8, 'server': 'yourupload', 'type': 'hls', 'headers': {'Referer': url, 'User-Agent': _ua}};
@@ -898,7 +982,7 @@ class VideoExtractor {
 
   static Future<Map<String, dynamic>> _extractVido(String url) async {
     try {
-      final resp = await http.get(Uri.parse(url), headers: _headers(referer: url)).timeout(_timeout);
+      final resp = await ResilientHttp.get(Uri.parse(url), headers: _headers(referer: url)).timeout(_timeout);
       final html = resp.body;
       final unpacked = _unpackJs(html);
       final src = unpacked.isNotEmpty ? unpacked : html;
@@ -920,7 +1004,7 @@ class VideoExtractor {
 
   static Future<Map<String, dynamic>> _extractChillx(String url) async {
     try {
-      final resp = await http.get(Uri.parse(url), headers: _headers(referer: url)).timeout(_timeout);
+      final resp = await ResilientHttp.get(Uri.parse(url), headers: _headers(referer: url)).timeout(_timeout);
       final html = resp.body;
       final unpacked = _unpackJs(html);
       final src = unpacked.isNotEmpty ? unpacked : html;
@@ -944,7 +1028,7 @@ class VideoExtractor {
 
   static Future<Map<String, dynamic>> _extractKwik(String url) async {
     try {
-      final resp = await http.get(
+      final resp = await ResilientHttp.get(
         Uri.parse(url),
         headers: _headers(referer: 'https://animepahe.ru/'),
       ).timeout(_timeout);
@@ -955,7 +1039,7 @@ class VideoExtractor {
       final postUrl = RegExp(r'''action="([^"]+kwik[^"]+)"''').firstMatch(html)?.group(1);
 
       if (tokenMatch != null && postUrl != null) {
-        final postResp = await http.post(
+        final postResp = await ResilientHttp.post(
           Uri.parse(postUrl),
           headers: {
             ..._headers(referer: url),
@@ -993,8 +1077,48 @@ class VideoExtractor {
     try {
       final uri = Uri.parse(url);
       final base = '${uri.scheme}://${uri.host}';
-      final resp = await http.get(Uri.parse(url), headers: _headers(referer: '$base/')).timeout(_timeout);
+      late final http.Response resp;
+      try {
+        resp = await ResilientHttp.get(Uri.parse(url), headers: _headers(referer: '$base/')).timeout(_timeout);
+      } on TimeoutException {
+        // Cloudflare « Under Attack » retient la connexion sans répondre.
+        // Sous-système de secours prouvé : kakaflix /sydney/ (tarpit absolu)
+        // vs /tokyo/ (ouvert, passe la fingerprint TLS Dart).
+        final altPath = uri.path
+            .replaceAll('/sydney/', '/tokyo/')
+            .replaceAll('/viper/', '/tokyo/');
+        if (uri.host.contains('kakaflix') && altPath != uri.path) {
+          try {
+            final altResp = await ResilientHttp.get(
+              uri.replace(path: altPath),
+              headers: _headers(referer: '$base/'),
+            ).timeout(const Duration(seconds: 12));
+            final loc = altResp.headers['location'] ?? '';
+            if (loc.startsWith('http')) {
+              final res = await extract(loc);
+              if (res['success'] == true) return res;
+            }
+            if (_isCfChallenge(altResp.statusCode, altResp.body)) {
+              return cfChallengeFailure;
+            }
+            if (altResp.statusCode == 200 && altResp.body.length > 100) {
+              resp = altResp;
+              // poursuite normale sur la réponse moderne
+            } else {
+              return cfChallengeFailure;
+            }
+          } on TimeoutException {
+            return cfChallengeFailure;
+          }
+        } else {
+          return cfChallengeFailure;
+        }
+      }
       final html = resp.body;
+      if (_isCfChallenge(resp.statusCode, html)) return cfChallengeFailure;
+      if (_isParkingPage(html)) {
+        return {'error': '${uri.host}: domaine parké (lien obsolète)'};
+      }
       final finalUrl = resp.request?.url.toString() ?? url;
       final finalHost = Uri.tryParse(finalUrl)?.host ?? '';
 
@@ -1071,7 +1195,7 @@ class VideoExtractor {
     try {
       final uri = Uri.parse(url);
       final base = '${uri.scheme}://${uri.host}';
-      final resp = await http.get(Uri.parse(url), headers: _headers(referer: '$base/')).timeout(_timeout);
+      final resp = await ResilientHttp.get(Uri.parse(url), headers: _headers(referer: '$base/')).timeout(_timeout);
       final html = resp.body;
       final unpacked = _unpackJs(html);
       final src = unpacked.isNotEmpty ? unpacked : html;
@@ -1104,6 +1228,34 @@ class VideoExtractor {
   }
 
   // ─────────────────────────────────────────────────────────────────
+  // Détecteur de page de parking (domaines expirés/squattés : parklogic,
+  // namesilo…). Court-circuite vite au lieu de perdre un timeout entier.
+  // ─────────────────────────────────────────────────────────────────
+  static bool _isParkingPage(String html) {
+    final h = html.toLowerCase();
+    return (h.contains('router.parklogic.com') ||
+            h.contains('parklogic.com/e/') ||
+            h.contains('adblockingdetected')) &&
+        h.contains('redirecting');
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Détecteur Cloudflare « Under-Attack / managed challenge » — ces portails
+  // (frenchstream : kakaflix/kokoflix/sequoia, bigwarp, playmogo…) exigent
+  // un navigateur. On court-circuite au lieu de compenser par timeout.
+  // ─────────────────────────────────────────────────────────────────
+  static bool _isCfChallenge(int statusCode, String html) {
+    if (html.contains('_cf_chl_opt')) return true;
+    if (html.contains('Just a moment...') && html.contains('challenge-platform')) return true;
+    return statusCode == 403 && html.contains('cf-chl');
+  }
+
+  static Map<String, dynamic> get cfChallengeFailure => {
+        'needs_browser': true,
+        'error': 'Cloudflare challenge (navigateur requis)',
+      };
+
+  // ─────────────────────────────────────────────────────────────────
   // MULTIUP (aggregator → redirects to real hosts)
   // ─────────────────────────────────────────────────────────────────
 
@@ -1111,8 +1263,14 @@ class VideoExtractor {
     try {
       final uri = Uri.parse(url);
       final base = '${uri.scheme}://${uri.host}';
-      final resp = await http.get(Uri.parse(url), headers: _headers(referer: '$base/')).timeout(_timeout);
+      final resp = await ResilientHttp.get(Uri.parse(url), headers: _headers(referer: '$base/')).timeout(_timeout);
       final html = resp.body;
+
+      // Domaine tombé en parking (namesilo/parklogic) → inutilisable,
+      // on évite de perdre du temps sur les blocs suivants.
+      if (_isParkingPage(html)) {
+        return {'error': 'Multiup: domaine parké (lien obsolète)'};
+      }
 
       // window.location.replace redirect
       final replaceMatch = RegExp(r'''window\.location\.replace\s*\(\s*['"]([^'"]+)['"]''').firstMatch(html);
@@ -1154,7 +1312,7 @@ class VideoExtractor {
     try {
       final uri = Uri.parse(url);
       final base = '${uri.scheme}://${uri.host}';
-      final resp = await http.get(Uri.parse(url), headers: _headers(referer: '$base/')).timeout(_timeout);
+      final resp = await ResilientHttp.get(Uri.parse(url), headers: _headers(referer: '$base/')).timeout(_timeout);
       final html = resp.body;
       final finalUrl = resp.request?.url.toString() ?? url;
 
@@ -1177,9 +1335,19 @@ class VideoExtractor {
 
   static Future<Map<String, dynamic>> _extractGeneric(String url) async {
     try {
-      final resp = await http.get(Uri.parse(url), headers: _headers(referer: url)).timeout(_timeout);
+      final resp = await ResilientHttp.get(Uri.parse(url), headers: _headers(referer: url)).timeout(_timeout);
+      if (_isCfChallenge(resp.statusCode, resp.body)) return cfChallengeFailure;
       final html = resp.body;
       final base = _base(url);
+
+      // Domaine tombé en parking/squatté (parklogic, namesilo…) → stop
+      // immédiat plutôt que de faire croire à une source introuvable.
+      if (_isParkingPage(html)) {
+        return {
+          'error': '${Uri.parse(url).host}: domaine parké (lien obsolète)',
+          'parking': true,
+        };
+      }
 
       // 1. Unpack eval JS
       final unpacked = _unpackJs(html);
@@ -1265,7 +1433,7 @@ class VideoExtractor {
       final filecode = codeMatch.group(1)!;
       final base = _base(url);
 
-      final resp = await http.post(
+      final resp = await ResilientHttp.post(
         Uri.parse('$base/api/stream'),
         headers: {
           'Content-Type': 'application/json',
@@ -1307,7 +1475,7 @@ class VideoExtractor {
   static Future<Map<String, dynamic>> _extractVidsonic(String url) async {
     try {
       final base = _base(url);
-      final resp = await http.get(
+      final resp = await ResilientHttp.get(
         Uri.parse(url),
         headers: _headers(referer: '$base/'),
       ).timeout(_timeout);
@@ -1369,7 +1537,7 @@ class VideoExtractor {
   ) async {
     try {
       final base = _base(url);
-      final resp = await http.get(
+      final resp = await ResilientHttp.get(
         Uri.parse(url),
         headers: _headers(referer: referer.isNotEmpty ? referer : '$base/'),
       ).timeout(_timeout);
@@ -1382,7 +1550,7 @@ class VideoExtractor {
       if (replaceMatch != null) {
         final redirectUrl = replaceMatch.group(1)!;
         if (redirectUrl.startsWith('http') && redirectUrl != url) {
-          final page2Resp = await http.get(Uri.parse(redirectUrl), headers: _headers(referer: referer.isNotEmpty ? referer : '$base/')).timeout(_timeout);
+          final page2Resp = await ResilientHttp.get(Uri.parse(redirectUrl), headers: _headers(referer: referer.isNotEmpty ? referer : '$base/')).timeout(_timeout);
           src = page2Resp.body;
         }
       }
@@ -1444,7 +1612,7 @@ class VideoExtractor {
   static Future<Map<String, dynamic>> _extractMinochinos(String url) async {
     try {
       final base = _base(url);
-      final resp = await http.get(
+      final resp = await ResilientHttp.get(
         Uri.parse(url),
         headers: _headers(referer: '$base/'),
       ).timeout(_timeout);
@@ -1505,7 +1673,7 @@ class VideoExtractor {
     Map<String, String> headers,
   ) async {
     try {
-      final resp = await http.get(Uri.parse(masterUrl), headers: headers).timeout(const Duration(seconds: 6));
+      final resp = await ResilientHttp.get(Uri.parse(masterUrl), headers: headers).timeout(const Duration(seconds: 6));
       if (resp.statusCode != 200) return [];
       if (!resp.body.contains('#EXTM3U')) return [];
 

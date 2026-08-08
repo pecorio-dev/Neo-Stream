@@ -13,6 +13,7 @@ import 'providers/theme_provider.dart';
 import 'providers/update_provider.dart';
 import 'screens/splash_screen.dart';
 import 'services/download_service.dart';
+import 'services/local_stream_proxy.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,6 +21,9 @@ void main() {
   // Restaure la file de téléchargements (et relance ceux interrompus).
   // Non bloquant pour le démarrage.
   DownloadService.instance.init();
+  // Proxy de streaming local (contournement des blocages DNS/FAI pour le
+  // lecteur natif). Démarre en arrière-plan, non bloquant.
+  LocalStreamProxy.instance.ensureRunning();
 
   // Les overflows RenderFlex sont ignorés silencieusement plutôt que de
   // planter l'app en debug — on garde le reste du comportement par défaut.

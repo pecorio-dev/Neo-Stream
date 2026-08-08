@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../config/constants.dart';
+import 'resilient_http.dart';
+
 import '../models/fstv_channel.dart';
 
 /// Client IPTV via le système NEO-STREAM FSTV (gratuit, pas d'auth requise).
@@ -41,7 +43,7 @@ class FstvProxyService {
 
     try {
       final url = Uri.parse('${_apiBase}live_channels.php?limit=200');
-      final response = await http
+      final response = await ResilientHttp
           .get(url, headers: {'Accept': 'application/json', 'User-Agent': 'NEO-Stream/4.0'})
           .timeout(_timeout);
 
@@ -98,7 +100,7 @@ class FstvProxyService {
   Future<List<String>> streamUrlsFor(String slug) async {
     try {
       final url = Uri.parse('${_apiBase}live_sources.php?slug=$slug');
-      final response = await http
+      final response = await ResilientHttp
           .get(url, headers: {'Accept': 'application/json', 'User-Agent': 'NEO-Stream/4.0'})
           .timeout(_timeout);
 

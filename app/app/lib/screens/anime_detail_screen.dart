@@ -778,15 +778,17 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
     var added = 0;
     for (final ep in season.episodes) {
       if (ep.players.isEmpty) continue;
-      final best = AnimeExtractor.sortSources(ep.players).first;
-      final url = best['url'] ?? '';
-      if (url.isEmpty) continue;
+      final sorted = AnimeExtractor.sortSources(ep.players);
+      final urls =
+          sorted.map((s) => s['url'] ?? '').where((u) => u.isNotEmpty).toList();
+      if (urls.isEmpty) continue;
       final task = await DownloadService.instance.addAnimeEpisode(
         animeTitle: _anime!.title,
         posterUrl: _anime!.posterUrl,
         episodeLabel:
             'S${_selectedSeason}E${ep.episodeNumber} · ${_selectedLanguage.toUpperCase()}',
-        sourceUrl: url,
+        sourceUrl: urls.first,
+        candidateUrls: urls,
       );
       if (task != null) added++;
     }
@@ -932,11 +934,14 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                   // Download (hors-ligne) + Play icon
                   if (sources.isNotEmpty)
                     Builder(builder: (context) {
-                      final best = AnimeExtractor.sortSources(sources).first;
-                      final url = best['url'] ?? '';
-                      if (url.isEmpty) return const SizedBox.shrink();
+                      final sorted = AnimeExtractor.sortSources(sources);
+                      final urls = sorted
+                          .map((s) => s['url'] ?? '')
+                          .where((u) => u.isNotEmpty)
+                          .toList();
+                      if (urls.isEmpty) return const SizedBox.shrink();
                       return DownloadIconButton(
-                        sourceUrl: url,
+                        sourceUrl: urls.first,
                         size: 28,
                         onStart: () async {
                           final messenger = ScaffoldMessenger.of(context);
@@ -946,7 +951,8 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                             posterUrl: _anime!.posterUrl,
                             episodeLabel:
                                 'S${seasonNumber}E${episode.episodeNumber} · ${_selectedLanguage.toUpperCase()}',
-                            sourceUrl: url,
+                            sourceUrl: urls.first,
+                            candidateUrls: urls,
                           );
                           messenger.showSnackBar(SnackBar(
                             content: Text(task != null

@@ -10,7 +10,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/content.dart';
 import 'anime_extractor.dart';
+import 'api_service.dart';
+import 'direct_tls_fetch.dart';
+import 'resilient_http.dart';
 import 'video_extractor.dart';
+import 'webview_extractor.dart';
 
 /// Statuts possibles d'une tâche de téléchargement.
 enum DownloadStatus { queued, extracting, downloading, completed, failed, cancelled }
@@ -29,6 +33,8 @@ class DownloadTask {
   final String subtitle; // ex: "S01E02 · VF" ou "Film"
   final String? posterUrl;
   final String sourceUrl; // lien embed/page hébergeur (avant extraction)
+  /// TOUS les liens candidats (testés dans l'ordre jusqu'à succès).
+  final List<String> candidateUrls;
   String qualityLabel;
   DownloadStatus status;
   double progress; // 0..1
@@ -43,6 +49,7 @@ class DownloadTask {
     required this.subtitle,
     this.posterUrl,
     required this.sourceUrl,
+    this.candidateUrls = const [],
     this.qualityLabel = 'Auto',
     this.status = DownloadStatus.queued,
     this.progress = 0,
@@ -58,6 +65,7 @@ class DownloadTask {
         'subtitle': subtitle,
         'posterUrl': posterUrl,
         'sourceUrl': sourceUrl,
+        'candidateUrls': candidateUrls,
         'qualityLabel': qualityLabel,
         'status': status.name,
         'progress': progress,
@@ -73,6 +81,10 @@ class DownloadTask {
         subtitle: j['subtitle'] ?? '',
         posterUrl: j['posterUrl'],
         sourceUrl: j['sourceUrl'] ?? '',
+        candidateUrls: (j['candidateUrls'] as List?)
+                ?.map((e) => e.toString())
+                .toList() ??
+            const [],
         qualityLabel: j['qualityLabel'] ?? 'Auto',
         status: DownloadStatus.values.firstWhere(
           (s) => s.name == j['status'],
@@ -175,6 +187,7 @@ class DownloadService extends ChangeNotifier {
     required String title,
     String? posterUrl,
     required WatchLink link,
+    List<WatchLink> candidates = const [],
   }) =>
       _enqueue(
         id: 'film_${_slug(title)}_${DateTime.now().millisecondsSinceEpoch}',
@@ -182,6 +195,8 @@ class DownloadService extends ChangeNotifier {
         subtitle: 'Film · ${link.serverName}',
         posterUrl: posterUrl,
         sourceUrl: link.url,
+        candidateUrls:
+            (candidates.isNotEmpty ? candidates : [link]).map((l) => l.url).toList(),
       );
 
   /// Ajoute un épisode de série.
@@ -190,6 +205,7 @@ class DownloadService extends ChangeNotifier {
     String? posterUrl,
     required Episode episode,
     required WatchLink link,
+    List<WatchLink> candidates = const [],
   }) =>
       _enqueue(
         id: 'ep_${_slug(seriesTitle)}_S${episode.season}E${episode.episode}_${DateTime.now().millisecondsSinceEpoch}',
@@ -197,6 +213,8 @@ class DownloadService extends ChangeNotifier {
         subtitle: '${episode.label} · ${link.serverName}',
         posterUrl: posterUrl,
         sourceUrl: link.url,
+        candidateUrls:
+            (candidates.isNotEmpty ? candidates : [link]).map((l) => l.url).toList(),
       );
 
   /// Ajoute un épisode d'anime (source brute, extraction via AnimeExtractor).
@@ -205,6 +223,7 @@ class DownloadService extends ChangeNotifier {
     String? posterUrl,
     required String episodeLabel,
     required String sourceUrl,
+    List<String> candidateUrls = const [],
   }) =>
       _enqueue(
         id: 'an_${_slug(animeTitle)}_${_slug(episodeLabel)}_${DateTime.now().millisecondsSinceEpoch}',
@@ -212,6 +231,7 @@ class DownloadService extends ChangeNotifier {
         subtitle: episodeLabel,
         posterUrl: posterUrl,
         sourceUrl: sourceUrl,
+        candidateUrls: candidateUrls.isNotEmpty ? candidateUrls : [sourceUrl],
       );
 
   Future<DownloadTask?> _enqueue({
@@ -220,6 +240,7 @@ class DownloadService extends ChangeNotifier {
     required String subtitle,
     String? posterUrl,
     required String sourceUrl,
+    List<String> candidateUrls = const [],
   }) async {
     if (sourceUrl.trim().isEmpty) return null;
     if (isDownloading(sourceUrl) || completedFileFor(sourceUrl) != null) {
@@ -231,6 +252,7 @@ class DownloadService extends ChangeNotifier {
       subtitle: subtitle,
       posterUrl: posterUrl,
       sourceUrl: sourceUrl,
+      candidateUrls: candidateUrls.isNotEmpty ? candidateUrls : [sourceUrl],
     );
     tasks.insert(0, task);
     await _persist();
@@ -318,76 +340,156 @@ class DownloadService extends ChangeNotifier {
     }
   }
 
+  /// Extraction pour une tâche : priorité au serveur (o2switch) qui évite
+  /// les blocages FAI français sur les pages embed ; repli sur l'extracteur
+  /// local (vidéo classique / anime).
+  Future<Map<String, dynamic>> _extractForTask(
+      String url, bool isAnime) async {
+    // 1) Extraction côté serveur (route /app/extract — via ResilientHttp
+    //    donc fonctionne même avec le DNS du domaine cassé).
+    if (!isAnime) {
+      try {
+        final serverResult = await ApiService().extractVideoUrlServer(url);
+        if (serverResult['success'] == true &&
+            (serverResult['video_url'] ?? '').toString().startsWith('http')) {
+          return serverResult;
+        }
+      } catch (_) {
+        // serveur indisponible ou url non prise en charge → repli local
+      }
+    }
+
+    // 2) Extracteur local (hébergeur atteint directement depuis l'appareil).
+    final local = isAnime
+        ? await AnimeExtractor.extract(url)
+        : await VideoExtractor.extract(url);
+    if (local['success'] == true && local['needs_browser'] != true) {
+      return local;
+    }
+
+    // 3) Émulation navigateur (WebView headless) pour les portails sous
+    //    challenge Cloudflare / JS runtime.
+    try {
+      final wb = await WebViewExtractor.extract(url);
+      if (wb != null) return wb;
+    } catch (_) {}
+    return local;
+  }
+
   Future<void> _runTask(DownloadTask task) async {
     task.status = DownloadStatus.extracting;
+    task.progress = 0;
+    task.receivedBytes = 0;
+    task.totalBytes = 0;
+    task.error = null;
     notifyListeners();
 
-    try {
-      // 1) Extraction → URL directe (extracteur anime vs films/séries)
-      final isAnime = task.id.startsWith('an_');
-      final extraction = isAnime
-          ? await AnimeExtractor.extract(task.sourceUrl)
-          : await VideoExtractor.extract(task.sourceUrl);
-      if (_isCancelled(task)) return;
+    final candidates = task.candidateUrls.isNotEmpty
+        ? task.candidateUrls
+        : [task.sourceUrl];
+    final isAnime = task.id.startsWith('an_');
+    final errors = <String>[];
 
-      if (extraction['success'] != true) {
-        throw Exception(
-            extraction['error']?.toString() ?? 'Extraction impossible');
-      }
-
-      final videoUrl = (extraction['video_url'] ?? '').toString();
-      if (videoUrl.isEmpty) throw Exception('URL vidéo introuvable');
-      final headers = <String, String>{
-        'User-Agent': _userAgent,
-        ...?(extraction['headers'] as Map?)?.map(
-            (k, v) => MapEntry(k.toString(), v.toString())),
-      };
-      final bool isHls = extraction['is_hls'] == true ||
-          videoUrl.contains('.m3u8');
-
-      // Qualité : la meilleure variante si fournie par l'extracteur
-      String playUrl = videoUrl;
-      final qualities = extraction['qualities'];
-      if (isHls && qualities is List && qualities.isNotEmpty) {
-        task.qualityLabel = qualities.first['label']?.toString() ?? 'Auto';
-        final qUrl = qualities.first['url']?.toString();
-        if (qUrl != null && qUrl.isNotEmpty) playUrl = qUrl;
-      }
-
-      task.status = DownloadStatus.downloading;
-      notifyListeners();
-
-      final file = await _targetFile(task, isHls ? '.ts' : '.mp4');
-      task.filePath = file.path;
-
-      if (isHls) {
-        await _downloadHls(task, playUrl, headers, file);
-      } else {
-        await _downloadFile(task, playUrl, headers, file);
-      }
+    for (var i = 0; i < candidates.length; i++) {
       if (_isCancelled(task)) {
-        await _silentDelete(file);
+        _persist();
+        notifyListeners();
         return;
       }
-
-      task.status = DownloadStatus.completed;
-      task.progress = 1;
-      // Notifie Android MediaStore (visible dans les apps de fichiers)
+      final link = candidates[i];
+      final host = Uri.tryParse(link)?.host ?? '?';
       try {
-        await const MethodChannel('app.channel.media_scanner')
-            .invokeMethod('scanFile', {'path': file.path});
-      } catch (_) {}
-    } catch (e) {
-      if (_isCancelled(task)) {
+        // Extraction : serveur en priorité (évite les blocages FAI), local en repli
+        final extraction = await _extractForTask(link, isAnime);
+        if (_isCancelled(task)) return;
+
+        if (extraction['success'] != true) {
+          errors.add('L${i + 1}[$host] extraction : '
+              '${extraction['error'] ?? 'impossible'}');
+          continue;
+        }
+
+        final videoUrl = (extraction['video_url'] ?? '').toString();
+        if (videoUrl.isEmpty || !videoUrl.startsWith('http')) {
+          errors.add('L${i + 1}[$host] pas d’URL vidéo directe');
+          continue;
+        }
+        final headers = <String, String>{
+          'User-Agent': _userAgent,
+          ...?(extraction['headers'] as Map?)?.map(
+              (k, v) => MapEntry(k.toString(), v.toString())),
+        };
+        final bool isHls = extraction['is_hls'] == true ||
+            videoUrl.contains('.m3u8');
+
+        // Qualité : la meilleure variante si fournie par l'extracteur
+        String playUrl = videoUrl;
+        final qualities = extraction['qualities'];
+        if (isHls && qualities is List && qualities.isNotEmpty) {
+          task.qualityLabel = qualities.first['label']?.toString() ?? 'Auto';
+          final qUrl = qualities.first['url']?.toString();
+          if (qUrl != null && qUrl.isNotEmpty) playUrl = qUrl;
+        }
+
+        task.status = DownloadStatus.downloading;
+        task.progress = 0;
+        task.receivedBytes = 0;
+        task.error = null;
+        notifyListeners();
+
+        final file = await _targetFile(task, isHls ? '.ts' : '.mp4');
+        task.filePath = file.path;
+
+        try {
+          if (isHls) {
+            await _downloadHls(task, playUrl, headers, file);
+          } else {
+            await _downloadFile(task, playUrl, headers, file);
+          }
+        } catch (e) {
+          await _silentDelete(file); // fichier partiel
+          rethrow;
+        }
+        if (_isCancelled(task)) {
+          await _silentDelete(file);
+          return;
+        }
+
+        task.status = DownloadStatus.completed;
+        task.progress = 1;
+        task.error = null;
+        // Notifie Android MediaStore (visible dans les apps de fichiers)
+        try {
+          await const MethodChannel('app.channel.media_scanner')
+              .invokeMethod('scanFile', {'path': file.path});
+        } catch (_) {}
         return;
+      } catch (e) {
+        if (_isCancelled(task)) {
+          _persist();
+          notifyListeners();
+          return;
+        }
+        errors.add('L${i + 1}[$host] ${_shortErr(e)}');
+        task.status = DownloadStatus.extracting; // candidat suivant
+        notifyListeners();
+        continue;
       }
-      task.status = DownloadStatus.failed;
-      task.error = e.toString();
-    } finally {
-      _activeClient = null;
-      _persist();
-      notifyListeners();
     }
+
+    // Tous les liens ont échoué
+    task.status = DownloadStatus.failed;
+    task.error = errors.isNotEmpty
+        ? '${errors.length}/${candidates.length} liens échoués. Dernier : ${errors.last}'
+        : 'aucun lien disponible';
+    _persist();
+    notifyListeners();
+  }
+
+  String _shortErr(Object e) {
+    if (e is FileSystemException) return 'stockage : ${e.message}';
+    final s = e.toString();
+    return s.length > 90 ? s.substring(0, 90) : s;
   }
 
   bool _isCancelled(DownloadTask task) {
@@ -422,14 +524,68 @@ class DownloadService extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// Relais serveur (live_proxy) : contourne les blocages FAI (connexion
+  /// refusée sur certains CDN). Ne sert qu'en secours.
+  static String get _relayBase => ResilientHttp.relayBase;
+
+  /// GET bytes/JSON : direct → TLS/SNI sur IP DoH (casse DNS empoisonné)
+  /// → relais serveur (casse blocage IP complet).
+  Future<http.Response> _getWithRelay(
+    String url,
+    Map<String, String> headers, {
+    Duration? timeout,
+  }) async {
+    Object? firstErr;
+    // 1) Direct
+    try {
+      return await ResilientHttp.get(Uri.parse(url), headers: headers)
+          .timeout(timeout ?? const Duration(seconds: 25));
+    } catch (e) {
+      if (!ResilientHttp.isTransportError(e)) rethrow;
+      firstErr = e;
+    }
+    // 2) DoH + TLS/SNI sur IP résolue (bypass DNS empoisonné)
+    final direct = await DirectTlsFetch.get(url, headers: headers);
+    if (direct != null && direct.status >= 200 && direct.status < 400) {
+      return http.Response.bytes(
+        direct.body,
+        direct.status,
+        headers: direct.headers.map((k, v) => MapEntry(k, v)),
+      );
+    }
+    // 3) Relais serveur (casse le blocage IP complet)
+    try {
+      return await ResilientHttp.get(
+        Uri.parse(ResilientHttp.relayFor(url)),
+        headers: headers,
+      ).timeout(timeout ?? const Duration(seconds: 25));
+    } catch (_) {
+      throw firstErr; // message de la cause racine
+    }
+  }
+
   /// Téléchargement direct (mp4) avec progression réelle.
   Future<void> _downloadFile(DownloadTask task, String url,
       Map<String, String> headers, File out) async {
-    final client = http.Client();
-    _activeClient = client;
+    http.StreamedResponse resp;
     try {
-      final req = http.Request('GET', Uri.parse(url))..headers.addAll(headers);
-      final resp = await client.send(req).timeout(const Duration(seconds: 30));
+      try {
+        resp = await ResilientHttp.send(
+          'GET',
+          Uri.parse(url),
+          headers: headers,
+          timeout: const Duration(seconds: 30),
+        );
+      } catch (e) {
+        if (!ResilientHttp.isTransportError(e)) rethrow;
+        // Réseau hostile → relais via le serveur de l'app.
+        resp = await ResilientHttp.send(
+          'GET',
+          Uri.parse(ResilientHttp.relayFor(url)),
+          headers: headers,
+          timeout: const Duration(seconds: 30),
+        );
+      }
       if (resp.statusCode < 200 || resp.statusCode >= 300) {
         throw Exception('HTTP ${resp.statusCode}');
       }
@@ -461,7 +617,6 @@ class DownloadService extends ChangeNotifier {
     } on _Cancelled {
       rethrow;
     } finally {
-      client.close();
       _activeClient = null;
     }
   }
@@ -521,9 +676,8 @@ class DownloadService extends ChangeNotifier {
   }
 
   Future<String> _fetchText(String url, Map<String, String> headers) async {
-    final resp = await http
-        .get(Uri.parse(url), headers: headers)
-        .timeout(const Duration(seconds: 20));
+    final resp = await _getWithRelay(url, headers,
+        timeout: const Duration(seconds: 20));
     if (resp.statusCode != 200) throw Exception('Playlist HTTP ${resp.statusCode}');
     return utf8.decode(resp.bodyBytes, allowMalformed: true);
   }
@@ -533,9 +687,8 @@ class DownloadService extends ChangeNotifier {
     Object? lastErr;
     for (var a = 0; a < attempts; a++) {
       try {
-        final resp = await http
-            .get(Uri.parse(url), headers: headers)
-            .timeout(const Duration(seconds: 25));
+        final resp = await _getWithRelay(url, headers,
+            timeout: const Duration(seconds: 25));
         if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
           return resp.bodyBytes;
         }
@@ -564,3 +717,10 @@ class DownloadService extends ChangeNotifier {
 }
 
 class _Cancelled implements Exception {}
+
+class _DownloadFailed implements Exception {
+  final String message;
+  _DownloadFailed(this.message);
+  @override
+  String toString() => message;
+}

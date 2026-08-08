@@ -613,6 +613,7 @@ class _DetailScreenState extends State<DetailScreen>
                     title: content.title,
                     posterUrl: content.poster,
                     link: link,
+                    candidates: links,
                   );
                   messenger.showSnackBar(SnackBar(
                     content: Text(task != null
@@ -986,6 +987,7 @@ class _DetailScreenState extends State<DetailScreen>
                               posterUrl: content.poster,
                               episode: episode,
                               link: preferredLinks.first,
+                              candidates: preferredLinks,
                             );
                             messenger.showSnackBar(SnackBar(
                               content: Text(task != null
@@ -1126,6 +1128,7 @@ class _DetailScreenState extends State<DetailScreen>
         posterUrl: content.poster,
         episode: ep,
         link: links.first,
+        candidates: links,
       );
       if (task != null) added++;
     }

@@ -10,6 +10,8 @@ import '../config/constants.dart';
 import '../models/content.dart';
 import '../models/user.dart';
 import 'video_extractor.dart';
+import 'resilient_http.dart';
+
 
 String humanizeApiError(Object error) {
   final raw = error.toString().trim();
@@ -221,7 +223,7 @@ class ApiService {
     if (!isLoggedIn) return;
 
     final url = AppConstants.apiUri('auth/app-session');
-    final response = await http
+    final response = await ResilientHttp
         .get(
           url,
           headers: _baseHeaders(
@@ -325,7 +327,7 @@ class ApiService {
     await _ensureIntegritySession();
 
     final url = AppConstants.apiUri(endpoint);
-    final response = await http
+    final response = await ResilientHttp
         .get(
           url,
           headers: _baseHeaders(
@@ -375,7 +377,7 @@ class ApiService {
     await _ensureIntegritySession();
 
     final url = AppConstants.apiUri(endpoint);
-    final response = await http
+    final response = await ResilientHttp
         .post(
           url,
           headers: _baseHeaders(includeAuth: true, includeIntegrity: true),
@@ -415,7 +417,7 @@ class ApiService {
 
   Future<User> login(String username, String password) async {
     final url = AppConstants.apiUri('auth/login');
-    final response = await http
+    final response = await ResilientHttp
         .post(
           url,
           headers: _baseHeaders(),
@@ -448,7 +450,7 @@ class ApiService {
 
   Future<User> register(String username, String email, String password) async {
     final url = AppConstants.apiUri('auth/register');
-    final response = await http
+    final response = await ResilientHttp
         .post(
           url,
           headers: _baseHeaders(),
@@ -477,7 +479,7 @@ class ApiService {
 
   Future<User> checkAuth() async {
     final url = AppConstants.apiUri('auth/check');
-    final response = await http
+    final response = await ResilientHttp
         .get(
           url,
           headers: _baseHeaders(

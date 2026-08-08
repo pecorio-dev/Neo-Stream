@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 
+import 'resilient_http.dart';
 import 'video_extractor.dart';
 
 /// Extracteur dédié anime (anime-sama, etc.)
@@ -146,7 +146,7 @@ class AnimeExtractor {
     Map<String, String> headers,
   ) async {
     try {
-      final resp = await http.get(Uri.parse(masterUrl), headers: headers).timeout(_timeout);
+      final resp = await ResilientHttp.get(Uri.parse(masterUrl), headers: headers).timeout(_timeout);
       if (resp.statusCode != 200) return [];
       final body = resp.body;
       if (!body.contains('#EXTM3U')) return [];
@@ -236,7 +236,7 @@ class AnimeExtractor {
   static Future<Map<String, dynamic>> _extractSibnet(String url) async {
     try {
       final headers = _headers(referer: 'https://sibnet.ru/');
-      final resp = await http.get(Uri.parse(url), headers: headers).timeout(_timeout);
+      final resp = await ResilientHttp.get(Uri.parse(url), headers: headers).timeout(_timeout);
       if (resp.statusCode != 200) return {'success': false, 'error': 'Sibnet: HTTP ${resp.statusCode}'};
       final html = resp.body;
 
@@ -277,7 +277,7 @@ class AnimeExtractor {
           ?? RegExp(r"(/shell\.php[^']*|/player\.ashx[^']*)'").firstMatch(html);
       if (playerMatch != null) {
         final playerUrl = 'https://video.sibnet.ru${playerMatch.group(1)!}';
-        final resp2 = await http.get(Uri.parse(playerUrl), headers: headers).timeout(_timeout);
+        final resp2 = await ResilientHttp.get(Uri.parse(playerUrl), headers: headers).timeout(_timeout);
         final html2 = resp2.body;
         final mp4Match2 = RegExp(r'src:\s*"([^"]+\.mp4[^"]*)"', caseSensitive: false).firstMatch(html2)
             ?? RegExp(r"src:\s*'([^']+\.mp4[^']*)'", caseSensitive: false).firstMatch(html2);
@@ -307,7 +307,7 @@ class AnimeExtractor {
   static Future<Map<String, dynamic>> _extractSendvid(String url) async {
     try {
       final headers = _headers(referer: 'https://sendvid.com/');
-      final resp = await http.get(Uri.parse(url), headers: headers).timeout(_timeout);
+      final resp = await ResilientHttp.get(Uri.parse(url), headers: headers).timeout(_timeout);
       final html = resp.body;
 
       for (final pattern in [
@@ -339,7 +339,7 @@ class AnimeExtractor {
   static Future<Map<String, dynamic>> _extractVidmoly(String url) async {
     try {
       final headers = _headers(referer: 'https://vidmoly.to/');
-      final resp = await http.get(Uri.parse(url), headers: headers).timeout(_timeout);
+      final resp = await ResilientHttp.get(Uri.parse(url), headers: headers).timeout(_timeout);
       final html = resp.body;
 
       // Try to unpack obfuscated JS
@@ -384,7 +384,7 @@ class AnimeExtractor {
   static Future<Map<String, dynamic>> _extractGoudcloud(String url) async {
     try {
       final headers = _headers(referer: url);
-      final resp = await http.get(Uri.parse(url), headers: headers).timeout(_timeout);
+      final resp = await ResilientHttp.get(Uri.parse(url), headers: headers).timeout(_timeout);
       final html = resp.body;
 
       final unpacked = html.contains('eval(function') ? _unpackJs(html) : html;
@@ -427,7 +427,7 @@ class AnimeExtractor {
   static Future<Map<String, dynamic>> _extractStreamwish(String url) async {
     try {
       final headers = _headers(referer: url);
-      final resp = await http.get(Uri.parse(url), headers: headers).timeout(_timeout);
+      final resp = await ResilientHttp.get(Uri.parse(url), headers: headers).timeout(_timeout);
       final html = resp.body;
       final unpacked = html.contains('eval(function') ? _unpackJs(html) : html;
 
@@ -490,7 +490,7 @@ class AnimeExtractor {
   ]) async {
     try {
       final headers = _headers(referer: url);
-      final resp = await http.get(Uri.parse(url), headers: headers).timeout(_timeout);
+      final resp = await ResilientHttp.get(Uri.parse(url), headers: headers).timeout(_timeout);
       final html = resp.body;
 
       // Unpack JS si présent

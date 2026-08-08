@@ -15,7 +15,7 @@ import 'anime_detail_screen.dart';
 import 'anime_screen.dart';
 import 'browse_screen.dart';
 import 'detail_screen.dart';
-import 'favorites_screen.dart';
+import 'downloads_screen.dart';
 import 'iptv_screen.dart';
 import 'search_screen.dart';
 import 'settings_screen.dart';
@@ -160,7 +160,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       case 4:
         return SearchScreen();
       case 5:
-        return FavoritesScreen();
+        return const DownloadsScreen();
       case 0:
       default:
         return _buildHomeContent();
@@ -364,9 +364,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       4,
                     ),
                     _buildNavItem(
-                      Icons.favorite_border_rounded,
-                      Icons.favorite_rounded,
-                      'Favoris',
+                      Icons.download_outlined,
+                      Icons.download_rounded,
+                      'Télécharg.',
                       5,
                     ),
                   ],
@@ -481,7 +481,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     SizedBox(height: 8),
                     _buildTVNavItem(context, 4, Icons.search_rounded, Icons.manage_search_rounded, 'Recherche'),
                     SizedBox(height: 8),
-                    _buildTVNavItem(context, 5, Icons.favorite_border_rounded, Icons.favorite_rounded, 'Favoris'),
+                    _buildTVNavItem(context, 5, Icons.download_outlined, Icons.download_rounded, 'Téléchargements'),
                     SizedBox(height: 16),
                     Divider(
                       color: Neo.bgBorder(context).withValues(alpha: 0.1),

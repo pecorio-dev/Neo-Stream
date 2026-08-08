@@ -11,8 +11,11 @@ import '../models/anime.dart';
 import '../models/content.dart';
 import '../services/anime_extractor.dart';
 import '../services/api_service.dart';
+import '../services/local_stream_proxy.dart';
 import '../services/player_prefs.dart';
+import '../services/resilient_http.dart';
 import '../services/video_extractor.dart';
+import '../services/webview_extractor.dart';
 import '../utils/watch_link_utils.dart';
 import '../widgets/universal_video_player.dart';
 
@@ -253,18 +256,41 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return;
     }
 
-    // Anti-troll : écarter les faux flux (clips courts / mini-fichiers)
-    if (prepared.length > 1) {
+    // Anti-troll : écarter les faux flux (clips courts / mini-fichiers /
+    // portails FStream) — même si UNE seule source a été extraite : mieux
+    // vaut un message d'erreur propre qu'une fausse vidéo.
+    if (prepared.isNotEmpty) {
       if (mounted) setState(() => _statusLabel = 'Vérification des sources...');
       final filtered = await _filterTrollStreams(prepared);
       if (!mounted || generation != _extractionGeneration) return;
       _preparedStreams = filtered;
-    } else {
-      _preparedStreams = prepared;
+      if (_preparedStreams.isEmpty) {
+        setState(() {
+          _errorMessage =
+              'Aucune source valide : les liens disponibles renvoient des '
+              'fausses vidéos (troll). Réessayez plus tard ou choisissez '
+              'une autre source sur la fiche.';
+          _isLoading = false;
+        });
+        return;
+      }
     }
     _totalSources = _preparedStreams.length;
     await _playPreparedStreams(generation: generation);
   }
+
+  // Domaines et motifs de faux flux connus (portails FrenchStream/FStream,
+  // clips de « troll », pages de pub déguisées en lecteur).
+  // Patterns réels confirmés (08/2026) :
+  //  - réseau s1.fsvid.lol → chemin `/troll/`
+  //  - famille VOE → vidéo de test bigbuckbunny (10 s)
+  //  - clips courts génériques (intro/promo/teaser/<15 Mo)
+  static final RegExp _trollPattern = RegExp(
+    r'kakaflix|kokoflix|sequoia|french[-_]?stream|fostream|troll|/troll/|'
+    r'bigbuckbunny|buck_bunny|test-videos|/pub/|'
+    r'intro\.mp4|promo\.mp4|teaser|fakeplayer|fplay\.online',
+    caseSensitive: false,
+  );
 
   // ─── Détecteur de faux flux « troll » (FStream/FrenchStream & co) ─────
   //
@@ -277,19 +303,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<List<_PreparedStream>> _filterTrollStreams(
     List<_PreparedStream> streams,
   ) async {
-    final verdicts = await Future.wait(streams.map(_assessStream));
-    final kept = <_PreparedStream>[];
-    for (var i = 0; i < streams.length; i++) {
-      final verdict = verdicts[i];
-      if (verdict == false) {
-        _addDebug('source troll/fake écartée: ${streams[i].label}');
-      } else {
-        kept.add(streams[i]);
+    // 1) Signatures certaines (domaines/motifs de troll connus) → rejet direct
+    // 2) Contrôle réseau sur le reste
+    final hard = streams.where((s) => !_trollPattern.hasMatch(s.url)).toList();
+    for (final s in streams) {
+      if (_trollPattern.hasMatch(s.url)) {
+        _addDebug('source troll connue écartée: ${s.url.substring(0, s.url.length > 80 ? 80 : s.url.length)}');
       }
     }
-    if (kept.isEmpty) {
-      _addDebug('toutes les sources semblent fausses → liste conservée');
-      return streams;
+    if (hard.isEmpty) return const [];
+
+    final verdicts = await Future.wait(hard.map(_assessStream));
+    final kept = <_PreparedStream>[];
+    for (var i = 0; i < hard.length; i++) {
+      final verdict = verdicts[i];
+      if (verdict == false) {
+        _addDebug('source troll/fake écartée: ${hard[i].label}');
+      } else {
+        kept.add(hard[i]);
+      }
     }
     return kept;
   }
@@ -313,14 +345,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
           total += double.tryParse(m.group(1)!) ?? 0;
         }
         if (total <= 0) return null;
-        return total >= 120;
+        // Un clip « troll » fait quelques minutes max ; un vrai contenu VOD
+        // dépasse très largement 5 minutes.
+        return total >= 300;
       }
 
       final req = http.Request('HEAD', Uri.parse(s.url))..headers.addAll(headers);
       final resp = await client.send(req).timeout(const Duration(seconds: 8));
       final len = resp.contentLength ?? 0;
       if (len <= 0) return null;
-      return len >= 8 * 1024 * 1024;
+      return len >= 15 * 1024 * 1024;
     } catch (_) {
       return null;
     } finally {
@@ -438,7 +472,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return prepared;
   }
 
-  /// Extraction d'une URL avec fallback API serveur.
+  /// Extraction d'une URL : serveur en priorité (o2switch n'est pas bloqué
+  /// par les FAI français), extracteur local en repli.
   Future<Map<String, dynamic>?> _extractOne(
     String sourceUrl, {
     required bool isAnime,
@@ -447,14 +482,40 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (isAnime && AnimeExtractor.isUnplayableUrl(sourceUrl)) return null;
 
     try {
-      Map<String, dynamic> result = isAnime
-          ? await AnimeExtractor.extract(sourceUrl)
-          : await VideoExtractor.extract(sourceUrl);
+      Map<String, dynamic> result = <String, dynamic>{};
+      // 1) Serveur d'abord pour les films/séries (VOD) : les pages embed
+      //    des hébergeurs sont souvent bloquées sur les réseaux FAI.
+      if (!isAnime) {
+        try {
+          final serverResult = await _api.extractVideoUrlServer(sourceUrl);
+          if (serverResult['success'] == true &&
+              (serverResult['video_url'] ?? '').toString().isNotEmpty) {
+            result = serverResult;
+          }
+        } catch (_) {}
+      }
 
+      // 2) Repli extracteur local
       if (result['success'] != true) {
+        result = isAnime
+            ? await AnimeExtractor.extract(sourceUrl)
+            : await VideoExtractor.extract(sourceUrl);
+      }
+
+      // 3) Dernière chance : extraction serveur aussi en secours
+      if (result['success'] != true && isAnime) {
         try {
           final serverResult = await _api.extractVideoUrlServer(sourceUrl);
           if (serverResult['success'] == true) result = serverResult;
+        } catch (_) {}
+      }
+
+      // 4) Portails sous Cloudflare/challenge JS : émulation navigateur
+      //    (WebView headless + sniff réseau) — couvre kakaflix & co.
+      if (result['success'] != true || result['needs_browser'] == true) {
+        try {
+          final wb = await WebViewExtractor.extract(sourceUrl);
+          if (wb != null) result = wb;
         } catch (_) {}
       }
 
@@ -501,11 +562,42 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     // Android : toutes les sources en natif (bascule in-Activity)
     if (!kIsWeb && Platform.isAndroid) {
+      // L'Activity native prend le dessus : sortir de l'état "Extraction…"
+      // AVANT de l'ouvrir, sinon à la fermeture du lecteur on voit brièvement
+      // l'écran d'extraction au lieu de revenir directement à la fiche détails.
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = null;
+        });
+      }
+
+      // Contournement réseau hostile (blocages FAI/DNS) : le lecteur natif ne
+      // touche JAMAIS les hébergeurs — il passe par le proxy local 127.0.0.1
+      // (DoH + SNI + relais serveur intégrés dans la cascade du proxy).
+      var playUrls = urls;
+      List<Map<String, String>>? playHeadersList = headersList;
+      final proxyUp = await LocalStreamProxy.instance.ensureRunning();
+      if (proxyUp) {
+        playUrls = [
+          for (var i = 0; i < urls.length; i++)
+            LocalStreamProxy.instance.wrap(
+              urls[i],
+              headers: i < _preparedStreams.length
+                  ? _preparedStreams[i].headers
+                  : null,
+            ),
+        ];
+        playHeadersList = null;
+        _addDebug('lecture via proxy local (${playUrls.length} sources)');
+      }
+
+      _cleanupPlayer();
       _playerController = UniversalPlayerController(
-        url: urls.first,
-        fallbackUrls: urls.skip(1).toList(),
-        headers: _preparedStreams.first.headers,
-        headersList: headersList,
+        url: playUrls.first,
+        fallbackUrls: playUrls.skip(1).toList(),
+        headers: playHeadersList == null ? null : headersList.first,
+        headersList: playHeadersList ?? const [],
         isLive: false,
       );
 
@@ -536,20 +628,43 @@ class _PlayerScreenState extends State<PlayerScreen> {
         );
 
         if (hadError) {
-          if (mounted) {
-            setState(() {
-              _errorMessage =
-                  'Erreur de lecture: ${result?['error'] ?? 'flux indisponible'}';
-              _isLoading = false;
-            });
+          // Dernière chance : relais serveur pur (si le proxy local n'a pas suffi)
+          final relayed = urls
+              .map((u) => ResilientHttp.relayFor(u))
+              .toList(growable: false);
+          _addDebug('native KO → tentative relais serveur');
+          _cleanupPlayer();
+          _playerController = UniversalPlayerController(
+            url: relayed.first,
+            fallbackUrls: relayed.skip(1).toList(),
+            headers: _preparedStreams.first.headers,
+            headersList: headersList,
+            isLive: false,
+          );
+          await _playerController!.initialize(
+            positionMs: resumeMs > 0 ? resumeMs : 0,
+          );
+          if (!mounted || generation != _extractionGeneration) return;
+          final result2 = _playerController!.lastSurfaceResult;
+          final hadError2 =
+              result2?['hadError'] == true || result2?['ok'] == false;
+          if (hadError2) {
+            if (mounted) {
+              setState(() {
+                _errorMessage =
+                    'Erreur de lecture: ${result2?['error'] ?? result?['error'] ?? 'flux indisponible'}';
+                _isLoading = false;
+              });
+            }
+            return;
           }
-          return;
         }
 
         // Session terminée sans erreur. Si la vidéo est allée au bout et
         // qu'un épisode suivant existe → NE PAS pop : la carte "épisode
         // suivant" gère la suite (compte à rebours → enchaînement).
-        final completed = result?['completed'] == true;
+        final finalResult = _playerController!.lastSurfaceResult;
+        final completed = finalResult?['completed'] == true;
         if (completed && mounted && _findNextEpisode() != null) {
           _startNextUpCountdown();
           return;
