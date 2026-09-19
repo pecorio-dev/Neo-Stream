@@ -669,7 +669,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       return ShimmerHomeLoading();
     }
 
-    if (content.homeError != null) {
+    if (content.homeError != null && !content.hasAnyHomeContent) {
       return Center(
         child: Padding(
           padding: NeoTheme.screenPadding(context),
@@ -705,7 +705,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
                 SizedBox(height: 24),
                 ElevatedButton.icon(
-                  onPressed: () => content.loadHome(),
+                  onPressed: () => content.retryHome(),
                   icon: Icon(Icons.refresh_rounded),
                   label: Text('Réessayer'),
                 ),
@@ -828,6 +828,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   averageRating: averageRating,
                 ),
               ),
+              // Mode dégradé (`content/home` 500, sections reconstruites) :
+              // bandeau discret au-dessus des sections, jamais d'écran d'erreur.
+              if (content.isDegraded)
+                SliverToBoxAdapter(
+                  child: _buildDegradedBanner(context, content),
+                ),
               if (content.continueWatching.isNotEmpty)
                 _buildHorizontalSection(
                   'Continuer à regarder',
@@ -927,6 +933,52 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  /// Bandeau discret du mode dégradé + bouton Réessayer.
+  Widget _buildDegradedBanner(BuildContext context, ContentProvider content) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        NeoTheme.screenPadding(context).left,
+        12,
+        NeoTheme.screenPadding(context).right,
+        0,
+      ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: Neo.bgSurface(context).withValues(alpha: 0.9),
+          borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
+          border: Border.all(
+            color: NeoTheme.prestigeGold.withValues(alpha: 0.35),
+            width: 0.5,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.wifi_off_outlined,
+              size: 18,
+              color: NeoTheme.prestigeGold,
+            ),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                'Mode dégradé : certaines sections sont indisponibles.',
+                style: TextStyle(fontSize: 12),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            TextButton.icon(
+              onPressed: () => content.retryHome(),
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('Réessayer'),
+            ),
+          ],
         ),
       ),
     );

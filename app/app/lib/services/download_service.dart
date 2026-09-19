@@ -329,10 +329,14 @@ class DownloadService extends ChangeNotifier {
     _running = true;
     try {
       while (true) {
-        final next = tasks.firstWhere(
-            (t) => t.status == DownloadStatus.queued,
-            orElse: () => tasks.first);
-        if (next.status != DownloadStatus.queued) break;
+        DownloadTask? next;
+        for (final t in tasks) {
+          if (t.status == DownloadStatus.queued) {
+            next = t;
+            break;
+          }
+        }
+        if (next == null) break;
         await _runTask(next);
       }
     } finally {

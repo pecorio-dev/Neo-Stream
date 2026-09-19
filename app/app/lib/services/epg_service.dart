@@ -139,8 +139,12 @@ class EpgService {
     for (final r in fetched) {
       if (r == null) continue;
       try {
+        // Parse morcelé (yield tous les ~512 programmes côté parser) +
+        // respiration entre les deux sources : le parse séquentiel des
+        // ~58k programmes ne monopolise jamais l'event-loop.
         await EpgParser.parse(r.bytes, r.src.rank, into: merged);
         anyOk = true;
+        await Future<void>.delayed(Duration.zero);
       } catch (_) {
         // Flux corrompu : on continue avec l'autre source.
         continue;
@@ -343,6 +347,8 @@ class EpgService {
                   : bytes;
           await EpgParser.parse(payload, src.rank, into: parsed);
           anyOk = true;
+          // Respiration entre les deux fichiers (même raison que réseau).
+          await Future<void>.delayed(Duration.zero);
         } catch (_) {
           continue;
         }

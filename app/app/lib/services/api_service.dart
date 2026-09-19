@@ -529,6 +529,80 @@ class ApiService {
     }
   }
 
+  /// Fallback dégradé quand `content/home` est en 500.
+  ///
+  /// Agrège en parallèle les endpoints qui restent disponibles
+  /// (daily-top, recommended, trending, genres, library/list,
+  /// progress/history) et les remappe au format exact que
+  /// `ContentProvider._applyHomeData` attend. Chaque source est
+  /// isolée (try/catch) : une source KO donne une liste vide au lieu
+  /// de faire échouer tout l'agrégat. Le hero est dérivé des
+  /// premiers items trending/daily-top.
+  /// Ne touche PAS au cache `content/home` (géré par [getHome]).
+  Future<Map<String, dynamic>> getHomeDegraded() async {
+    List<Content> dailyTop = const [];
+    List<Content> recommended = const [];
+    List<Content> trending = const [];
+    List<Map<String, dynamic>> genres = const [];
+    List<Map<String, dynamic>> library = const [];
+    List<Map<String, dynamic>> history = const [];
+
+    final results = await Future.wait<dynamic>([
+      getDailyTop(limit: 10).then<dynamic>((v) => v).catchError((_) => <Content>[]),
+      getRecommended(limit: 20).then<dynamic>((v) => v).catchError((_) => <Content>[]),
+      getTrending().then<dynamic>((v) => v).catchError((_) => <Content>[]),
+      getGenres().then<dynamic>((v) => v).catchError((_) => <Map<String, dynamic>>[]),
+      getLibrary().then<dynamic>((v) => v).catchError((_) => <Map<String, dynamic>>[]),
+      getHistory().then<dynamic>((v) => v).catchError((_) => <Map<String, dynamic>>[]),
+    ]);
+    if (results[0] is List<Content>) dailyTop = results[0] as List<Content>;
+    if (results[1] is List<Content>) recommended = results[1] as List<Content>;
+    if (results[2] is List<Content>) trending = results[2] as List<Content>;
+    if (results[3] is List<Map<String, dynamic>>) {
+      genres = results[3] as List<Map<String, dynamic>>;
+    }
+    if (results[4] is List<Map<String, dynamic>>) {
+      library = results[4] as List<Map<String, dynamic>>;
+    }
+    if (results[5] is List<Map<String, dynamic>>) {
+      history = results[5] as List<Map<String, dynamic>>;
+    }
+
+    final heroSource = [...trending, ...dailyTop];
+    final films = [...trending, ...dailyTop, ...recommended]
+        .where((c) => c.isFilm)
+        .toList();
+    final series = [...trending, ...dailyTop, ...recommended]
+        .where((c) => c.isSerie)
+        .toList();
+    final total =
+        dailyTop.length + recommended.length + trending.length + library.length;
+
+    return {
+      'is_premium': isPremium,
+      'total_available': total,
+      'total_films': films.length,
+      'total_series': series.length,
+      'hero': heroSource.take(5).map((c) => c.toJson()).toList(),
+      'added_today': const [],
+      'daily_top': dailyTop.map((c) => c.toJson()).toList(),
+      'recommended': recommended.map((c) => c.toJson()).toList(),
+      'popular_films': films.take(12).map((c) => c.toJson()).toList(),
+      'popular_series': series.take(12).map((c) => c.toJson()).toList(),
+      'recent_films': const [],
+      'recent_series': const [],
+      'popular_anime': const [],
+      'recent_anime': const [],
+      'by_genre': const [],
+      'genres': genres,
+      'my_library': library,
+      // `continue_watching` reprend le format brut de progress/history
+      // (content_id/title/content_type/poster(_url)/genres/rating/
+      // progress_percent/episode_id) déjà compris par _applyHomeData.
+      'continue_watching': history,
+    };
+  }
+
   Future<Map<String, dynamic>> getContentList({
     String? type,
     String? genre,

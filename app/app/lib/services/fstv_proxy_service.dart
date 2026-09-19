@@ -29,10 +29,17 @@ class FstvProxyService {
   static const Duration _timeout = Duration(seconds: 30);
   static const Duration _validateTimeout = Duration(seconds: 10);
 
-  /// Timeout d'un probe de playlist (rankSources) : court pour ne pas
-  /// retarder l'ouverture du lecteur (5 s : une playlist M3U8 saine répond
-  /// en < 2 s ; au-delà c'est une source morte qui bloque le zapping).
-  static const Duration _probeTimeout = Duration(seconds: 5);
+  /// Timeout d'un probe de playlist (rankSources) : court pour un zapping
+  /// rapide (≤ 3 s : une playlist M3U8 saine répond en < 2 s ; au-delà
+  /// c'est une source morte qui bloque l'ouverture du lecteur).
+  static const Duration _probeTimeout = Duration(milliseconds: 2500);
+
+  /// Délai avant l'unique retry d'un probe transitoire (502/503/timeout).
+  /// Court pour tenir le budget global du rank.
+  static const Duration _probeRetryDelay = Duration(milliseconds: 400);
+
+  /// Budget global max d'un rankSources (tous probes confondus, en parallèle).
+  static const Duration _rankBudget = Duration(seconds: 4);
   static const Duration _cacheMaxAge = Duration(minutes: 30);
 
   /// Base LIVE directe — jamais neo-stream.eu (VOD uniquement).
@@ -61,6 +68,68 @@ class FstvProxyService {
   // Cache mémoire
   Map<String, List<FstvChannel>>? _channelsCache;
   DateTime? _channelsCacheTime;
+
+  // Meilleure source connue par slug (mémoire uniquement) : rempli par
+  // rankSources / preRankChannels. Permet au lecteur de démarrer
+  // IMMÉDIATEMENT sur la meilleure connue sans attendre le rank complet.
+  final Map<String, String> _bestSourceBySlug = {};
+
+  /// Meilleure source connue pour [slug], ou null si jamais probée.
+  String? bestKnownSource(String slug) => _bestSourceBySlug[slug.trim()];
+
+  /// Oublie la meilleure connue (ex. avant un refresh : les ids ont changé).
+  void dropBestFor(String slug) => _bestSourceBySlug.remove(slug.trim());
+
+  /// Réordonne [urls] en remontant la meilleure connue en tête (comparaison
+  /// trimée, doublons inchangés). Si inconnue ou périmée (absente de la
+  /// liste), retourne l'ordre d'origine (jamais d'URL étrangère injectée).
+  /// Synchrone : zéro attente réseau, utilisable pour un démarrage immédiat.
+  List<String> prioritizeKnown(String slug, List<String> urls) {
+    if (urls.length <= 1) return urls;
+    final known = _bestSourceBySlug[slug.trim()];
+    if (known == null) return urls;
+    final idx = urls.indexWhere((u) => u.trim() == known);
+    if (idx <= 0) return urls; // 0 = déjà 1re, -1 = périmée → ordre API.
+    final reordered = List<String>.of(urls);
+    final best = reordered.removeAt(idx);
+    reordered.insert(0, best);
+    return List<String>.unmodifiable(reordered);
+  }
+
+  /// Pré-rank en tâche de fond : probe les [channels] visibles (jamais les
+  /// 135 d'un coup — l'appelant ne passe que ~20-30 chaînes : spotlight +
+  /// premières visibles), quelques sources par chaîne, en vagues parallèles.
+  /// Ne lève jamais. Seul effet : remplit [_bestSourceBySlug].
+  /// Proxy iptv.mine.bz uniquement (URLs déjà construites depuis ce proxy).
+  Future<void> preRankChannels(
+    List<FstvChannel> channels, {
+    int maxChannels = 24,
+    int maxSourcesPerChannel = 3,
+  }) async {
+    final seen = <String>{};
+    final queue = <({String slug, List<String> urls})>[];
+    for (final ch in channels) {
+      if (queue.length >= maxChannels) break;
+      final slug = ch.slug.trim();
+      if (slug.isEmpty || !seen.add(slug)) continue;
+      if (_bestSourceBySlug.containsKey(slug)) continue;
+      final urls = <String>[];
+      for (final s in ch.sources) {
+        final v = s['url'];
+        if (v is! String || v.trim().isEmpty) continue;
+        urls.add(v.trim());
+        if (urls.length >= maxSourcesPerChannel) break;
+      }
+      if (urls.isEmpty) continue;
+      queue.add((slug: slug, urls: urls));
+    }
+    // Vagues de 5 chaînes pour ne pas saturer le proxy amont.
+    for (var i = 0; i < queue.length; i += 5) {
+      final end = i + 5 > queue.length ? queue.length : i + 5;
+      final batch = queue.sublist(i, end);
+      await Future.wait(batch.map((e) => rankSources(e.urls, slug: e.slug)));
+    }
+  }
 
   // ── Auth ─────────────────────────────────────────────────────────────────
 
@@ -114,17 +183,34 @@ class FstvProxyService {
       }
 
       final result = <String, List<FstvChannel>>{};
+      // L'API peut renvoyer 2× le même slug (ex. eurosport-1 en double) :
+      // sans déduplication, la grille construisait 2 cartes avec le même
+      // ValueKey → cartes mélangées/écrasées au scroll. On fusionne les
+      // doublons (sources concaténées, URLs uniques) : le compteur _flat
+      // reflète alors les chaînes DISTINCTES et chaque slug n'a qu'une carte.
+      final bySlug = <String, FstvChannel>{};
 
       for (final entry in entries) {
         try {
           final channel = _channelFromDirectEntry(entry);
           // Slug vide = chaîne inexploitable → skip
           if (channel.slug.isEmpty) continue;
-          result.putIfAbsent(channel.category, () => <FstvChannel>[]).add(channel);
+          final existing = bySlug[channel.slug];
+          if (existing == null) {
+            bySlug[channel.slug] = channel;
+          } else {
+            bySlug[channel.slug] = _mergeDuplicate(existing, channel);
+          }
         } catch (_) {
           // Skip invalid channels - safe
           continue;
         }
+      }
+
+      // Les chaînes sans source (KO amont) restent listées : le popup
+      // affiche un état "Aucune source" propre au lieu de les cacher.
+      for (final channel in bySlug.values) {
+        result.putIfAbsent(channel.category, () => <FstvChannel>[]).add(channel);
       }
 
       if (result.isEmpty) {
@@ -315,8 +401,9 @@ class FstvProxyService {
   // résorber entre le probe et la lecture).
 
   /// Teste une playlist M3U8 : 200 + corps commençant par `#EXTM3U`.
-  /// 1 retry après 1 s sur erreur transitoire (timeout / 502 / 503).
-  /// Ne lève jamais. Redirects suivis par le client HTTP.
+  /// 1 retry court après [_probeRetryDelay] sur erreur transitoire
+  /// (timeout / 502 / 503). Ne lève jamais. Redirects suivis par le client.
+  /// Proxy iptv.mine.bz uniquement (l'URL probée est servie par ce proxy).
   Future<bool> probeSource(String url) async {
     final uri = Uri.tryParse(url.trim());
     if (uri == null || !uri.hasScheme) return false;
@@ -336,13 +423,13 @@ class FstvProxyService {
                 response.statusCode == 504 ||
                 response.statusCode == 429 ||
                 response.statusCode == 408)) {
-          await Future.delayed(const Duration(seconds: 1));
+          await Future.delayed(_probeRetryDelay);
           continue;
         }
         return false;
       } on TimeoutException {
         if (attempt == 1) {
-          await Future.delayed(const Duration(seconds: 1));
+          await Future.delayed(_probeRetryDelay);
           continue;
         }
         return false;
@@ -357,9 +444,17 @@ class FstvProxyService {
   /// API préservé dans chaque groupe), sources KO ensuite — jamais jetées.
   /// Seules les 6 premières sont probées (les suivantes, rarement utilisées,
   /// gardent l'ordre API sans coûter de probes). Probes en parallèle, budget
-  /// global ~8 s. Ne lève jamais : en cas d'échec, retourne l'ordre d'origine.
-  Future<List<String>> rankSources(List<String> urls) async {
-    if (urls.length <= 1) return urls;
+  /// global [_rankBudget] (≤ 4 s). Ne lève jamais : en cas d'échec, retourne
+  /// l'ordre d'origine. Si [slug] est fourni, la 1re source OK est mémorisée
+  /// (meilleure connue → démarrage immédiat au prochain "Lancer").
+  Future<List<String>> rankSources(List<String> urls, {String? slug}) async {
+    final key = slug?.trim() ?? '';
+    if (urls.length <= 1) {
+      if (key.isNotEmpty && urls.isNotEmpty) {
+        _bestSourceBySlug[key] = urls.first.trim();
+      }
+      return urls;
+    }
     // Au-delà de 6 sources, le gain marginal ne vaut pas les probes
     // (chaque probe = 1 GET playlist + éventuel retry 1 s).
     const maxProbed = 6;
@@ -370,7 +465,7 @@ class FstvProxyService {
       final checks = await Future.wait(
         probed.map(probeSource),
       ).timeout(
-        const Duration(seconds: 8),
+        _rankBudget,
         onTimeout: () => List<bool>.filled(probed.length, false),
       );
       final ok = <String>[];
@@ -379,6 +474,7 @@ class FstvProxyService {
         (checks[i] ? ok : ko).add(probed[i]);
       }
       if (ok.isEmpty) return urls; // Rien de concluant : garder l'ordre API.
+      if (key.isNotEmpty) _bestSourceBySlug[key] = ok.first.trim();
       return [...ok, ...ko, ...rest];
     } catch (_) {
       return urls;
@@ -402,10 +498,11 @@ class FstvProxyService {
         'Connection': 'keep-alive',
       };
 
-  /// Invalide le cache
+  /// Invalide le cache (chaînes + meilleures sources : les ids changent).
   void invalidateChannels() {
     _channelsCache = null;
     _channelsCacheTime = null;
+    _bestSourceBySlug.clear();
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
@@ -440,18 +537,48 @@ class FstvProxyService {
     throw FstvException(message);
   }
 
+  /// Fusionne 2 entrées de même slug (doublon API) : garde l'identité de
+  /// [base] (nom/catégorie/logo), concatène les sources sans doublon d'URL.
+  FstvChannel _mergeDuplicate(FstvChannel base, FstvChannel extra) {
+    final seen = <String>{};
+    final merged = <Map<String, dynamic>>[];
+    for (final s in [...base.sources, ...extra.sources]) {
+      final url = (s['url'] as String?)?.trim() ?? '';
+      if (url.isEmpty || !seen.add(url)) continue;
+      merged.add(s);
+    }
+    return FstvChannel(
+      slug: base.slug,
+      name: base.name.isEmpty ? extra.name : base.name,
+      category: base.category.isEmpty ? extra.category : base.category,
+      logo: (base.logo ?? '').isNotEmpty ? base.logo : extra.logo,
+      sources: merged,
+    );
+  }
+
   int _categoryOrder(String cat) {
-    const order = [
-      'Sport',
-      'Généraliste',
-      'Cinéma',
-      'Enfants',
-      'Documentaire',
-      'Info',
-      'Musique',
-    ];
-    final idx = order.indexOf(cat);
-    return idx >= 0 ? idx : 999;
+    // Tolérant : l'API renvoie "Généralistes"/"Généraliste"/"Generaliste"…
+    // (l'égalité stricte d'avant reléguait ces catégories en fin de liste).
+    final c = cat.toLowerCase();
+    if (c.contains('sport')) return 0;
+    if (c.contains('géné') || c.contains('gene')) return 1;
+    if (c.contains('ciné') || c.contains('cine') || c.contains('film') ||
+        c.contains('movie')) {
+      return 2;
+    }
+    if (c.contains('enfant') || c.contains('jeun') || c.contains('kids') ||
+        c.contains('child') || c.contains('family') || c.contains('anim')) {
+      return 3;
+    }
+    if (c.contains('doc') || c.contains('discov') || c.contains('nature') ||
+        c.contains('science')) {
+      return 4;
+    }
+    if (c.contains('info') || c.contains('news') || c.contains('actu')) {
+      return 5;
+    }
+    if (c.contains('musi')) return 6;
+    return 999;
   }
 
   static String humanize(Object e) {

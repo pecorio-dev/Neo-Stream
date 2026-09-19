@@ -272,11 +272,13 @@ class EpgParser {
 
   /// Parse un flux XMLTV **décompressé** et fusionne dans [into] (ou un
   /// nouveau [EpgParsed]). Seuls les programmes dans
-  /// `[now-keepPast, now+keepFuture]` sont conservés (borne la RAM).
+  /// `[now-keepPast, now+keepFuture]` sont conservés (borne la RAM :
+  /// 6 h de passé + 6 j de futur — suffisant pour "en cours / à suivre" et
+  /// la grille du jour, sans OOM sur TV low-end avec ~58k programmes bruts).
   /// [rank] = priorité de la source (0 = prioritaire, gagne les égalités
   /// de mapping mais les programmes fusionnent par ID de chaîne).
-  /// Cède périodiquement la main (parse de ~60k programmes ≈ secondes)
-  /// pour ne pas bloquer l'UI.
+  /// Cède périodiquement la main (tous les ~512 programmes) pour ne pas
+  /// bloquer l'UI : l'onglet En Direct reste fluide pendant le parse.
   static Future<EpgParsed> parse(
     List<int> xmlBytes,
     int rank, {
@@ -291,6 +293,9 @@ class EpgParser {
     final keepFrom = ref.subtract(keepPast);
     final keepTo = ref.add(keepFuture);
     final xml = utf8.decode(xmlBytes, allowMalformed: true);
+    // Laisse l'event-loop respirer entre le décodage (bloc synchrone
+    // incompressible, ~dizaines de Mo) et l'indexation.
+    await Future<void>.delayed(Duration.zero);
 
     for (final m in _channelRe.allMatches(xml)) {
       // Les IDs peuvent contenir des entités (`L&apos;Equipe.fr`) :
@@ -316,10 +321,15 @@ class EpgParser {
       out.programsByChannel.putIfAbsent(id, () => <EpgProgram>[]);
     }
 
+    // Index chaînes construit : rend la main avant le gros balayage
+    // des programmes (~58k) pour laisser passer une frame.
+    await Future<void>.delayed(Duration.zero);
+
     var count = 0;
     for (final m in _programmeRe.allMatches(xml)) {
-      if ((++count & 1023) == 0) {
-        // Rend la main à l'event-loop tous les ~1024 programmes.
+      if ((++count & 511) == 0) {
+        // Rend la main à l'event-loop tous les ~512 programmes
+        // (2× plus souvent qu'avant : TV low-end sans jank).
         await Future<void>.delayed(Duration.zero);
       }
       final attrs = <String, String>{};

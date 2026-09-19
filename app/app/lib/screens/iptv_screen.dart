@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -18,6 +19,27 @@ import '../widgets/neo_glass_card.dart';
 import '../widgets/satisfying_animations.dart';
 import '../widgets/universal_video_player.dart';
 import 'payment_wall_screen.dart';
+
+/// Halo de focus à contraste garanti (jamais blanc sur blanc) :
+/// anneau intérieur net blanc en thème sombre / noir en thème clair
+/// (le halo ne se confond donc jamais avec le fond), + lueur de la
+/// couleur d'accent. Le contenu (texte/icône) reste géré par l'appelant
+/// en fond opaque + couleur lisible ([Neo.readableOn]).
+List<BoxShadow> _focusHalo(BuildContext context, Color focusColor) {
+  final isLight = Theme.of(context).brightness == Brightness.light;
+  return [
+    BoxShadow(
+      color: (isLight ? Colors.black : Colors.white).withValues(alpha: 0.9),
+      blurRadius: 6,
+      spreadRadius: 1.5,
+    ),
+    BoxShadow(
+      color: focusColor.withValues(alpha: 0.55),
+      blurRadius: 22,
+      spreadRadius: 3,
+    ),
+  ];
+}
 
 /// Écran TV en direct — chaînes servies par le proxy FSTV (iptv.mine.bz).
 ///
@@ -60,6 +82,15 @@ class _IptvScreenState extends State<IptvScreen> {
   /// ~2 × N requêtes EPG avec normalisations de noms).
   List<FstvChannel> _spotlight = const [];
 
+  /// Travail différé annulable (anti-freeze ouverture d'onglet) :
+  /// - [_epgKickTimer] : EPG démarré APRÈS le premier rendu (postFrame +
+  ///   ~1.5 s, priorité basse) pour laisser grille + logos se peindre d'abord.
+  /// - [_preRankTimer] : pré-rank sources SEULEMENT quand idle (~3 s après
+  ///   l'arrivée des chaînes). Annulés dans [dispose] (sortie d'onglet).
+  Timer? _epgKickTimer;
+  Timer? _preRankTimer;
+  bool _epgWarmStarted = false;
+
   @override
   void initState() {
     super.initState();
@@ -69,13 +100,49 @@ class _IptvScreenState extends State<IptvScreen> {
     _resume.addListener(_onResumeChanged);
     _resume.load();
     _load();
-    // Pré-chauffe le guide TV en tâche de fond (zéro impact sur le live :
-    // ni blocage des chaînes, ni appel au proxy iptv.mine.bz). Quand il
-    // arrive, re-trie le spotlight ("en cours d'abord") + affiche les
-    // pastilles EPG (un seul setState global, pas un FutureBuilder par carte).
-    EpgService.instance.ensureLoaded().then((_) {
+    // Guide TV en DIFFÉRÉ après le premier rendu (anti-freeze) : le download
+    // EPG (~6.7 Mo) + parse (~58k programmes) ne doivent jamais concurrencer
+    // le premier paint (grille + logos). PostFrame + délai 1.5 s, priorité
+    // basse. À son arrivée : un seul setState global (re-tri spotlight +
+    // pastilles EPG), jamais un FutureBuilder par carte. Zéro impact live :
+    // ni blocage des chaînes, ni appel au proxy iptv.mine.bz.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _epgKickTimer?.cancel();
+      _epgKickTimer = Timer(
+        const Duration(milliseconds: 1500),
+        _warmEpgLowPriority,
+      );
+    });
+  }
+
+  /// Démarre le guide TV à priorité basse (hors premier rendu).
+  /// Single-flight + cache 12 h côté service : gratuit si déjà chargé.
+  /// Gardes mounted : aucun setState pendant le build ni après dispose.
+  void _warmEpgLowPriority() async {
+    if (!mounted || _epgWarmStarted) return;
+    _epgWarmStarted = true;
+    // Cède un tour d'event-loop avant le gros travail réseau/parse pour
+    // laisser le premier rendu se stabiliser (logos, grille).
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
+    await EpgService.instance.ensureLoaded();
+    if (!mounted) return;
+    // Re-tri spotlight à priorité idle : le scan (~135 chaînes × requêtes
+    // EPG mémoïsées) ne vole pas la frame en cours.
+    SchedulerBinding.instance.scheduleTask(() {
       if (!mounted) return;
       setState(_refreshSpotlight);
+    }, Priority.idle);
+  }
+
+  /// Planifie le pré-rank sources quand idle (~3 s), annulable à la sortie
+  /// de l'onglet. Ne démarre jamais pendant le build / le premier rendu.
+  void _schedulePreRank() {
+    _preRankTimer?.cancel();
+    _preRankTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted || _flat.isEmpty) return;
+      _preRankVisible();
     });
   }
 
@@ -97,6 +164,8 @@ class _IptvScreenState extends State<IptvScreen> {
 
   @override
   void dispose() {
+    _epgKickTimer?.cancel();
+    _preRankTimer?.cancel();
     _favs.removeListener(_onFavsChanged);
     _resume.removeListener(_onResumeChanged);
     _scrollCtrl.dispose();
@@ -107,7 +176,9 @@ class _IptvScreenState extends State<IptvScreen> {
     if (_loadInFlight) return;
     _loadInFlight = true;
 
-    if (_flat.isEmpty) {
+    // _loading vaut déjà true à l'init : pas de setState synchrone depuis
+    // initState (setState pendant le premier build = jank + frame perdue).
+    if (_flat.isEmpty && !_loading) {
       setState(() {
         _loading = true;
         _error = null;
@@ -138,6 +209,12 @@ class _IptvScreenState extends State<IptvScreen> {
         _loading = false;
         _error = null;
       });
+      // Pré-rank DIFFÉRÉ quand idle (fire-and-forget, ~3 s, annulable) :
+      // probe les chaînes visibles (spotlight + ~20 premières, jamais les
+      // 135 d'un coup, vagues de 5 côté proxy) pour mémoriser la meilleure
+      // source par slug → "Lancer" démarre aussitôt sur la meilleure connue,
+      // sans attendre le rank complet. Jamais pendant le premier rendu.
+      _schedulePreRank();
       if (_scrollCtrl.hasClients) _scrollCtrl.jumpTo(0);
     } on FstvPremiumRequiredException catch (e) {
       if (!mounted) return;
@@ -180,6 +257,31 @@ class _IptvScreenState extends State<IptvScreen> {
       _refreshSpotlight();
     });
     if (_scrollCtrl.hasClients) _scrollCtrl.jumpTo(0);
+  }
+
+  /// Pré-rank des chaînes visibles en tâche de fond (spotlight + premières
+  /// de la grille, ≤ 30 au total — jamais tout le catalogue d'un coup).
+  /// Fire-and-forget : ne bloque ni n'échoue jamais, remplit juste le cache
+  /// "meilleure source par slug" du proxy pour un zapping immédiat.
+  void _preRankVisible() {
+    if (!mounted || _flat.isEmpty) return;
+    final queue = <FstvChannel>[];
+    final seen = <String>{};
+    void add(FstvChannel ch) {
+      if (ch.slug.isEmpty || !seen.add(ch.slug)) return;
+      queue.add(ch);
+    }
+
+    for (final ch in _spotlight) {
+      add(ch);
+      if (queue.length >= 30) break;
+    }
+    for (final ch in _filtered) {
+      add(ch);
+      if (queue.length >= 30) break;
+    }
+    if (queue.isEmpty) return;
+    unawaited(_proxy.preRankChannels(queue));
   }
 
   void _play(FstvChannel channel, {String? initialSourceUrl}) {
@@ -299,7 +401,7 @@ class _IptvScreenState extends State<IptvScreen> {
                   borderRadius: BorderRadius.circular(Neo.radiusMd),
                   boxShadow: [
                     BoxShadow(
-                      color: Neo.primaryRed.withValues(alpha: 0.3),
+                      color: Neo.accentColor(context).withValues(alpha: 0.3),
                       blurRadius: 12,
                       offset: const Offset(0, 4),
                     ),
@@ -362,7 +464,7 @@ class _IptvScreenState extends State<IptvScreen> {
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [
-                  Neo.primaryRed.withValues(alpha: 0.45),
+                  Neo.accentColor(context).withValues(alpha: 0.45),
                   Neo.borderLight(context).withValues(alpha: 0.4),
                   Colors.transparent,
                 ],
@@ -396,6 +498,8 @@ class _IptvScreenState extends State<IptvScreen> {
           final isTV = NeoTheme.isTV(context);
           final tvFocused = isTV && isFocused;
           final focusColor = Neo.accentColor(context);
+          // Focus TV : fond opaque + icône lisible (jamais blanc sur blanc).
+          final focusFg = Neo.readableOn(focusColor);
           return AnimatedScale(
             scale: tvFocused ? 1.12 : 1.0,
             duration: const Duration(milliseconds: 180),
@@ -407,27 +511,15 @@ class _IptvScreenState extends State<IptvScreen> {
               height: 48,
               decoration: BoxDecoration(
                 color: tvFocused
-                    ? focusColor.withValues(alpha: 0.18)
+                    ? focusColor
                     : Neo.bgElevated(context),
                 borderRadius: BorderRadius.circular(Neo.radiusMd),
                 border: Border.all(
-                  color: tvFocused ? focusColor : Neo.borderLight(context),
+                  color: tvFocused ? focusFg : Neo.borderLight(context),
                   width: tvFocused ? 3.5 : 1.2,
                 ),
-                boxShadow: tvFocused
-                    ? [
-                        BoxShadow(
-                          color: Colors.white.withValues(alpha: 0.9),
-                          blurRadius: 6,
-                          spreadRadius: 1.5,
-                        ),
-                        BoxShadow(
-                          color: focusColor.withValues(alpha: 0.55),
-                          blurRadius: 22,
-                          spreadRadius: 3,
-                        ),
-                      ]
-                    : null,
+                boxShadow:
+                    tvFocused ? _focusHalo(context, focusColor) : null,
               ),
               child: GestureDetector(
                 onTap: _loading ? null : () => _load(forceRefresh: true),
@@ -437,8 +529,7 @@ class _IptvScreenState extends State<IptvScreen> {
                   child: Center(
                     child: Icon(
                       Icons.refresh_rounded,
-                      color:
-                          tvFocused ? focusColor : Neo.textSecondary(context),
+                      color: tvFocused ? focusFg : Neo.textSecondary(context),
                       size: tvFocused ? 26 : 22,
                     ),
                   ),
@@ -549,6 +640,12 @@ class _IptvScreenState extends State<IptvScreen> {
           final tvMode = NeoTheme.isTV(context);
           final tvFocused = tvMode && isFocused;
           final focusColor = Neo.accentColor(context);
+          // Accent du thème actif (blanc en sombre, rouge en clair) : jamais
+          // de blanc codé en dur, sinon blanc sur blanc en thème clair.
+          final accent = Neo.accentColor(context);
+          // Focus TV : fond opaque + texte lisible (fond clair + texte sombre
+          // en sombre, fond coloré + texte blanc en clair).
+          final focusFg = Neo.readableOn(focusColor);
           final highlight = selected || isFocused;
           return AnimatedOpacity(
             // Carte non-focusée assombrie sur TV : contraste à 3 m.
@@ -568,33 +665,22 @@ class _IptvScreenState extends State<IptvScreen> {
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                   decoration: BoxDecoration(
                     color: tvFocused
-                        ? focusColor.withValues(alpha: 0.22)
+                        ? focusColor
                         : highlight
-                            ? Neo.primaryRed.withValues(alpha: 0.14)
+                            ? accent.withValues(alpha: 0.14)
                             : Neo.bgElevated(context),
                     borderRadius: BorderRadius.circular(Neo.radiusFull),
                     border: Border.all(
                       color: tvFocused
-                          ? focusColor
+                          ? focusFg
                           : highlight
-                              ? Neo.primaryRed.withValues(alpha: 0.6)
+                              ? accent.withValues(alpha: 0.6)
                               : Neo.borderLight(context),
                       // Bordure très épaisse sur focus TV : lisible à 3 m.
                       width: tvFocused ? 3.5 : (highlight ? 1.5 : 1),
                     ),
                     boxShadow: tvFocused
-                        ? [
-                            BoxShadow(
-                              color: Colors.white.withValues(alpha: 0.9),
-                              blurRadius: 6,
-                              spreadRadius: 1.5,
-                            ),
-                            BoxShadow(
-                              color: focusColor.withValues(alpha: 0.55),
-                              blurRadius: 20,
-                              spreadRadius: 3,
-                            ),
-                          ]
+                        ? _focusHalo(context, focusColor)
                         : null,
                   ),
                   child: Center(
@@ -608,9 +694,9 @@ class _IptvScreenState extends State<IptvScreen> {
                               icon,
                               size: tvFocused ? 17 : 15,
                               color: tvFocused
-                                  ? focusColor
+                                  ? focusFg
                                   : highlight
-                                      ? Neo.primaryRed
+                                      ? accent
                                       : Neo.textSecondary(context),
                             ),
                           ),
@@ -621,9 +707,9 @@ class _IptvScreenState extends State<IptvScreen> {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: tvFocused
-                                  ? focusColor
+                                  ? focusFg
                                   : highlight
-                                      ? Neo.primaryRed
+                                      ? accent
                                       : Neo.textSecondary(context),
                               fontWeight: (highlight || tvFocused)
                                   ? FontWeight.w800
@@ -638,9 +724,9 @@ class _IptvScreenState extends State<IptvScreen> {
                               horizontal: 7, vertical: 2),
                           decoration: BoxDecoration(
                             color: tvFocused
-                                ? focusColor.withValues(alpha: 0.25)
+                                ? focusFg.withValues(alpha: 0.25)
                                 : highlight
-                                    ? Neo.primaryRed.withValues(alpha: 0.16)
+                                    ? accent.withValues(alpha: 0.16)
                                     : Theme.of(context)
                                         .hintColor
                                         .withValues(alpha: 0.12),
@@ -651,9 +737,9 @@ class _IptvScreenState extends State<IptvScreen> {
                             '$count',
                             style: TextStyle(
                               color: tvFocused
-                                  ? focusColor
+                                  ? focusFg
                                   : highlight
-                                      ? Neo.primaryRed
+                                      ? accent
                                       : Neo.textSecondary(context),
                               fontWeight: FontWeight.w800,
                               fontSize: 11,
@@ -704,7 +790,9 @@ class _IptvScreenState extends State<IptvScreen> {
               crossAxisCount: crossCount,
               mainAxisSpacing: 18,
               crossAxisSpacing: 16,
-              childAspectRatio: 0.9,
+              // Même gabarit que les vraies cartes (bloc EPG inclus).
+              childAspectRatio: _gridAspect(
+                  MediaQuery.of(context).size.width),
             ),
             itemCount: crossCount * 3,
             physics: const NeverScrollableScrollPhysics(),
@@ -849,7 +937,7 @@ class _IptvScreenState extends State<IptvScreen> {
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: Neo.primaryRed.withValues(alpha: 0.22),
+                      color: Neo.accentColor(context).withValues(alpha: 0.22),
                       blurRadius: 22,
                     ),
                   ],
@@ -916,6 +1004,13 @@ class _IptvScreenState extends State<IptvScreen> {
     if (width >= 560) return 3;
     return 2;
   }
+
+  /// Ratio grille partagé (shimmer + grille) : les cartes portent désormais
+  /// le bloc EPG (titre + barre + à suivre) + la pastille reprise, donc plus
+  /// hautes que larges. Petit écran (≤ 3 colonnes) : cartes étroites →
+  /// ratio bas pour absorber le pire cas (nom + EPG + sources + reprise).
+  static double _gridAspect(double width) =>
+      _gridCrossCount(width) <= 3 ? 0.62 : 0.72;
 
   /// Sélection "À la une / En ce moment" : chaînes généralistes d'abord,
   /// programmes EPG en cours en premier. Vide quand un filtre est actif
@@ -1010,31 +1105,30 @@ class _IptvScreenState extends State<IptvScreen> {
               crossAxisCount: crossCount,
               mainAxisSpacing: 22,
               crossAxisSpacing: 16,
-              childAspectRatio: 0.9,
+              // Même gabarit que le shimmer (bloc EPG inclus).
+              childAspectRatio: _gridAspect(width),
             ),
             itemCount: _filtered.length,
             itemBuilder: (context, index) {
               final ch = _filtered[index];
               final isLeftEdge = index % crossCount == 0; // Première colonne
-              return Padding(
-                // Marge basse : la pastille EPG déborde de 9 px sous la carte.
-                padding: const EdgeInsets.only(bottom: 10),
-                child: RepaintBoundary(
-                  child: _ChannelCard(
-                    key: ValueKey(ch.slug),
-                    channel: ch,
-                    onTap: () => _showDetails(ch),
-                    isLeftEdge: isLeftEdge,
-                    onLeftEdge: widget.onLeftEdge,
-                    isFavorite: _favIds.contains(ch.slug),
-                    onToggleFavorite: () {
-                      HapticFeedback.selectionClick();
-                      _favs.toggle(ch.slug);
-                    },
-                    // Premier élément visible : autofocus (le 1er chip gagne
-                    // en pratique car il précède dans l'ordre de traversal).
-                    autofocus: isTVGrid && index == 0 && spotlight.isEmpty,
-                  ),
+              return RepaintBoundary(
+                // Slugs dédupliqués côté proxy (fusion des doublons API) :
+                // chaque slug n'a qu'une carte → clé stable et unique.
+                child: _ChannelCard(
+                  key: ValueKey('live_${ch.slug}'),
+                  channel: ch,
+                  onTap: () => _showDetails(ch),
+                  isLeftEdge: isLeftEdge,
+                  onLeftEdge: widget.onLeftEdge,
+                  isFavorite: _favIds.contains(ch.slug),
+                  onToggleFavorite: () {
+                    HapticFeedback.selectionClick();
+                    _favs.toggle(ch.slug);
+                  },
+                  // Premier élément visible : autofocus (le 1er chip gagne
+                  // en pratique car il précède dans l'ordre de traversal).
+                  autofocus: isTVGrid && index == 0 && spotlight.isEmpty,
                 ),
               );
             },
@@ -1255,7 +1349,8 @@ class _ShimmerBlockState extends State<_ShimmerBlock>
   }
 }
 
-/// Carte chaîne factice pour le shimmer (même gabarit que la vraie carte).
+/// Carte chaîne factice pour le shimmer (même gabarit que la vraie carte :
+/// logo + nom + catégorie + bloc EPG + sources).
 class _ShimmerChannelCard extends StatelessWidget {
   const _ShimmerChannelCard();
 
@@ -1284,7 +1379,11 @@ class _ShimmerChannelCard extends StatelessWidget {
           const _ShimmerBlock(width: 130, height: 13, radius: 6),
           const SizedBox(height: 9),
           const _ShimmerBlock(width: 80, height: 10, radius: 5),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
+          const _ShimmerBlock(width: double.infinity, height: 5, radius: 3),
+          const SizedBox(height: 6),
+          const _ShimmerBlock(width: 110, height: 10, radius: 5),
+          const SizedBox(height: 8),
           const Row(
             children: [
               _ShimmerBlock(width: 74, height: 22, radius: 11),
@@ -1322,16 +1421,9 @@ class _SpotlightSection extends StatefulWidget {
 }
 
 class _SpotlightSectionState extends State<_SpotlightSection> {
-  @override
-  void initState() {
-    super.initState();
-    // Le guide arrive en tâche de fond : re-trie "en cours d'abord"
-    // dès qu'il est prêt (simple setState, pas de reload réseau ici).
-    EpgService.instance.ensureLoaded().then((_) {
-      if (mounted) setState(() {});
-    });
-  }
-
+  // Pas de ensureLoaded() ici : le parent (_IptvScreenState) pré-chauffe le
+  // guide une seule fois et fait un setState global à son arrivée (qui
+  // reconstruit cette section). Un 2e appel ne ferait que doubler le rebuild.
   @override
   Widget build(BuildContext context) {
     final isTV = NeoTheme.isTV(context);
@@ -1356,13 +1448,13 @@ class _SpotlightSectionState extends State<_SpotlightSection> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: Neo.primaryRed.withValues(alpha: 0.12),
+                  color: Neo.accentColor(context).withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(Neo.radiusFull),
                 ),
                 child: Text(
                   '${widget.channels.length}',
-                  style: const TextStyle(
-                    color: Neo.primaryRed,
+                  style: TextStyle(
+                    color: Neo.accentColor(context),
                     fontWeight: FontWeight.w800,
                     fontSize: 11,
                   ),
@@ -1372,7 +1464,8 @@ class _SpotlightSectionState extends State<_SpotlightSection> {
           ),
         ),
         SizedBox(
-          height: isTV ? 148 : 140,
+          // +12 px vs avant : laisse la place à la ligne "À suivre".
+          height: isTV ? 160 : 152,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 10),
@@ -1381,6 +1474,7 @@ class _SpotlightSectionState extends State<_SpotlightSection> {
             itemBuilder: (_, i) {
               final ch = widget.channels[i];
               return _SpotlightCard(
+                key: ValueKey('spot_${ch.slug}'),
                 channel: ch,
                 isFirst: i == 0,
                 isFavorite: widget.favIds.contains(ch.slug),
@@ -1403,6 +1497,7 @@ class _SpotlightCard extends StatelessWidget {
   final VoidCallback? onLeftEdge;
 
   const _SpotlightCard({
+    super.key,
     required this.channel,
     required this.isFirst,
     required this.isFavorite,
@@ -1439,9 +1534,8 @@ class _SpotlightCard extends StatelessWidget {
           final isFocused = Focus.of(ctx).hasFocus;
           final tvFocused = isTV && isFocused;
           final focusColor = Neo.accentColor(context);
-          final epg = EpgService.instance;
-          final nn = epg.getNowAndNext(channel.slug) ??
-              epg.getNowAndNext(channel.name);
+          // Lecture mémoire synchrone (zéro FutureBuilder par carte).
+          final nn = _nowNextOf(channel);
           return AnimatedOpacity(
             opacity: isTV && !isFocused ? 0.62 : 1.0,
             duration: const Duration(milliseconds: 180),
@@ -1459,20 +1553,8 @@ class _SpotlightCard extends StatelessWidget {
                     color: tvFocused ? focusColor : Colors.transparent,
                     width: 3.5,
                   ),
-                  boxShadow: tvFocused
-                      ? [
-                          BoxShadow(
-                            color: Colors.white.withValues(alpha: 0.9),
-                            blurRadius: 6,
-                            spreadRadius: 1.5,
-                          ),
-                          BoxShadow(
-                            color: focusColor.withValues(alpha: 0.55),
-                            blurRadius: 22,
-                            spreadRadius: 3,
-                          ),
-                        ]
-                      : null,
+                  boxShadow:
+                      tvFocused ? _focusHalo(context, focusColor) : null,
                 ),
                 child: GestureDetector(
                   onTap: onOpen,
@@ -1509,11 +1591,11 @@ class _SpotlightCard extends StatelessWidget {
                                     ),
                                   ),
                                   if (isFavorite)
-                                    const Padding(
-                                      padding: EdgeInsets.only(left: 6),
+                                    Padding(
+                                      padding: const EdgeInsets.only(left: 6),
                                       child: Icon(
                                         Icons.favorite_rounded,
-                                        color: Neo.primaryRed,
+                                        color: Neo.accentColor(context),
                                         size: 15,
                                       ),
                                     ),
@@ -1571,6 +1653,20 @@ class _SpotlightCard extends StatelessWidget {
                                         fontWeight: FontWeight.w600,
                                       ),
                                 ),
+                                if (nn.next != null)
+                                  Text(
+                                    'À suivre · ${nn.next!.title}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelSmall
+                                        ?.copyWith(
+                                          color: Neo.textTertiary(context),
+                                          fontWeight: FontWeight.w500,
+                                          fontStyle: FontStyle.italic,
+                                        ),
+                                  ),
                               ] else ...[
                                 Row(
                                   children: [
@@ -1729,6 +1825,9 @@ class _ChannelCardState extends State<_ChannelCard> {
           final isFocused = Focus.of(ctx).hasFocus;
           final tvFocused = isTV && isFocused;
           final focusColor = Neo.accentColor(context);
+          // Lecture EPG mémoire synchrone (guide pré-chargé par le parent) :
+          // aucun FutureBuilder / ensureLoaded par carte.
+          final nn = _nowNextOf(ch);
           return AnimatedOpacity(
             // Carte non-focusée assombrie sur TV : contraste à 3 m.
             opacity: isTV && !isFocused ? 0.6 : 1.0,
@@ -1737,10 +1836,7 @@ class _ChannelCardState extends State<_ChannelCard> {
               scale: tvFocused ? 1.07 : 1.0,
               duration: const Duration(milliseconds: 180),
               curve: Curves.easeOutCubic,
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  AnimatedContainer(
+              child: AnimatedContainer(
                     duration: const Duration(milliseconds: 180),
                     curve: Curves.easeOutCubic,
                     decoration: BoxDecoration(
@@ -1753,16 +1849,7 @@ class _ChannelCardState extends State<_ChannelCard> {
                       ),
                       boxShadow: tvFocused
                           ? [
-                              BoxShadow(
-                                color: Colors.white.withValues(alpha: 0.9),
-                                blurRadius: 6,
-                                spreadRadius: 1.5,
-                              ),
-                              BoxShadow(
-                                color: focusColor.withValues(alpha: 0.55),
-                                blurRadius: 24,
-                                spreadRadius: 3,
-                              ),
+                              ..._focusHalo(context, focusColor),
                               BoxShadow(
                                 color: focusColor.withValues(alpha: 0.25),
                                 blurRadius: 56,
@@ -1802,7 +1889,10 @@ class _ChannelCardState extends State<_ChannelCard> {
                                         size: 72,
                                         highlight: _hovered || isFocused,
                                       ),
-                                      // Pastille lecture survol/focus.
+                                      // Pastille lecture survol/focus : icône +
+                                      // anneau lisibles sur la couleur de
+                                      // catégorie (jamais blanc sur jaune/vert
+                                      // clair).
                                       if (_hovered || isFocused)
                                         Positioned(
                                           right: -4,
@@ -1814,7 +1904,8 @@ class _ChannelCardState extends State<_ChannelCard> {
                                               color: ch.categoryColor,
                                               shape: BoxShape.circle,
                                               border: Border.all(
-                                                color: Colors.white,
+                                                color: Neo.readableOn(
+                                                    ch.categoryColor),
                                                 width: 2,
                                               ),
                                               boxShadow: [
@@ -1825,9 +1916,10 @@ class _ChannelCardState extends State<_ChannelCard> {
                                                 ),
                                               ],
                                             ),
-                                            child: const Icon(
+                                            child: Icon(
                                               Icons.play_arrow_rounded,
-                                              color: Colors.white,
+                                              color: Neo.readableOn(
+                                                  ch.categoryColor),
                                               size: 16,
                                             ),
                                           ),
@@ -1847,13 +1939,13 @@ class _ChannelCardState extends State<_ChannelCard> {
                                       height: 34,
                                       decoration: BoxDecoration(
                                         color: widget.isFavorite
-                                            ? Neo.primaryRed
+                                            ? focusColor
                                                 .withValues(alpha: 0.16)
                                             : Colors.transparent,
                                         shape: BoxShape.circle,
                                         border: Border.all(
                                           color: widget.isFavorite
-                                              ? Neo.primaryRed
+                                              ? focusColor
                                               : Neo.textTertiary(context)
                                                   .withValues(alpha: 0.35),
                                           width: widget.isFavorite ? 1.6 : 1.2,
@@ -1864,7 +1956,7 @@ class _ChannelCardState extends State<_ChannelCard> {
                                             ? Icons.favorite_rounded
                                             : Icons.favorite_border_rounded,
                                         color: widget.isFavorite
-                                            ? Neo.primaryRed
+                                            ? focusColor
                                             : Neo.textTertiary(context)
                                                 .withValues(
                                                     alpha:
@@ -1883,7 +1975,7 @@ class _ChannelCardState extends State<_ChannelCard> {
                               const SizedBox(height: 10),
                               Text(
                                 ch.name,
-                                maxLines: 2,
+                                maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: Theme.of(context)
                                     .textTheme
@@ -1920,7 +2012,14 @@ class _ChannelCardState extends State<_ChannelCard> {
                                 ],
                               ),
                               const SizedBox(height: 8),
-                              // Indicateur nb sources + pastille EN DIRECT.
+                              // Programme en cours : titre + barre temporelle
+                              // (début/fin EPG) + "à suivre" — ou pastille
+                              // DIRECT simple sans EPG (voir widget dédié).
+                              _ChannelEpgProgress(nowNext: nn),
+                              const SizedBox(height: 8),
+                              // Indicateur nb sources (les chaînes KO amont,
+                              // 0 source, restent listées : le popup gère
+                              // l'échec avec un état dédié, jamais caché).
                               Row(
                                 children: [
                                   Container(
@@ -1958,27 +2057,6 @@ class _ChannelCardState extends State<_ChannelCard> {
                                       ],
                                     ),
                                   ),
-                                  const SizedBox(width: 6),
-                                  Container(
-                                    width: 7,
-                                    height: 7,
-                                    decoration: const BoxDecoration(
-                                      color: Neo.successGreen,
-                                      shape: BoxShape.circle,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    'DIRECT',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .labelSmall
-                                        ?.copyWith(
-                                          color: Neo.successGreen,
-                                          fontWeight: FontWeight.w800,
-                                          letterSpacing: 0.6,
-                                        ),
-                                  ),
                                 ],
                               ),
                               // Reprise phone : pastille "Reprendre · il y a X"
@@ -1999,11 +2077,6 @@ class _ChannelCardState extends State<_ChannelCard> {
                       ),
                     ),
                   ),
-                  // Pastille "EN COURS : émission" flottante (overlay :
-                  // zéro impact sur le layout de la carte).
-                  _EpgLivePill(channel: ch),
-                ],
-              ),
             ),
           );
         },
@@ -2012,70 +2085,90 @@ class _ChannelCardState extends State<_ChannelCard> {
   }
 }
 
-// ── Pastille EPG "EN COURS : émission" ───────────────────────────────────
-// Overlay en bas de carte (ne modifie pas le layout). N'apparaît que quand
-// le guide est chargé ET qu'un programme est en cours sur cette chaîne.
-// Absente sinon (chaîne inconnue du guide, trou de grille, EPG en panne).
-// Lecture mémoire synchrone : AUCUN FutureBuilder par carte (avant : un
-// Future ensureLoaded() + rebuild par carte, soit ~N futures et ~2N requêtes
-// EPG à chaque build de grille). Le parent (_IptvScreenState) fait un seul
-// ensureLoaded() + un setState global quand le guide arrive.
-class _EpgLivePill extends StatelessWidget {
-  final FstvChannel channel;
+// ── Lecture EPG mémoire partagée (grille + spotlight + cartes) ────────────
+// Un seul point d'accès synchrone : slug d'abord, nom en repli (le mapping
+// se fait par nom normalisé côté EpgService, avec cache de résolution).
+// AUCUN FutureBuilder / ensureLoaded par carte : le parent pré-chauffe le
+// guide une fois et rebuild globalement à son arrivée.
+EpgNowNext? _nowNextOf(FstvChannel channel) {
+  final epg = EpgService.instance;
+  return epg.getNowAndNext(channel.slug) ?? epg.getNowAndNext(channel.name);
+}
 
-  const _EpgLivePill({required this.channel});
+// ── Bloc EPG inline des cartes grille ──────────────────────────────────────
+// Affiche où en est le programme : titre en cours + barre de progression
+// temporelle (début/fin EPG) + "à suivre" si dispo — le tout sur UNE ligne
+// méta (horaires + suivant tronqués, ellipsis) pour tenir dans la carte.
+// Sans EPG (chaîne inconnue du guide, trou de grille, guide en panne) :
+// pastille DIRECT simple. Display-only, jamais focusable au D-pad.
+class _ChannelEpgProgress extends StatelessWidget {
+  final EpgNowNext? nowNext;
+
+  const _ChannelEpgProgress({required this.nowNext});
 
   @override
   Widget build(BuildContext context) {
-    final epg = EpgService.instance;
-    final nn =
-        epg.getNowAndNext(channel.slug) ?? epg.getNowAndNext(channel.name);
-    if (nn == null) return const SizedBox.shrink();
-    return Positioned(
-      left: 10,
-      right: 10,
-      bottom: -9,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: Neo.errorRed,
-          borderRadius: BorderRadius.circular(Neo.radiusFull),
-          border: Border.all(color: Colors.white, width: 1.2),
-          boxShadow: [
-            BoxShadow(
-              color: Neo.errorRed.withValues(alpha: 0.5),
-              blurRadius: 10,
+    final nn = nowNext;
+    if (nn == null) {
+      return Row(
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: const BoxDecoration(
+              color: Neo.successGreen,
+              shape: BoxShape.circle,
             ),
-          ],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 6,
-              height: 6,
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-              ),
-            ),
-            const SizedBox(width: 5),
-            Flexible(
-              child: Text(
-                'EN COURS : ${nn.now.title}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            'DIRECT',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: Neo.successGreen,
                   fontWeight: FontWeight.w800,
-                  letterSpacing: 0.2,
+                  letterSpacing: 0.6,
                 ),
+          ),
+        ],
+      );
+    }
+    final meta = nn.next == null
+        ? nn.now.rangeLabel
+        : '${nn.now.rangeLabel} · À suivre : ${nn.next!.title}';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          nn.now.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Neo.textSecondary(context),
+                fontWeight: FontWeight.w600,
               ),
-            ),
-          ],
         ),
-      ),
+        const SizedBox(height: 4),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(3),
+          child: LinearProgressIndicator(
+            value: nn.now.progressAt(DateTime.now()).clamp(0.0, 1.0),
+            minHeight: 4,
+            backgroundColor: Neo.errorRed.withValues(alpha: 0.15),
+            valueColor: const AlwaysStoppedAnimation<Color>(Neo.errorRed),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          meta,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: Neo.textTertiary(context),
+                fontWeight: FontWeight.w600,
+              ),
+        ),
+      ],
     );
   }
 }
@@ -2093,23 +2186,28 @@ class _ResumePill extends StatelessWidget {
     final label = seen == null
         ? 'Reprendre'
         : 'Reprendre · ${IptvResume.relativeLabel(seen!)}';
+    // Bleu assombri en thème clair (le cyan clair est illisible sur fond
+    // clair) ; cyan d'origine en thème sombre.
+    final pill = Theme.of(context).brightness == Brightness.light
+        ? const Color(0xFF0369A1)
+        : Neo.infoCyan;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: Neo.infoCyan.withValues(alpha: 0.12),
+        color: pill.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(Neo.radiusFull),
         border: Border.all(
-          color: Neo.infoCyan.withValues(alpha: 0.45),
+          color: pill.withValues(alpha: 0.45),
           width: 1,
         ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(
+          Icon(
             Icons.history_rounded,
             size: 12,
-            color: Neo.infoCyan,
+            color: pill,
           ),
           const SizedBox(width: 4),
           Flexible(
@@ -2118,7 +2216,7 @@ class _ResumePill extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: Neo.infoCyan,
+                    color: pill,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 0.2,
                   ),
@@ -2170,8 +2268,14 @@ class _ChannelLogo extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       // Logos cachés mémoire + disque (avant : Image.network → chaque
       // scroll/rebuild retéléchargeait les ~135 logos, jank + data).
-      // memCache dimensionné au rendu ×2 (retina), placeholder = fallback
-      // initiale (zéro flash blanc / zéro saut de layout).
+      // memCache dimensionné au rendu (retina ×2 max), disque plafonné à
+      // 256 px (les logos fstv.rest sont bien plus gros — inutile d'en
+      // garder plus pour un affichage 64-76 px) : limite la pression
+      // mémoire + le rate-limit amont. useOldImageOnUrlChange évite le
+      // flash / re-fetch quand la carte rebuild (scroll, focus TV).
+      // GridView.builder ne construit que les cartes visibles (~10-12,
+      // jamais les 135 d'un coup) : pas de rafale simultanée. Pas de Key
+      // sur ce widget : une clé instable casserait le cache au scroll.
       child: logo.isEmpty
           ? _logoFallback(channel, size)
           : CachedNetworkImage(
@@ -2180,6 +2284,9 @@ class _ChannelLogo extends StatelessWidget {
               height: size,
               memCacheWidth: (size * 2).toInt(),
               memCacheHeight: (size * 2).toInt(),
+              maxWidthDiskCache: 256,
+              maxHeightDiskCache: 256,
+              useOldImageOnUrlChange: true,
               fit: BoxFit.contain,
               fadeInDuration: const Duration(milliseconds: 150),
               placeholder: (_, __) => _logoFallback(channel, size),
@@ -2241,8 +2348,13 @@ class _ChannelDetailsDialogState extends State<_ChannelDetailsDialog> {
   @override
   void initState() {
     super.initState();
-    // Le guide a été pré-chargé à l'ouverture de l'onglet ; ici on
-    // s'assure juste qu'il est prêt avant d'afficher la section EPG.
+    // Le guide a été pré-chargé à l'ouverture de l'onglet (single-flight,
+    // cache 12 h : cet appel est gratuit quand le guide est déjà là).
+    // Court-circuit synchrone : pas de spinner si déjà prêt.
+    if (EpgService.instance.isLoaded) {
+      _epgReady = true;
+      return;
+    }
     EpgService.instance.ensureLoaded().then((_) {
       if (mounted) setState(() => _epgReady = true);
     });
@@ -2407,9 +2519,16 @@ class _ChannelDetailsDialogState extends State<_ChannelDetailsDialog> {
                   Flexible(
                     child: widget.entries.isEmpty
                         ? Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 12),
                             child: Text(
-                              'Aucune source disponible pour cette chaîne.',
+                              // Chaînes KO amont (0 source) : restent listées,
+                              // échec expliqué proprement au lieu d'un player
+                              // qui s'ouvrirait sur une erreur certaine
+                              // (le CTA "Lancer" est désactivé ci-dessus).
+                              'Aucune source disponible pour cette chaîne '
+                              '(panne amont transitoire possible — '
+                              'réessayez plus tard).',
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                           )
@@ -2445,7 +2564,6 @@ class _ChannelDetailsDialogState extends State<_ChannelDetailsDialog> {
   /// focusable au D-pad). Silencieuse en cas d'échec : le direct reste
   /// utilisable sans le guide.
   Widget _buildEpgSection() {
-    final epg = EpgService.instance;
     final channel = widget.channel;
     if (!_epgReady) {
       return Row(
@@ -2465,8 +2583,7 @@ class _ChannelDetailsDialogState extends State<_ChannelDetailsDialog> {
         ],
       );
     }
-    final nn =
-        epg.getNowAndNext(channel.slug) ?? epg.getNowAndNext(channel.name);
+    final nn = _nowNextOf(channel);
     if (nn == null) {
       return Text(
         'Guide TV non disponible pour cette chaîne.',
@@ -2684,18 +2801,7 @@ class _DialogPrimaryButton extends StatelessWidget {
                   width: 3.5,
                 ),
                 boxShadow: tvFocused
-                    ? [
-                        BoxShadow(
-                          color: Colors.white.withValues(alpha: 0.9),
-                          blurRadius: 6,
-                          spreadRadius: 1.5,
-                        ),
-                        BoxShadow(
-                          color: focusColor.withValues(alpha: 0.55),
-                          blurRadius: 22,
-                          spreadRadius: 3,
-                        ),
-                      ]
+                    ? _focusHalo(context, focusColor)
                     : null,
               ),
               child: GestureDetector(
@@ -2809,6 +2915,10 @@ class _SourceRow extends StatelessWidget {
           final isFocused = Focus.of(ctx).hasFocus;
           final tvFocused = isTV && isFocused;
           final focusColor = Neo.accentColor(context);
+          // Focus TV : fond opaque + contenu lisible (jamais blanc sur
+          // blanc : texte sombre sur accent clair, texte blanc sur accent
+          // sombre).
+          final focusFg = Neo.readableOn(focusColor);
           return AnimatedScale(
             scale: tvFocused ? 1.03 : 1.0,
             duration: const Duration(milliseconds: 150),
@@ -2817,28 +2927,14 @@ class _SourceRow extends StatelessWidget {
               duration: const Duration(milliseconds: 150),
               curve: Curves.easeOutCubic,
               decoration: BoxDecoration(
-                color: tvFocused
-                    ? focusColor.withValues(alpha: 0.18)
-                    : Neo.bgElevated(context),
+                color: tvFocused ? focusColor : Neo.bgElevated(context),
                 borderRadius: BorderRadius.circular(Neo.radiusMd),
                 border: Border.all(
-                  color: tvFocused ? focusColor : Neo.borderLight(context),
+                  color: tvFocused ? focusFg : Neo.borderLight(context),
                   width: tvFocused ? 3.5 : 1.2,
                 ),
-                boxShadow: tvFocused
-                    ? [
-                        BoxShadow(
-                          color: Colors.white.withValues(alpha: 0.9),
-                          blurRadius: 6,
-                          spreadRadius: 1.5,
-                        ),
-                        BoxShadow(
-                          color: focusColor.withValues(alpha: 0.55),
-                          blurRadius: 20,
-                          spreadRadius: 3,
-                        ),
-                      ]
-                    : null,
+                boxShadow:
+                    tvFocused ? _focusHalo(context, focusColor) : null,
               ),
               child: InkWell(
                 borderRadius: BorderRadius.circular(Neo.radiusMd),
@@ -2854,7 +2950,7 @@ class _SourceRow extends StatelessWidget {
                         height: 30,
                         decoration: BoxDecoration(
                           color: tvFocused
-                              ? focusColor.withValues(alpha: 0.25)
+                              ? focusFg.withValues(alpha: 0.25)
                               : Theme.of(context)
                                   .colorScheme
                                   .primary
@@ -2866,7 +2962,7 @@ class _SourceRow extends StatelessWidget {
                             '${index + 1}',
                             style: TextStyle(
                               color: tvFocused
-                                  ? focusColor
+                                  ? focusFg
                                   : Theme.of(context).colorScheme.primary,
                               fontWeight: FontWeight.w800,
                               fontSize: 13,
@@ -2885,14 +2981,13 @@ class _SourceRow extends StatelessWidget {
                                     fontWeight: tvFocused
                                         ? FontWeight.w800
                                         : FontWeight.w600,
-                                    color: tvFocused ? focusColor : null,
+                                    color: tvFocused ? focusFg : null,
                                   ),
                         ),
                       ),
                       Icon(
                         Icons.play_circle_fill_rounded,
-                        color:
-                            tvFocused ? focusColor : Neo.textTertiary(context),
+                        color: tvFocused ? focusFg : Neo.textTertiary(context),
                         size: 24,
                       ),
                     ],
@@ -3017,9 +3112,14 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
         return;
       }
       // Mesures terrain : beaucoup de chaînes n'ont qu'1 source OK sur N
-      // (502 amont transitoires). Probe rapide → sources OK d'abord, les
-      // autres gardées ensuite (jamais jetées).
-      _streamUrls = await _proxy.rankSources(raw);
+      // (502 amont transitoires). Zapping rapide : on joue IMMÉDIATEMENT
+      // la meilleure source connue (pré-rank à l'ouverture de l'onglet,
+      // sinon ordre API) sans attendre le rank complet. Le rank complet
+      // tourne en tâche de fond (mémorise la meilleure pour la prochaine
+      // fois) et la bascule inter-sources existante ne s'enclenche qu'en
+      // cas d'échec — jamais de switch en cours de lecture réussie.
+      // Le choix manuel du popup reste prioritaire (source imposée en tête).
+      _streamUrls = _proxy.prioritizeKnown(widget.channel.slug, raw);
       _applyImposedSource();
       if (_streamUrls.isEmpty) {
         if (mounted) {
@@ -3033,6 +3133,7 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
       debugPrint(
         '[LivePlayer] ${widget.channel.name}: ${_streamUrls.length} source(s)',
       );
+      unawaited(_proxy.rankSources(raw, slug: widget.channel.slug));
       await _playAllSources();
     } catch (e) {
       if (mounted) {
@@ -3070,6 +3171,8 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
   /// 502 de façon transitoire : si TOUTES les sources échouent, on force un
   /// rafraîchissement des chaînes (ids neufs) et on rejoue systématiquement
   /// — même à ids identiques, le 502 a pu se résorber entre-temps.
+  /// Rejeu immédiat (meilleure connue d'abord), re-rank en fond, bascule
+  /// seulement si échec — comme à l'ouverture.
   Future<bool> _tryRefreshAndReplay(int generation) async {
     if (_didRefreshRetry) return false;
     _didRefreshRetry = true;
@@ -3080,8 +3183,12 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
       if (fresh.isEmpty) return false;
       debugPrint(
           '[LivePlayer] refresh → 2e tentative (${fresh.length} sources)');
-      _streamUrls = await _proxy.rankSources(fresh);
+      // La mémo peut pointer sur d'anciens ids : l'oublier, rejouer aussitôt
+      // (ordre API), puis re-mémoriser en tâche de fond.
+      _proxy.dropBestFor(widget.channel.slug);
+      _streamUrls = _proxy.prioritizeKnown(widget.channel.slug, fresh);
       _applyImposedSource();
+      unawaited(_proxy.rankSources(fresh, slug: widget.channel.slug));
       _desktopSourceIndex = 0;
       _desktopSourceAttempts = 0;
       setState(() {

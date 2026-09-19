@@ -82,11 +82,12 @@ class _TVHomeScreenState extends State<TVHomeScreen> with TickerProviderStateMix
             Expanded(
               child: Consumer<ContentProvider>(
                 builder: (context, provider, _) {
-                  if (provider.isLoadingHome && provider.hero.isEmpty) {
+                  if (provider.isLoadingHome && !provider.hasAnyHomeContent) {
                     return _buildShimmerLoading();
                   }
 
-                  if (provider.homeError != null && provider.hero.isEmpty) {
+                  // Écran d'erreur seulement si VRAIMENT rien (ni réseau ni cache).
+                  if (provider.homeError != null && !provider.hasAnyHomeContent) {
                     return _buildError(provider);
                   }
 
@@ -98,14 +99,22 @@ class _TVHomeScreenState extends State<TVHomeScreen> with TickerProviderStateMix
                   }
 
                   final sections = _getSections(provider);
-                  return ListView.builder(
-                    padding: const EdgeInsets.only(bottom: 40),
-                    physics: const TVScrollPhysics(),
-                    itemCount: sections.length,
-                    itemBuilder: (context, sectionIndex) {
-                      final section = sections[sectionIndex];
-                      return _buildSection(section, sectionIndex);
-                    },
+                  return Column(
+                    children: [
+                      // Mode dégradé : bandeau discret + sections partielles.
+                      if (provider.isDegraded) _buildDegradedBanner(provider),
+                      Expanded(
+                        child: ListView.builder(
+                          padding: const EdgeInsets.only(bottom: 40),
+                          physics: const TVScrollPhysics(),
+                          itemCount: sections.length,
+                          itemBuilder: (context, sectionIndex) {
+                            final section = sections[sectionIndex];
+                            return _buildSection(section, sectionIndex);
+                          },
+                        ),
+                      ),
+                    ],
                   );
                 },
               ),
@@ -144,7 +153,7 @@ class _TVHomeScreenState extends State<TVHomeScreen> with TickerProviderStateMix
               style: Theme.of(context).textTheme.titleLarge?.copyWith(color: TVTheme.textPrimary)),
           const SizedBox(height: 24),
           TVFocusableCard(
-            onTap: () => provider.loadHome(),
+            onTap: () => provider.retryHome(),
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             child: const Row(
               mainAxisSize: MainAxisSize.min,
@@ -156,6 +165,53 @@ class _TVHomeScreenState extends State<TVHomeScreen> with TickerProviderStateMix
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Bandeau discret du mode dégradé (TV : bouton Réessayer focusable).
+  Widget _buildDegradedBanner(ContentProvider provider) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(32, 4, 32, 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: TVTheme.cardColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: TVTheme.accentGold.withValues(alpha: 0.4),
+          ),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.wifi_off_outlined,
+                size: 18, color: TVTheme.accentGold),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                'Mode dégradé : certaines sections sont indisponibles.',
+                style: TextStyle(color: TVTheme.textSecondary, fontSize: 13),
+              ),
+            ),
+            TVFocusableCard(
+              onTap: () => provider.retryHome(),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.refresh, color: Colors.white, size: 16),
+                  SizedBox(width: 6),
+                  Text('Réessayer',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12)),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -227,6 +283,14 @@ class _TVHomeScreenState extends State<TVHomeScreen> with TickerProviderStateMix
         items: provider.dailyTop,
         style: _SectionStyle.ranked,
         icon: Icons.trending_up_rounded,
+      ));
+    }
+    if (provider.recommended.isNotEmpty) {
+      sections.add(_HomeSection(
+        title: 'Notre sélection',
+        items: provider.recommended.take(12).toList(),
+        style: _SectionStyle.standard,
+        icon: Icons.auto_awesome_outlined,
       ));
     }
     if (provider.popularFilms.isNotEmpty) {

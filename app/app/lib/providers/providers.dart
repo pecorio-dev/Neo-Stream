@@ -167,6 +167,7 @@ class ContentProvider extends ChangeNotifier {
 
   bool _isLoadingHome = false;
   String? _homeError;
+  bool _isDegraded = false;
 
   // Getters
   List<Content> get hero => _hero;
@@ -194,6 +195,24 @@ class ContentProvider extends ChangeNotifier {
   int get totalSeries => _totalSeries;
   bool get isLoadingHome => _isLoadingHome;
   String? get homeError => _homeError;
+  bool get isDegraded => _isDegraded;
+
+  /// Vrai dès qu'au moins une section affiche quelque chose : dans ce cas
+  /// on ne doit JAMAIS montrer l'écran d'erreur (bandeau dégradé à la place).
+  bool get hasAnyHomeContent =>
+      _hero.isNotEmpty ||
+      _addedToday.isNotEmpty ||
+      _dailyTop.isNotEmpty ||
+      _recommended.isNotEmpty ||
+      _continueWatching.isNotEmpty ||
+      _popularFilms.isNotEmpty ||
+      _popularSeries.isNotEmpty ||
+      _recentFilms.isNotEmpty ||
+      _recentSeries.isNotEmpty ||
+      _popularAnime.isNotEmpty ||
+      _recentAnime.isNotEmpty ||
+      _favorites.isNotEmpty ||
+      _history.isNotEmpty;
 
   List<Content> _parseContentList(dynamic data) {
     if (data == null || data is! List) return [];
@@ -267,6 +286,7 @@ class ContentProvider extends ChangeNotifier {
       try {
         await Future.delayed(Duration.zero);
         _applyHomeData(cached);
+        _isDegraded = false;
         _isLoadingHome = false;
         notifyListeners();
         _refreshHomeInBackground();
@@ -283,13 +303,106 @@ class ContentProvider extends ChangeNotifier {
       final data = await _api.getHome();
       unawaited(_saveCache(data));
       _applyHomeData(data);
+      _isDegraded = false;
+      _homeError = null;
       _isLoadingHome = false;
       notifyListeners();
-    } catch (e) {
-      _homeError = humanizeApiError(e);
+    } catch (_) {
+      // `content/home` en 500 : reconstruction dégradée depuis les
+      // endpoints qui marchent (daily-top, recommended, trending, genres,
+      // library/list, progress/history). Succès partiel = pas d'erreur.
+      try {
+        final fallback = await _api.getHomeDegraded();
+        _applyHomeData(fallback);
+        _applyDegradedExtras(fallback);
+        if (hasAnyHomeContent) {
+          unawaited(_saveCache(fallback));
+          _isDegraded = true;
+          _homeError = null;
+          _isLoadingHome = false;
+          notifyListeners();
+          return;
+        }
+      } catch (_) {
+        // Fallback lui-même KO → erreur réelle ci-dessous.
+      }
+      // Vraiment rien (ni réseau ni cache) : seul cas d'écran d'erreur.
+      // Tente un dernier cache périmé avant d'abandonner.
+      final stale = await _loadStaleCache();
+      if (stale != null) {
+        try {
+          _applyHomeData(stale);
+          _isDegraded = true;
+          _homeError = null;
+          _isLoadingHome = false;
+          notifyListeners();
+          return;
+        } catch (_) {}
+      }
+      _isDegraded = false;
+      _homeError = humanizeApiError(
+        'Le service est temporairement indisponible. Merci de reessayer dans un instant.',
+      );
       _isLoadingHome = false;
       notifyListeners();
     }
+  }
+
+  /// Favoris + historique embarqués dans le payload dégradé : les
+  /// sections "Mes Favoris"/"Historique" restent remplies même si
+  /// [loadLibrary]/[loadHistory] n'ont pas encore abouti.
+  void _applyDegradedExtras(Map<String, dynamic> data) {
+    try {
+      final lib = (data['my_library'] as List?)
+              ?.whereType<Map<String, dynamic>>()
+              .toList() ??
+          const [];
+      if (lib.isNotEmpty) {
+        _favorites = lib
+            .map((e) {
+              try {
+                return Content.fromJson(e);
+              } catch (_) {
+                return null;
+              }
+            })
+            .whereType<Content>()
+            .where((c) => c.hasPoster)
+            .toList();
+      }
+      final cw = (data['continue_watching'] as List?)
+              ?.whereType<Map<String, dynamic>>()
+              .toList() ??
+          const [];
+      if (cw.isNotEmpty && _history.isEmpty) {
+        _history = cw
+            .map(_historyItemToContent)
+            .whereType<Content>()
+            .where((c) => c.hasPoster)
+            .toList();
+      }
+    } catch (_) {}
+  }
+
+  /// Dernier cache connu même périmé (> 6h), ultime recours avant l'erreur.
+  Future<Map<String, dynamic>?> _loadStaleCache() async {
+    try {
+      final file = await _cacheFile();
+      if (!await file.exists()) return null;
+      final raw = await file.readAsString();
+      final obj = jsonDecode(raw) as Map<String, dynamic>;
+      return obj['data'] as Map<String, dynamic>?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Recharge complète (accueil + favoris + historique) pour les boutons
+  /// "Réessayer", y compris depuis le bandeau dégradé.
+  Future<void> retryHome() async {
+    await loadHome();
+    await loadLibrary();
+    await loadHistory();
   }
 
   Future<void> _refreshHomeInBackground() async {
@@ -297,8 +410,21 @@ class ContentProvider extends ChangeNotifier {
       final data = await _api.getHome();
       unawaited(_saveCache(data));
       _applyHomeData(data);
+      _isDegraded = false;
       notifyListeners();
-    } catch (_) {}
+    } catch (_) {
+      // Le cache affiché reste : on tente quand même le dégradé silencieux.
+      try {
+        final fallback = await _api.getHomeDegraded();
+        _applyHomeData(fallback);
+        _applyDegradedExtras(fallback);
+        if (hasAnyHomeContent) {
+          unawaited(_saveCache(fallback));
+          _isDegraded = true;
+          notifyListeners();
+        }
+      } catch (_) {}
+    }
   }
 
   /// Favoris (bibliothèque) pour la section "Mes Favoris" de l'accueil.
