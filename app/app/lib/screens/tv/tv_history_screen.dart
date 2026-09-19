@@ -20,6 +20,14 @@ class _TVHistoryScreenState extends State<TVHistoryScreen> {
   final ApiService _api = ApiService();
   List<Map<String, dynamic>> _items = [];
   bool _isLoading = true;
+  // H7 : vrai état erreur distinct du vide (au lieu du faux "vide").
+  bool _hasError = false;
+  // H1 : autofocus consommé une seule fois à l'entrée.
+  bool _didInitialAutofocus = false;
+  // H1/H3 : nœuds pour autofocus entrée (Vider) et restore après Supprimer.
+  final FocusNode _clearFocusNode = FocusNode(debugLabel: 'clearHistory');
+  final FocusNode _retryFocusNode = FocusNode(debugLabel: 'retryHistory');
+  final FocusNode _emptyReloadFocusNode = FocusNode(debugLabel: 'emptyReload');
   int _focusedIndex = 0;
 
   @override
@@ -28,9 +36,20 @@ class _TVHistoryScreenState extends State<TVHistoryScreen> {
     _loadHistory();
   }
 
+  @override
+  void dispose() {
+    _clearFocusNode.dispose();
+    _retryFocusNode.dispose();
+    _emptyReloadFocusNode.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadHistory() async {
     if (!mounted) return;
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _hasError = false;
+    });
     try {
       final items = await _api.getHistory();
       if (!mounted) return;
@@ -40,11 +59,53 @@ class _TVHistoryScreenState extends State<TVHistoryScreen> {
           return Content.resolvePosterUrl(poster).isNotEmpty;
         }).toList();
         _isLoading = false;
+        _hasError = false;
+        if (_focusedIndex >= _items.length) _focusedIndex = 0;
       });
+      _requestInitialFocus();
     } catch (_) {
       if (!mounted) return;
-      setState(() => _isLoading = false);
+      // H7 : erreur réseau/API -> état erreur, pas état vide.
+      setState(() {
+        _isLoading = false;
+        _hasError = true;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (FocusManager.instance.primaryFocus == null) {
+          _retryFocusNode.requestFocus();
+        }
+      });
     }
+  }
+
+  /// H1 : autofocus à l'entrée sur Vider (si liste non vide), sinon la
+  /// 1re carte s'autofocus via son flag (index 0). Consommé une fois.
+  void _requestInitialFocus() {
+    if (_didInitialAutofocus) return;
+    _didInitialAutofocus = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (FocusManager.instance.primaryFocus != null) return;
+      if (ModalRoute.of(context)?.isCurrent != true) return;
+      if (_items.isNotEmpty) {
+        _clearFocusNode.requestFocus();
+      }
+      // Si vide : le bouton Recharger de l'empty state a autoFocus:true.
+      // Si erreur : le bouton Réessayer a autoFocus:true + fallback ci-dessus.
+    });
+  }
+
+  /// H3 : après Supprimer (vider), restaure le focus sur le bouton
+  /// Recharger de l'état vide (Vider ayant disparu, header en fallback
+  /// via traversal). Appelé après le clear réussi.
+  void _restoreFocusAfterClear() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (FocusManager.instance.primaryFocus == null) {
+        _emptyReloadFocusNode.requestFocus();
+      }
+    });
   }
 
   int _safeInt(dynamic value, [int fallback = 0]) {
@@ -94,10 +155,15 @@ class _TVHistoryScreenState extends State<TVHistoryScreen> {
               try {
                 await _api.deleteHistory();
                 if (!mounted) return;
-                setState(() => _items = []);
+                setState(() {
+                  _items = [];
+                  _focusedIndex = 0;
+                });
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Historique supprimé'), backgroundColor: TVTheme.accentRed),
                 );
+                // H3 : Vider a disparu -> restore sur Recharger (état vide).
+                _restoreFocusAfterClear();
               } catch (_) {}
             },
             style: FilledButton.styleFrom(backgroundColor: TVTheme.errorRed),
@@ -112,9 +178,11 @@ class _TVHistoryScreenState extends State<TVHistoryScreen> {
   Widget build(BuildContext context) {
     final content = _isLoading
         ? const Center(child: CircularProgressIndicator(color: TVTheme.accentRed))
-        : _items.isEmpty
-            ? _buildEmptyState()
-            : _buildContent();
+        : _hasError
+            ? _buildError()
+            : _items.isEmpty
+                ? _buildEmptyState()
+                : _buildContent();
 
     if (widget.embedded) {
       return Scaffold(
@@ -132,6 +200,9 @@ class _TVHistoryScreenState extends State<TVHistoryScreen> {
                     const Spacer(),
                     if (_items.isNotEmpty)
                       TVFocusableCard(
+                        // H1 : autofocus à l'entrée sur Vider.
+                        focusNode: _clearFocusNode,
+                        autoFocus: !_didInitialAutofocus,
                         onTap: _confirmClearHistory,
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         borderRadius: BorderRadius.circular(8),
@@ -161,6 +232,10 @@ class _TVHistoryScreenState extends State<TVHistoryScreen> {
       actions: [
         if (_items.isNotEmpty)
           TVFocusableCard(
+            // H1 : autofocus à l'entrée sur Vider (mode non-embedded).
+            // H3 : cible de restore quand la liste est encore non vide.
+            focusNode: _clearFocusNode,
+            autoFocus: !_didInitialAutofocus,
             onTap: _confirmClearHistory,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             borderRadius: BorderRadius.circular(8),
@@ -178,6 +253,42 @@ class _TVHistoryScreenState extends State<TVHistoryScreen> {
     );
   }
 
+  /// H7 : état erreur réel avec Réessayer focusable (autofocus).
+  Widget _buildError() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.error_outline, size: 64, color: TVTheme.errorRed),
+          const SizedBox(height: 16),
+          const Text('Impossible de charger l\'historique',
+              style: TextStyle(color: TVTheme.textPrimary, fontSize: 18)),
+          const SizedBox(height: 8),
+          const Text('Vérifiez votre connexion puis réessayez.',
+              style: TextStyle(color: TVTheme.textSecondary, fontSize: 14)),
+          const SizedBox(height: 24),
+          TVFocusableCard(
+            focusNode: _retryFocusNode,
+            autoFocus: true,
+            onTap: _loadHistory,
+            padding:
+                const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.refresh, color: Colors.white),
+                SizedBox(width: 8),
+                Text('Réessayer',
+                    style: TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildEmptyState() {
     return Center(
       child: Column(
@@ -192,12 +303,36 @@ class _TVHistoryScreenState extends State<TVHistoryScreen> {
           const Text('Aucun historique', style: TextStyle(color: TVTheme.textPrimary, fontSize: 22)),
           const SizedBox(height: 8),
           const Text('Vos films et séries regardés apparaîtront ici.', style: TextStyle(color: TVTheme.textSecondary, fontSize: 16)),
+          const SizedBox(height: 24),
+          // H3 : cible de restore après Supprimer (Vider disparu) + évite
+          // le focus mort quand l'état vide est affiché à l'entrée.
+          TVFocusableCard(
+            focusNode: _emptyReloadFocusNode,
+            autoFocus: true,
+            onTap: _loadHistory,
+            padding:
+                const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.refresh, color: Colors.white, size: 20),
+                SizedBox(width: 8),
+                Text('Recharger',
+                    style: TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 
   Widget _buildContent() {
+    // H4 (audit) : documenté sans changement risqué — on garde la navigation
+    // push simple vers TVDetailScreen et le filtrage poster existant tels
+    // quels ; aucun remaniement du grid/focus traversal (risque de régression
+    // D-pad supérieur au gain).
     return GridView.builder(
       padding: const EdgeInsets.all(32),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -213,6 +348,9 @@ class _TVHistoryScreenState extends State<TVHistoryScreen> {
         return _HistoryCard(
           item: item,
           isFocused: isFocused,
+          // H1 : si Vider indisponible au traversal, la 1re carte prend
+          // l'autofocus d'entrée (Vider reste prioritaire car construit avant).
+          autoFocus: index == 0 && !_didInitialAutofocus,
           onTap: () {
             setState(() => _focusedIndex = index);
             final contentId = _safeInt(item['content_id']);
@@ -242,6 +380,7 @@ class _TVHistoryScreenState extends State<TVHistoryScreen> {
 class _HistoryCard extends StatelessWidget {
   final Map<String, dynamic> item;
   final bool isFocused;
+  final bool autoFocus;
   final VoidCallback onTap;
   final VoidCallback onFocus;
   final String Function(String) formatDate;
@@ -252,6 +391,7 @@ class _HistoryCard extends StatelessWidget {
   const _HistoryCard({
     required this.item,
     required this.isFocused,
+    this.autoFocus = false,
     required this.onTap,
     required this.onFocus,
     required this.formatDate,
@@ -271,7 +411,7 @@ class _HistoryCard extends StatelessWidget {
     final totalDuration = item['total_duration'];
 
     return TVFocusableCard(
-      autoFocus: false,
+      autoFocus: autoFocus,
       onTap: onTap,
       onFocus: onFocus,
       padding: EdgeInsets.zero,

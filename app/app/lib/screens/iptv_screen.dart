@@ -41,6 +41,46 @@ List<BoxShadow> _focusHalo(BuildContext context, Color focusColor) {
   ];
 }
 
+/// Touche "OK" TV : Enter + variantes gamepad/numpad (B2). Utilisé partout
+/// sur l'onglet Direct (refresh, chips, spotlight, cartes, popup, player)
+/// pour que la touche OK du gamepad (gameButtonA) et Entrée du pavé
+/// numérique ne soient jamais morts.
+bool _isTvActivate(LogicalKeyboardKey key) =>
+    key == LogicalKeyboardKey.enter ||
+    key == LogicalKeyboardKey.numpadEnter ||
+    key == LogicalKeyboardKey.select ||
+    key == LogicalKeyboardKey.space ||
+    key == LogicalKeyboardKey.gameButtonA;
+
+/// Touche "favori" TV : Menu / Info / Y (gamepad + clavier) / F.
+bool _isFavKey(LogicalKeyboardKey key) =>
+    key == LogicalKeyboardKey.contextMenu ||
+    key == LogicalKeyboardKey.info ||
+    key == LogicalKeyboardKey.gameButtonY ||
+    key == LogicalKeyboardKey.keyY ||
+    key == LogicalKeyboardKey.keyF;
+
+/// Navigation directionnelle explicite (B1) : tente le déplacement vers
+/// [dir] depuis [node] et consomme l'événement si le focus a bougé, sinon
+/// laisse le traversal par défaut s'en charger (filet : navbar, rangées
+/// voisines). Évite que Gauche/Droite ne remonte en haut via la politique
+/// géométrique [ReadingOrderTraversalPolicy].
+KeyEventResult _moveFocus(FocusNode node, TraversalDirection dir) =>
+    node.focusInDirection(dir)
+        ? KeyEventResult.handled
+        : KeyEventResult.ignored;
+
+/// Depuis un handler racine (le [node] attaché n'est PAS le focus courant,
+/// cas du player plein écran) : déplace le focus actuel vers [dir], consommé
+/// si bougé, sinon filet vers le traversal par défaut.
+KeyEventResult _moveFocused(TraversalDirection dir) {
+  final focused = FocusManager.instance.primaryFocus;
+  if (focused != null && focused.focusInDirection(dir)) {
+    return KeyEventResult.handled;
+  }
+  return KeyEventResult.ignored;
+}
+
 /// Écran TV en direct — chaînes servies par le proxy FSTV (iptv.mine.bz).
 ///
 /// Source unique : FSTV (chaînes premium FR). Authentification automatique via
@@ -318,6 +358,11 @@ class _IptvScreenState extends State<IptvScreen> {
       builder: (dialogCtx) => _ChannelDetailsDialog(
         channel: channel,
         entries: entries,
+        isFavorite: _favIds.contains(channel.slug),
+        onToggleFavorite: () {
+          HapticFeedback.selectionClick();
+          _favs.toggle(channel.slug);
+        },
         // "Lancer le direct" : meilleure source rankée (pas d'imposée).
         onPlayBest: () {
           Navigator.of(dialogCtx).pop();
@@ -483,11 +528,23 @@ class _IptvScreenState extends State<IptvScreen> {
     return Focus(
       onKeyEvent: (node, event) {
         if (event is KeyDownEvent) {
-          if (event.logicalKey == LogicalKeyboardKey.enter ||
-              event.logicalKey == LogicalKeyboardKey.select ||
-              event.logicalKey == LogicalKeyboardKey.space) {
+          if (_isTvActivate(event.logicalKey)) {
             if (!_loading) _load(forceRefresh: true);
             return KeyEventResult.handled;
+          }
+          // Navigation latérale explicite (B1) : Gauche/Droite vers le
+          // voisin, Haut/Bas vers la rangée voisine, sinon traversal.
+          if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+            return _moveFocus(node, TraversalDirection.left);
+          }
+          if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+            return _moveFocus(node, TraversalDirection.right);
+          }
+          if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+            return _moveFocus(node, TraversalDirection.up);
+          }
+          if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+            return _moveFocus(node, TraversalDirection.down);
           }
         }
         return KeyEventResult.ignored;
@@ -543,25 +600,23 @@ class _IptvScreenState extends State<IptvScreen> {
   }
 
   Widget _buildCategoryBar() {
-    final chips = <Widget>[
-      _categoryChip(
+    final specs = <({String label, int count, IconData icon, bool selected, VoidCallback onTap})>[
+      (
         label: 'Toutes',
         count: _flat.length,
         icon: Icons.apps_rounded,
         selected: _selectedCategory == null && !_favOnly,
-        isFirst: true,
         onTap: () {
           _selectedCategory = null;
           _favOnly = false;
           _applyFilters();
         },
       ),
-      _categoryChip(
+      (
         label: 'Favoris',
         count: _favIds.length,
         icon: Icons.favorite_rounded,
         selected: _favOnly,
-        isFirst: false,
         onTap: () {
           _favOnly = !_favOnly;
           _applyFilters();
@@ -572,12 +627,12 @@ class _IptvScreenState extends State<IptvScreen> {
       final list = _channelsByCategory[cat];
       final icon =
           (list != null && list.isNotEmpty) ? list.first.categoryIcon : Icons.tv_rounded;
-      chips.add(_categoryChip(
+      final selected = _selectedCategory == cat && !_favOnly;
+      specs.add((
         label: cat,
         count: list?.length ?? 0,
         icon: icon,
-        selected: _selectedCategory == cat && !_favOnly,
-        isFirst: false,
+        selected: selected,
         onTap: () {
           _selectedCategory = cat;
           _favOnly = false;
@@ -590,9 +645,20 @@ class _IptvScreenState extends State<IptvScreen> {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-        itemCount: chips.length,
+        itemCount: specs.length,
         separatorBuilder: (_1, _2) => const SizedBox(width: 10),
-        itemBuilder: (_, i) => chips[i],
+        itemBuilder: (_, i) {
+          final s = specs[i];
+          return _categoryChip(
+            label: s.label,
+            count: s.count,
+            icon: s.icon,
+            selected: s.selected,
+            isFirst: i == 0,
+            isLast: i == specs.length - 1,
+            onTap: s.onTap,
+          );
+        },
       ),
     );
   }
@@ -603,6 +669,7 @@ class _IptvScreenState extends State<IptvScreen> {
     IconData? icon,
     required bool selected,
     required bool isFirst,
+    bool isLast = false,
     required VoidCallback onTap,
   }) {
     final isTV = NeoTheme.isTV(context);
@@ -612,9 +679,7 @@ class _IptvScreenState extends State<IptvScreen> {
       onKeyEvent: (node, event) {
         if (event is KeyDownEvent) {
           // Enter/OK : activer
-          if (event.logicalKey == LogicalKeyboardKey.enter ||
-              event.logicalKey == LogicalKeyboardKey.select ||
-              event.logicalKey == LogicalKeyboardKey.space) {
+          if (_isTvActivate(event.logicalKey)) {
             onTap();
             return KeyEventResult.handled;
           }
@@ -629,7 +694,23 @@ class _IptvScreenState extends State<IptvScreen> {
             }
             return KeyEventResult.ignored; // filet : handler shell
           }
-          // Flèche haut depuis la barre catégories : traversal normal (remonte).
+          // Navigation latérale explicite (B1) : Gauche/Droite vers le chip
+          // voisin (jamais de remontée en haut via le traversal géométrique).
+          if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+            return _moveFocus(node, TraversalDirection.left);
+          }
+          if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+            if (isLast) return KeyEventResult.ignored;
+            return _moveFocus(node, TraversalDirection.right);
+          }
+          // Haut/Bas : vers la rangée voisine (header/grille) quand
+          // prévisible, sinon traversal.
+          if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+            return _moveFocus(node, TraversalDirection.up);
+          }
+          if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+            return _moveFocus(node, TraversalDirection.down);
+          }
         }
         return KeyEventResult.ignored;
       },
@@ -1112,6 +1193,10 @@ class _IptvScreenState extends State<IptvScreen> {
             itemBuilder: (context, index) {
               final ch = _filtered[index];
               final isLeftEdge = index % crossCount == 0; // Première colonne
+              // Dernière colonne OU dernier élément (ligne incomplète) :
+              // bord droit visuel, pas de voisin à droite.
+              final isRightEdge = (index + 1) % crossCount == 0 ||
+                  index == _filtered.length - 1;
               return RepaintBoundary(
                 // Slugs dédupliqués côté proxy (fusion des doublons API) :
                 // chaque slug n'a qu'une carte → clé stable et unique.
@@ -1120,6 +1205,7 @@ class _IptvScreenState extends State<IptvScreen> {
                   channel: ch,
                   onTap: () => _showDetails(ch),
                   isLeftEdge: isLeftEdge,
+                  isRightEdge: isRightEdge,
                   onLeftEdge: widget.onLeftEdge,
                   isFavorite: _favIds.contains(ch.slug),
                   onToggleFavorite: () {
@@ -1477,6 +1563,7 @@ class _SpotlightSectionState extends State<_SpotlightSection> {
                 key: ValueKey('spot_${ch.slug}'),
                 channel: ch,
                 isFirst: i == 0,
+                isLast: i == widget.channels.length - 1,
                 isFavorite: widget.favIds.contains(ch.slug),
                 onOpen: () => widget.onOpen(ch),
                 onLeftEdge: widget.onLeftEdge,
@@ -1492,6 +1579,7 @@ class _SpotlightSectionState extends State<_SpotlightSection> {
 class _SpotlightCard extends StatelessWidget {
   final FstvChannel channel;
   final bool isFirst;
+  final bool isLast;
   final bool isFavorite;
   final VoidCallback onOpen;
   final VoidCallback? onLeftEdge;
@@ -1500,6 +1588,7 @@ class _SpotlightCard extends StatelessWidget {
     super.key,
     required this.channel,
     required this.isFirst,
+    this.isLast = false,
     required this.isFavorite,
     required this.onOpen,
     this.onLeftEdge,
@@ -1511,9 +1600,7 @@ class _SpotlightCard extends StatelessWidget {
     return Focus(
       onKeyEvent: (node, event) {
         if (event is KeyDownEvent) {
-          if (event.logicalKey == LogicalKeyboardKey.enter ||
-              event.logicalKey == LogicalKeyboardKey.select ||
-              event.logicalKey == LogicalKeyboardKey.space) {
+          if (_isTvActivate(event.logicalKey)) {
             onOpen();
             return KeyEventResult.handled;
           }
@@ -1525,6 +1612,23 @@ class _SpotlightCard extends StatelessWidget {
               return KeyEventResult.handled;
             }
             return KeyEventResult.ignored;
+          }
+          // Navigation latérale explicite (B1) : Gauche/Droite vers la carte
+          // voisine du rail, jamais de remontée en haut.
+          if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+            return _moveFocus(node, TraversalDirection.left);
+          }
+          if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+            if (isLast) return KeyEventResult.ignored;
+            return _moveFocus(node, TraversalDirection.right);
+          }
+          // Haut/Bas : vers la rangée voisine (catégories/grille) quand
+          // prévisible, sinon traversal.
+          if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+            return _moveFocus(node, TraversalDirection.up);
+          }
+          if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+            return _moveFocus(node, TraversalDirection.down);
           }
         }
         return KeyEventResult.ignored;
@@ -1745,6 +1849,7 @@ class _ChannelCard extends StatefulWidget {
   final FstvChannel channel;
   final VoidCallback onTap;
   final bool isLeftEdge;
+  final bool isRightEdge;
   final VoidCallback? onLeftEdge;
   final bool autofocus;
 
@@ -1757,6 +1862,7 @@ class _ChannelCard extends StatefulWidget {
     required this.channel,
     required this.onTap,
     required this.isLeftEdge,
+    this.isRightEdge = false,
     this.onLeftEdge,
     this.autofocus = false,
     this.isFavorite = false,
@@ -1778,20 +1884,15 @@ class _ChannelCardState extends State<_ChannelCard> {
       autofocus: widget.autofocus,
       onKeyEvent: (node, event) {
         if (event is KeyDownEvent) {
-          if (event.logicalKey == LogicalKeyboardKey.enter ||
-              event.logicalKey == LogicalKeyboardKey.select ||
-              event.logicalKey == LogicalKeyboardKey.space) {
+          if (_isTvActivate(event.logicalKey)) {
             widget.onTap();
             return KeyEventResult.handled;
           }
 
-          // Touche dédiée TV : Menu / Info / touche F / bouton jaune (Y)
-          // sur carte focusée => bascule le favori (la carte reste le seul
-          // élément focusable, pas de sous-bouton au D-pad).
-          if (event.logicalKey == LogicalKeyboardKey.contextMenu ||
-              event.logicalKey == LogicalKeyboardKey.info ||
-              event.logicalKey == LogicalKeyboardKey.gameButtonY ||
-              event.logicalKey == LogicalKeyboardKey.keyF) {
+          // Touche dédiée TV : Menu / Info / touche Y (gamepad + clavier) /
+          // touche F sur carte focusée => bascule le favori (la carte reste
+          // le seul élément focusable, pas de sous-bouton au D-pad).
+          if (_isFavKey(event.logicalKey)) {
             widget.onToggleFavorite();
             return KeyEventResult.handled;
           }
@@ -1806,13 +1907,22 @@ class _ChannelCardState extends State<_ChannelCard> {
               }
               return KeyEventResult.ignored; // filet : handler shell
             }
-            // Gauche interne + haut/bas/droite : traversal normal.
-            // Up remonte vers la categoryBar, gauche interne vers carte voisine.
-            if (event.logicalKey == LogicalKeyboardKey.arrowLeft ||
-                event.logicalKey == LogicalKeyboardKey.arrowUp ||
-                event.logicalKey == LogicalKeyboardKey.arrowDown ||
-                event.logicalKey == LogicalKeyboardKey.arrowRight) {
-              return KeyEventResult.ignored;
+            // Gauche/Droite explicites (B1) : vers la carte voisine, jamais
+            // de remontée en haut via le traversal géométrique.
+            if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+              return _moveFocus(node, TraversalDirection.left);
+            }
+            if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+              if (widget.isRightEdge) return KeyEventResult.ignored;
+              return _moveFocus(node, TraversalDirection.right);
+            }
+            // Haut/Bas : vers la carte de la rangée voisine quand prévisible
+            // (première ligne → spotlight/catégories), sinon traversal.
+            if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+              return _moveFocus(node, TraversalDirection.up);
+            }
+            if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+              return _moveFocus(node, TraversalDirection.down);
             }
           }
         }
@@ -2331,11 +2441,18 @@ class _ChannelDetailsDialog extends StatefulWidget {
   final VoidCallback onPlayBest;
   final ValueChanged<String> onPlaySource;
 
+  /// État favori initial + bascule (B8) : le dialog expose une ligne
+  /// "Favori" focusable au D-pad (jamais de popup sans action favori).
+  final bool isFavorite;
+  final VoidCallback onToggleFavorite;
+
   const _ChannelDetailsDialog({
     required this.channel,
     required this.entries,
     required this.onPlayBest,
     required this.onPlaySource,
+    this.isFavorite = false,
+    required this.onToggleFavorite,
   });
 
   @override
@@ -2345,9 +2462,48 @@ class _ChannelDetailsDialog extends StatefulWidget {
 class _ChannelDetailsDialogState extends State<_ChannelDetailsDialog> {
   bool _epgReady = false;
 
+  /// Scroll interne de la zone sources (la seule zone scrollable du popup :
+  /// l'en-tête + EPG + "Lancer" restent fixes et toujours visibles).
+  late final ScrollController _sourcesCtrl = ScrollController();
+
+  /// Ordre D-pad explicite : Lancer (ordre 0), Favori (ordre 1), puis
+  /// sources (2..N+1). Nœuds possédés par le dialog (disposés ici) pour une
+  /// navigation Up/Down fiable même quand la liste est scrollée.
+  final FocusNode _lancerNode = FocusNode(debugLabel: 'details_lancer');
+  final FocusNode _favNode = FocusNode(debugLabel: 'details_fav');
+  late final List<FocusNode> _sourceNodes = List.generate(
+    widget.entries.length,
+    (i) => FocusNode(debugLabel: 'details_source_$i'),
+  );
+
+  /// Bouton Fermer : ne devient focusable qu'en cas 0 source (B7) — quand
+  /// "Lancer" est exclu, le focus va sur Fermer (jamais 0 stop au D-pad).
+  /// Nœud possédé par le dialog (disposé ici).
+  final FocusNode _closeNode = FocusNode(debugLabel: 'details_close');
+
+  @override
+  void dispose() {
+    IptvFavorites.instance.removeListener(_onFavsChanged);
+    _sourcesCtrl.dispose();
+    _lancerNode.dispose();
+    _favNode.dispose();
+    _closeNode.dispose();
+    for (final n in _sourceNodes) {
+      n.dispose();
+    }
+    super.dispose();
+  }
+
+  /// Le parent ne rebuild pas le dialog quand les favoris changent (popup
+  /// déjà ouvert) : écoute directe pour garder la ligne Favori à jour.
+  void _onFavsChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
+    IptvFavorites.instance.addListener(_onFavsChanged);
     // Le guide a été pré-chargé à l'ouverture de l'onglet (single-flight,
     // cache 12 h : cet appel est gratuit quand le guide est déjà là).
     // Court-circuit synchrone : pas de spinner si déjà prêt.
@@ -2364,9 +2520,15 @@ class _ChannelDetailsDialogState extends State<_ChannelDetailsDialog> {
   Widget build(BuildContext context) {
     final isTV = NeoTheme.isTV(context);
     final width = MediaQuery.of(context).size.width;
+    final screenH = MediaQuery.of(context).size.height;
     final dialogWidth = isTV ? 560.0 : (width >= 600 ? 520.0 : width);
+    // Focus racine NON focusable et hors traversal : il ne fait que
+    // intercepter Esc/Retour (bubblé depuis le descendant focusé). Avant,
+    // `autofocus: true` ici volait le focus au bouton "Lancer" et rendait
+    // les sources inatteignables au D-pad.
     return Focus(
-      autofocus: true,
+      canRequestFocus: false,
+      skipTraversal: true,
       onKeyEvent: (node, event) {
         if (event is! KeyDownEvent) return KeyEventResult.ignored;
         if (event.logicalKey == LogicalKeyboardKey.escape ||
@@ -2379,7 +2541,7 @@ class _ChannelDetailsDialogState extends State<_ChannelDetailsDialog> {
       },
       child: Dialog(
         insetPadding: isTV
-            ? const EdgeInsets.symmetric(horizontal: 48, vertical: 48)
+            ? const EdgeInsets.symmetric(horizontal: 48, vertical: 24)
             : EdgeInsets.only(
                 left: 12,
                 right: 12,
@@ -2393,8 +2555,8 @@ class _ChannelDetailsDialogState extends State<_ChannelDetailsDialog> {
         child: ConstrainedBox(
           constraints: BoxConstraints(
             maxWidth: dialogWidth,
-            maxHeight:
-                MediaQuery.of(context).size.height * (isTV ? 0.85 : 0.88),
+            // Jamais plus de 85 % de l'écran TV : le popup ne dépasse plus.
+            maxHeight: screenH * (isTV ? 0.85 : 0.88),
           ),
           child: FocusTraversalGroup(
             policy: OrderedTraversalPolicy(),
@@ -2405,14 +2567,18 @@ class _ChannelDetailsDialogState extends State<_ChannelDetailsDialog> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   // En-tête : logo + nom + catégorie + nb sources.
+                  // Logo réduit sur TV (64 vs 76) : gagne ~12 px verticaux
+                  // pour laisser "Lancer" + 2-3 sources visibles sans scroll.
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      _ChannelLogo(channel: widget.channel, size: 76),
+                      _ChannelLogo(
+                          channel: widget.channel, size: isTV ? 64 : 76),
                       const SizedBox(width: 14),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
                               widget.channel.name,
@@ -2464,14 +2630,90 @@ class _ChannelDetailsDialogState extends State<_ChannelDetailsDialog> {
                           ],
                         ),
                       ),
-                      IconButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.close_rounded),
-                        tooltip: 'Fermer',
-                      ),
+                      // Croix exclue du traversal D-pad sur TV quand "Lancer"
+                      // est présent (Esc/Retour ferme déjà) : évite un arrêt
+                      // focus fantôme avant "Lancer". Cas 0 source (B7) :
+                      // "Lancer" est exclu → la croix devient focusable
+                      // (autofocus, ordre 0) pour ne jamais laisser 0 stop
+                      // au D-pad. Tactile/phone inchangé.
+                      if (isTV && widget.entries.isNotEmpty)
+                        ExcludeFocus(
+                          child: IconButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            icon: const Icon(Icons.close_rounded),
+                            tooltip: 'Fermer',
+                          ),
+                        )
+                      else if (isTV)
+                        FocusTraversalOrder(
+                          order: const NumericFocusOrder(0),
+                          child: Focus(
+                            focusNode: _closeNode,
+                            autofocus: true,
+                            onKeyEvent: (node, event) {
+                              if (event is KeyDownEvent) {
+                                if (_isTvActivate(event.logicalKey)) {
+                                  Navigator.of(context).pop();
+                                  return KeyEventResult.handled;
+                                }
+                                if (event.logicalKey ==
+                                    LogicalKeyboardKey.arrowDown) {
+                                  FocusScope.of(node.context!).nextFocus();
+                                  return KeyEventResult.handled;
+                                }
+                              }
+                              return KeyEventResult.ignored;
+                            },
+                            child: Builder(
+                              builder: (ctx) {
+                                final focused = Focus.of(ctx).hasFocus;
+                                final focusColor =
+                                    Neo.accentColor(context);
+                                final focusFg =
+                                    Neo.readableOn(focusColor);
+                                return GestureDetector(
+                                  onTap: () =>
+                                      Navigator.of(context).pop(),
+                                  behavior: HitTestBehavior.opaque,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: focused
+                                          ? focusColor
+                                          : Colors.transparent,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: focused
+                                            ? focusFg
+                                            : Colors.transparent,
+                                        width: 3,
+                                      ),
+                                      boxShadow: focused
+                                          ? _focusHalo(context, focusColor)
+                                          : null,
+                                    ),
+                                    child: Icon(
+                                      Icons.close_rounded,
+                                      color: focused
+                                          ? focusFg
+                                          : Theme.of(context).iconTheme.color,
+                                      semanticLabel: 'Fermer',
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        )
+                      else
+                        IconButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(Icons.close_rounded),
+                          tooltip: 'Fermer',
+                        ),
                     ],
                   ),
-                  const SizedBox(height: 14),
+                  SizedBox(height: isTV ? 10 : 14),
                   // Reprise phone : rappel "dernière vue il y a X" au-dessus
                   // du CTA (TV inchangée : pas de bandeau).
                   if (!isTV &&
@@ -2483,12 +2725,16 @@ class _ChannelDetailsDialogState extends State<_ChannelDetailsDialog> {
                             .lastSeen(widget.channel.slug),
                       ),
                     ),
-                  // Section EPG "Maintenant / À suivre" (display-only).
-                  _buildEpgSection(),
-                  const SizedBox(height: 14),
+                  // Section EPG "Maintenant / À suivre" (display-only,
+                  // jamais focusable au D-pad : ExcludeFocus garantit que le
+                  // traversal Lancer(0) -> Favori(1) -> sources(2..N+1)
+                  // n'est pas pollué).
+                  ExcludeFocus(child: _buildEpgSection()),
+                  SizedBox(height: isTV ? 10 : 14),
                   // CTA principal : autofocus D-pad, 1er dans l'ordre.
                   // Sans source, bouton désactivé (jamais d'ouverture du
-                  // player vers une erreur certaine) + exclu du focus D-pad.
+                  // player vers une erreur certaine) + exclu du focus D-pad
+                  // (B7 : le focus va alors sur Fermer, ordre 0).
                   if (widget.entries.isEmpty)
                     const ExcludeFocus(
                       child: _DialogDisabledButton(),
@@ -2498,7 +2744,20 @@ class _ChannelDetailsDialogState extends State<_ChannelDetailsDialog> {
                       order: const NumericFocusOrder(0),
                       child: _DialogPrimaryButton(
                         autofocus: true,
+                        focusNode: _lancerNode,
                         onActivated: widget.onPlayBest,
+                        onToggleFavorite: widget.onToggleFavorite,
+                        // Retour focus depuis la 1re source : remonte la
+                        // liste en haut pour que "Lancer" redevienne visible.
+                        onFocused: () {
+                          if (_sourcesCtrl.hasClients) {
+                            _sourcesCtrl.animateTo(
+                              0,
+                              duration: const Duration(milliseconds: 200),
+                              curve: Curves.easeOutCubic,
+                            );
+                          }
+                        },
                         // Phone : "Reprendre le direct" si déjà regardée,
                         // sinon "Lancer le direct" (TV : toujours Lancer).
                         label: !isTV &&
@@ -2508,7 +2767,20 @@ class _ChannelDetailsDialogState extends State<_ChannelDetailsDialog> {
                             : 'Lancer le direct',
                       ),
                     ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
+                  // Ligne Favori (B8) : focusable au D-pad (ordre 1, entre
+                  // "Lancer" et les sources), synchronisée en direct via
+                  // l'écoute IptvFavorites (le popup reste ouvert).
+                  FocusTraversalOrder(
+                    order: const NumericFocusOrder(1),
+                    child: _DialogFavoriteRow(
+                      isFavorite: IptvFavorites.instance
+                          .isFavorite(widget.channel.slug),
+                      focusNode: _favNode,
+                      onToggle: widget.onToggleFavorite,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   Text(
                     'Choisir une source',
                     style: Theme.of(context).textTheme.labelLarge?.copyWith(
@@ -2532,23 +2804,48 @@ class _ChannelDetailsDialogState extends State<_ChannelDetailsDialog> {
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                           )
-                        : ListView.separated(
-                            shrinkWrap: true,
-                            itemCount: widget.entries.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 8),
-                            itemBuilder: (_, i) {
-                              final e = widget.entries[i];
-                              return FocusTraversalOrder(
-                                // Ordre D-pad : après Lancer (0), sources 1..N.
-                                order: NumericFocusOrder(i + 1),
-                                child: _SourceRow(
-                                  index: i,
-                                  displayName: e.displayName,
-                                  onActivated: () => widget.onPlaySource(e.url),
-                                ),
-                              );
-                            },
+                        : Scrollbar(
+                            controller: _sourcesCtrl,
+                            thumbVisibility: false,
+                            child: SingleChildScrollView(
+                              controller: _sourcesCtrl,
+                              // Scroll interne contraint par le Flexible :
+                              // l'en-tête + "Lancer" restent fixes, seules
+                              // les sources défilent. Jamais de dépassement
+                              // d'écran (dialog plafonné à 85 % côté parent).
+                              padding: const EdgeInsets.only(
+                                right: 2,
+                                bottom: 4,
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.stretch,
+                                children: [
+                                  for (var i = 0;
+                                      i < widget.entries.length;
+                                      i++) ...[
+                                    FocusTraversalOrder(
+                                      // Ordre D-pad : après Lancer (0) et
+                                      // Favori (1), sources 2..N+1.
+                                      order: NumericFocusOrder(i + 2),
+                                      child: _SourceRow(
+                                        index: i,
+                                        displayName:
+                                            widget.entries[i].displayName,
+                                        focusNode: _sourceNodes[i],
+                                        onActivated: () => widget.onPlaySource(
+                                            widget.entries[i].url),
+                                        onToggleFavorite:
+                                            widget.onToggleFavorite,
+                                      ),
+                                    ),
+                                    if (i < widget.entries.length - 1)
+                                      const SizedBox(height: 8),
+                                  ],
+                                ],
+                              ),
+                            ),
                           ),
                   ),
                 ],
@@ -2754,14 +3051,24 @@ class _EpgProgramRow extends StatelessWidget {
 }
 
 /// Bouton "Lancer le direct" du popup : focus TV très visible.
+/// Ordre traversal 0 (côté appelant), autofocus D-pad. Down descend vers la
+/// ligne Favori via l'ordre de traversal ; l'activation (OK/Enter/Espace)
+/// appelle [onPlayBest] (meilleure source rankée — proxy iptv.mine.bz).
+/// Menu / Info / Y / F bascule le favori ([onToggleFavorite], B8).
 class _DialogPrimaryButton extends StatelessWidget {
   final bool autofocus;
+  final FocusNode? focusNode;
   final VoidCallback onActivated;
+  final VoidCallback? onFocused;
+  final VoidCallback? onToggleFavorite;
   final String label;
 
   const _DialogPrimaryButton({
     required this.autofocus,
     required this.onActivated,
+    this.focusNode,
+    this.onFocused,
+    this.onToggleFavorite,
     this.label = 'Lancer le direct',
   });
 
@@ -2769,14 +3076,27 @@ class _DialogPrimaryButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final isTV = NeoTheme.isTV(context);
     return Focus(
+      focusNode: focusNode,
       autofocus: autofocus,
+      onFocusChange: (hasFocus) {
+        if (hasFocus) onFocused?.call();
+      },
       onKeyEvent: (node, event) {
         if (event is KeyDownEvent) {
-          if (event.logicalKey == LogicalKeyboardKey.enter ||
-              event.logicalKey == LogicalKeyboardKey.select ||
-              event.logicalKey == LogicalKeyboardKey.space ||
-              event.logicalKey == LogicalKeyboardKey.gameButtonA) {
+          if (_isTvActivate(event.logicalKey)) {
             onActivated();
+            return KeyEventResult.handled;
+          }
+          // Favori depuis "Lancer" (B8) : Menu / Info / Y / F.
+          if (_isFavKey(event.logicalKey)) {
+            onToggleFavorite?.call();
+            return KeyEventResult.handled;
+          }
+          // Down D-pad : descend vers la ligne Favori (ordre traversal 1)
+          // même si la liste est scrollée (le voisinage directionnel seul
+          // pouvait rater la cible dans le scroll interne).
+          if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+            FocusScope.of(node.context!).nextFocus();
             return KeyEventResult.handled;
           }
         }
@@ -2881,30 +3201,195 @@ class _DialogDisabledButton extends StatelessWidget {
   }
 }
 
-/// Ligne source du popup : nom = label API si non vide, sinon "Source N".
-/// Focusable / cliquable au D-pad pour lancer directement cette source.
-class _SourceRow extends StatelessWidget {
-  final int index;
-  final String displayName;
-  final VoidCallback onActivated;
+/// Ligne "Favori" du popup (B8) : focusable au D-pad (ordre 1, entre
+/// "Lancer" et les sources), même langage visuel que les lignes source.
+/// OK/Enter/Espace ou Menu / Info / Y / F bascule le favori ; Up remonte à
+/// "Lancer", Down descend vers la 1re source.
+class _DialogFavoriteRow extends StatelessWidget {
+  final bool isFavorite;
+  final FocusNode? focusNode;
+  final VoidCallback onToggle;
 
-  const _SourceRow({
-    required this.index,
-    required this.displayName,
-    required this.onActivated,
+  const _DialogFavoriteRow({
+    required this.isFavorite,
+    required this.onToggle,
+    this.focusNode,
   });
 
   @override
   Widget build(BuildContext context) {
     final isTV = NeoTheme.isTV(context);
     return Focus(
+      focusNode: focusNode,
       onKeyEvent: (node, event) {
         if (event is KeyDownEvent) {
-          if (event.logicalKey == LogicalKeyboardKey.enter ||
-              event.logicalKey == LogicalKeyboardKey.select ||
-              event.logicalKey == LogicalKeyboardKey.space ||
-              event.logicalKey == LogicalKeyboardKey.gameButtonA) {
+          if (_isTvActivate(event.logicalKey) ||
+              _isFavKey(event.logicalKey)) {
+            onToggle();
+            return KeyEventResult.handled;
+          }
+          if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+            FocusScope.of(node.context!).previousFocus();
+            return KeyEventResult.handled;
+          }
+          if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+            FocusScope.of(node.context!).nextFocus();
+            return KeyEventResult.handled;
+          }
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Builder(
+        builder: (ctx) {
+          final isFocused = Focus.of(ctx).hasFocus;
+          final tvFocused = isTV && isFocused;
+          final focusColor = Neo.accentColor(context);
+          final focusFg = Neo.readableOn(focusColor);
+          return AnimatedScale(
+            scale: tvFocused ? 1.03 : 1.0,
+            duration: const Duration(milliseconds: 150),
+            curve: Curves.easeOutCubic,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              curve: Curves.easeOutCubic,
+              decoration: BoxDecoration(
+                color: tvFocused ? focusColor : Neo.bgElevated(context),
+                borderRadius: BorderRadius.circular(Neo.radiusMd),
+                border: Border.all(
+                  color: tvFocused ? focusFg : Neo.borderLight(context),
+                  width: tvFocused ? 3.5 : 1.2,
+                ),
+                boxShadow:
+                    tvFocused ? _focusHalo(context, focusColor) : null,
+              ),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onToggle,
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 30,
+                        height: 30,
+                        decoration: BoxDecoration(
+                          color: tvFocused
+                              ? focusFg.withValues(alpha: 0.25)
+                              : focusColor.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(9),
+                        ),
+                        child: Center(
+                          child: Icon(
+                            isFavorite
+                                ? Icons.favorite_rounded
+                                : Icons.favorite_border_rounded,
+                            color: tvFocused
+                                ? focusFg
+                                : focusColor,
+                            size: 17,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          isFavorite
+                              ? 'Retirer des favoris'
+                              : 'Ajouter aux favoris',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              Theme.of(context).textTheme.titleSmall?.copyWith(
+                                    fontWeight: tvFocused
+                                        ? FontWeight.w800
+                                        : FontWeight.w600,
+                                    color: tvFocused ? focusFg : null,
+                                  ),
+                        ),
+                      ),
+                      Icon(
+                        isFavorite
+                            ? Icons.check_circle_rounded
+                            : Icons.add_circle_outline_rounded,
+                        color: tvFocused ? focusFg : Neo.textTertiary(context),
+                        size: 24,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Ligne source du popup : nom = label API si non vide, sinon "Source N".
+/// Focusable / cliquable au D-pad pour lancer directement cette source
+/// ([onPlaySource] côté appelant : le player démarre sur l'URL imposée).
+/// Visuel focus fort : bordure 3.5 + halo [_focusHalo], fond opaque +
+/// texte [Neo.readableOn] (jamais blanc sur blanc).
+class _SourceRow extends StatelessWidget {
+  final int index;
+  final String displayName;
+  final FocusNode? focusNode;
+  final VoidCallback onActivated;
+
+  /// Bascule favori (B8) : Menu / Info / Y / F depuis une source focusée.
+  final VoidCallback? onToggleFavorite;
+
+  const _SourceRow({
+    required this.index,
+    required this.displayName,
+    required this.onActivated,
+    this.focusNode,
+    this.onToggleFavorite,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isTV = NeoTheme.isTV(context);
+    return Focus(
+      focusNode: focusNode,
+      onFocusChange: (hasFocus) {
+        // Auto-scroll : la ligne focusée au D-pad reste visible dans le
+        // scroll interne (avant : le focus descendait hors champ, les
+        // sources devenaient inaccessibles/invisibles).
+        if (hasFocus) {
+          final ctx = focusNode?.context;
+          if (ctx != null) {
+            Scrollable.ensureVisible(
+              ctx,
+              alignment: 0.5,
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOutCubic,
+            );
+          }
+        }
+      },
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent) {
+          if (_isTvActivate(event.logicalKey)) {
             onActivated();
+            return KeyEventResult.handled;
+          }
+          // Favori depuis une source (B8) : Menu / Info / Y / F.
+          if (_isFavKey(event.logicalKey)) {
+            onToggleFavorite?.call();
+            return KeyEventResult.handled;
+          }
+          // Up depuis la 1re source -> remonte à la ligne Favori (ordre 1)
+          // via l'ordre de traversal (fiable même avec le scroll interne).
+          // Up/Down entre sources = précédent/suivant de l'ordre 2..N+1.
+          if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+            FocusScope.of(node.context!).previousFocus();
+            return KeyEventResult.handled;
+          }
+          if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+            FocusScope.of(node.context!).nextFocus();
             return KeyEventResult.handled;
           }
         }
@@ -3047,9 +3532,39 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
   bool _didRefreshRetry = false;
   List<String> _streamUrls = const [];
 
+  /// URLs (trimées) déjà prouvées mortes pendant cette session de lecture :
+  /// abandonnées via [_nextDesktopSource]. Sert après refresh à ne jamais
+  /// rejouer une source KO (dont l'imposée). Vidé à chaque [_openStream].
+  final Set<String> _deadSources = <String>{};
+
+  /// Nœuds focus D-pad du player (B10/B11) : overlay Retour/Favori +
+  /// erreur Réessayer/Retour. Possédés ici, disposés dans [dispose].
+  /// Jamais co-visibles (overlay XOR erreur) : ordres 0/1 réutilisés.
+  final FocusNode _backNode = FocusNode(debugLabel: 'live_back');
+  final FocusNode _favNode = FocusNode(debugLabel: 'live_fav');
+  final FocusNode _retryNode = FocusNode(debugLabel: 'live_retry');
+  final FocusNode _errorBackNode = FocusNode(debugLabel: 'live_error_back');
+
   StreamSubscription<String>? _errorSub;
 
   bool get _useNativeAndroid => !kIsWeb && Platform.isAndroid;
+
+  /// Overlay haut (Retour/Favori) affiché : même condition que le build.
+  bool get _overlayVisible =>
+      !_useNativeAndroid && _showControls && _error == null && !_loading;
+
+  /// Anneau de focus TV sur fond noir du player (overlay + erreur) :
+  /// bordure blanche épaisse + halo, visible à 3 m.
+  static Decoration? _playerFocusRing(bool focused) => focused
+      ? BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white, width: 3),
+          boxShadow: const [
+            BoxShadow(
+                color: Colors.white54, blurRadius: 16, spreadRadius: 2),
+          ],
+        )
+      : null;
 
   void _scheduleHide() {
     _hideTimer?.cancel();
@@ -3093,6 +3608,7 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
     _desktopSourceIndex = 0;
     _desktopSourceAttempts = 0;
     _didRefreshRetry = false;
+    _deadSources.clear();
     if (mounted) {
       setState(() {
         _loading = true;
@@ -3148,9 +3664,15 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
   /// Remonte la source imposée par le popup en tête de [_streamUrls]
   /// (comparaison trimée, doublons purgés). Si introuvable — ex. ids
   /// rafraîchis entre-temps — garde l'ordre ranké (fallback sûr).
+  /// L'imposée n'est qu'un point de départ : si elle a déjà été prouvée morte
+  /// ([_deadSources], après refresh), on ne la rejoue jamais.
   void _applyImposedSource() {
     final imposed = widget.initialSourceUrl?.trim();
     if (imposed == null || imposed.isEmpty || _streamUrls.isEmpty) return;
+    if (_deadSources.contains(imposed)) {
+      debugPrint('[LivePlayer] imposed source already proven dead → keep order');
+      return;
+    }
     final idx = _streamUrls.indexWhere((u) => u.trim() == imposed);
     if (idx <= 0) {
       if (idx == 0) {
@@ -3171,8 +3693,11 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
   /// 502 de façon transitoire : si TOUTES les sources échouent, on force un
   /// rafraîchissement des chaînes (ids neufs) et on rejoue systématiquement
   /// — même à ids identiques, le 502 a pu se résorber entre-temps.
-  /// Rejeu immédiat (meilleure connue d'abord), re-rank en fond, bascule
-  /// seulement si échec — comme à l'ouverture.
+  /// Reprise où on en était : les sources déjà prouvées mortes ([_deadSources],
+  /// dont l'imposée si KO) sont exclues des candidates — jamais rejouées — puis
+  /// les candidates sont re-rankées (probe, budget ≤ 4 s côté proxy) et la
+  /// lecture repart à l'index 0 = 1re source non encore essayée. Le compteur
+  /// "k/N" reflète donc toujours la vraie position dans la liste courante.
   Future<bool> _tryRefreshAndReplay(int generation) async {
     if (_didRefreshRetry) return false;
     _didRefreshRetry = true;
@@ -3183,12 +3708,26 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
       if (fresh.isEmpty) return false;
       debugPrint(
           '[LivePlayer] refresh → 2e tentative (${fresh.length} sources)');
-      // La mémo peut pointer sur d'anciens ids : l'oublier, rejouer aussitôt
-      // (ordre API), puis re-mémoriser en tâche de fond.
+      // La mémo peut pointer sur d'anciens ids : l'oublier, puis ne garder que
+      // les sources non encore essayées (à ids identiques la morte est écartée,
+      // à ids neufs tout est rejouable).
       _proxy.dropBestFor(widget.channel.slug);
-      _streamUrls = _proxy.prioritizeKnown(widget.channel.slug, fresh);
-      _applyImposedSource();
-      unawaited(_proxy.rankSources(fresh, slug: widget.channel.slug));
+      final candidates = fresh
+          .where((u) => !_deadSources.contains(u.trim()))
+          .toList(growable: false);
+      if (candidates.isEmpty) {
+        debugPrint(
+            '[LivePlayer] refresh → toutes les sources connues sont mortes');
+        return false;
+      }
+      // Re-rank des candidates (remémorise la meilleure pour la prochaine
+      // fois). Gardé par la génération : un _openStream concurrent annule.
+      final ranked =
+          await _proxy.rankSources(candidates, slug: widget.channel.slug);
+      if (!mounted || generation != _openGeneration) return false;
+      _streamUrls = ranked.isNotEmpty
+          ? List<String>.unmodifiable(ranked)
+          : List<String>.unmodifiable(candidates);
       _desktopSourceIndex = 0;
       _desktopSourceAttempts = 0;
       setState(() {
@@ -3287,8 +3826,18 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
   }
 
   /// Passe à la source suivante (ou rejoue après refresh si tout épuisé).
+  /// La source abandonnée est prouvée morte : mémorisée dans [_deadSources]
+  /// (URL trimée) pour ne jamais être rejouée après refresh — y compris
+  /// l'imposée du popup, qui n'est qu'un point de départ.
   Future<void> _nextDesktopSource(int generation) async {
     if (!mounted || generation != _openGeneration) return;
+    if (_desktopSourceIndex >= 0 &&
+        _desktopSourceIndex < _streamUrls.length) {
+      final dead = _streamUrls[_desktopSourceIndex].trim();
+      if (dead.isNotEmpty && _deadSources.add(dead)) {
+        debugPrint('[LivePlayer] source proven dead ($dead)');
+      }
+    }
     _desktopSourceIndex++;
     _desktopSourceAttempts = 0;
     await _playDesktopSource(generation);
@@ -3327,7 +3876,7 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
     final url = _streamUrls[_desktopSourceIndex];
     final headers = _proxy.playerHeaders();
     debugPrint(
-      '[LivePlayer] desktop source $_desktopSourceIndex/${_streamUrls.length}',
+      '[LivePlayer] desktop source ${_desktopSourceIndex + 1}/${_streamUrls.length}',
     );
 
     if (mounted) {
@@ -3349,13 +3898,25 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
       headers: headers,
       isLive: true,
     );
+    // Capture locale de la tentative : les gardes `identical` ci-dessous
+    // garantissent l'exactement-une-fois par source. Sans eux, deux chaînes
+    // concurrentes (erreur errorStream + throw d'initialize pour le même
+    // échec, ou retry en retard après bascule) pouvaient soit re-basculer
+    // depuis un contrôleur périmé (sauts de sources, compteur incohérent),
+    // soit déclarer un faux succès sur un contrôleur déjà disposé — l'index
+    // restait alors figé et le compteur bloqué sur "1/N".
+    final attemptCtrl = _universalController!;
 
     // Erreur player → retry backoff si transitoire (502 amont…), sinon
     // bascule source suivante. Le retry ne s'applique qu'au 1er échec de
     // la source courante (max 2 essais / source).
-    _errorSub = _universalController!.errorStream.listen((err) {
-      if (!mounted || generation != _openGeneration || _userClosedNative)
+    _errorSub = attemptCtrl.errorStream.listen((err) {
+      if (!mounted || generation != _openGeneration || _userClosedNative) {
         return;
+      }
+      // Erreur d'un contrôleur périmé (bascule déjà partie vers la source
+      // suivante) : ignorer, sinon double-bascule et sources sautées.
+      if (!identical(_universalController, attemptCtrl)) return;
       if (_isSwitching) return;
       debugPrint(
           '[LivePlayer] desktop error on source $_desktopSourceIndex: $err');
@@ -3378,8 +3939,14 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
             onTimeout: () =>
                 throw TimeoutException('Timeout initialisation live'),
           );
-      if (!mounted || generation != _openGeneration) return;
-      if (_universalController!.isInitialized) {
+      // Tentative périmée entre-temps (bascule concurrente déjà partie) :
+      // ne rien faire — ni faux succès, ni double-bascule.
+      if (!mounted ||
+          generation != _openGeneration ||
+          !identical(_universalController, attemptCtrl)) {
+        return;
+      }
+      if (attemptCtrl.isInitialized) {
         setState(() {
           _loading = false;
           _error = null;
@@ -3391,7 +3958,14 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
         await _nextDesktopSource(generation);
       }
     } catch (e) {
-      if (!mounted || generation != _openGeneration) return;
+      // Échec d'une tentative périmée (le fallback est déjà parti via
+      // errorStream ou une chaîne concurrente) : ignorer pour ne pas
+      // sauter une source saine.
+      if (!mounted ||
+          generation != _openGeneration ||
+          !identical(_universalController, attemptCtrl)) {
+        return;
+      }
       // Timeout d'init = transitoire typique → 1 retry backoff avant abandon.
       if (_desktopSourceAttempts + 1 < _maxDesktopAttemptsPerSource &&
           _isTransientLiveError(e)) {
@@ -3407,6 +3981,10 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
     _favs.removeListener(_onFavsChanged);
     _hideTimer?.cancel();
     _errorSub?.cancel();
+    _backNode.dispose();
+    _favNode.dispose();
+    _retryNode.dispose();
+    _errorBackNode.dispose();
     _universalController?.dispose();
     WakelockPlus.disable();
     SystemChrome.setPreferredOrientations([
@@ -3423,16 +4001,35 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
       autofocus: true,
       onKeyEvent: (node, event) {
         if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        // Retour : télécommande + bouton B gamepad (touche dédiée, B12).
         if (event.logicalKey == LogicalKeyboardKey.escape ||
             event.logicalKey == LogicalKeyboardKey.goBack ||
-            event.logicalKey == LogicalKeyboardKey.browserBack) {
+            event.logicalKey == LogicalKeyboardKey.browserBack ||
+            event.logicalKey == LogicalKeyboardKey.gameButtonB) {
           Navigator.of(context).pop();
           return KeyEventResult.handled;
         }
-        if (event.logicalKey == LogicalKeyboardKey.enter ||
-            event.logicalKey == LogicalKeyboardKey.select ||
-            event.logicalKey == LogicalKeyboardKey.space ||
-            event.logicalKey == LogicalKeyboardKey.gameButtonA) {
+        if (_isTvActivate(event.logicalKey)) {
+          // Relais gamepad/numpad (B2/B10/B11) : les boutons overlay/erreur
+          // gèrent déjà Enter/Espace en natif, mais ignorent gameButtonA
+          // (et parfois numpadEnter) — la racine relaie vers le bouton
+          // focusé au lieu d'appliquer l'action racine (toggle/retry).
+          if (_backNode.hasFocus) {
+            Navigator.of(context).pop();
+            return KeyEventResult.handled;
+          }
+          if (_favNode.hasFocus) {
+            _toggleFav();
+            return KeyEventResult.handled;
+          }
+          if (_retryNode.hasFocus) {
+            _openStream();
+            return KeyEventResult.handled;
+          }
+          if (_errorBackNode.hasFocus) {
+            Navigator.of(context).pop();
+            return KeyEventResult.handled;
+          }
           if (_error != null) {
             _openStream();
           } else {
@@ -3442,14 +4039,56 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
         }
         if (event.logicalKey == LogicalKeyboardKey.arrowUp ||
             event.logicalKey == LogicalKeyboardKey.arrowDown) {
+          final down =
+              event.logicalKey == LogicalKeyboardKey.arrowDown;
+          // État erreur (B11) : Up/Down circule entre Réessayer/Retour
+          // (les deux atteignables) au lieu de consommer sans déplacer.
+          if (_error != null && !_loading) {
+            if (down) {
+              FocusScope.of(node.context!).nextFocus();
+            } else {
+              FocusScope.of(node.context!).previousFocus();
+            }
+            return KeyEventResult.handled;
+          }
+          // Contrôles visibles (B10) : Up/Down amène le focus sur l'overlay
+          // (Retour/Favori) au lieu de le consommer sur la racine.
+          if (_overlayVisible) {
+            if (_backNode.hasFocus || _favNode.hasFocus) {
+              if (down) {
+                FocusScope.of(node.context!).nextFocus();
+              } else {
+                FocusScope.of(node.context!).previousFocus();
+              }
+            } else {
+              _backNode.requestFocus();
+            }
+            _scheduleHide();
+            return KeyEventResult.handled;
+          }
           if (!_showControls) setState(() => _showControls = true);
           _scheduleHide();
           return KeyEventResult.handled;
         }
-        // Bouton jaune (Y) / F / Menu => bascule le favori.
-        if (event.logicalKey == LogicalKeyboardKey.gameButtonY ||
-            event.logicalKey == LogicalKeyboardKey.keyF ||
-            event.logicalKey == LogicalKeyboardKey.contextMenu) {
+        // Gauche/Droite depuis l'overlay ou l'erreur : navigation explicite
+        // entre les boutons (B10/B11), sinon filet.
+        if (event.logicalKey == LogicalKeyboardKey.arrowLeft ||
+            event.logicalKey == LogicalKeyboardKey.arrowRight) {
+          if (_backNode.hasFocus ||
+              _favNode.hasFocus ||
+              _retryNode.hasFocus ||
+              _errorBackNode.hasFocus) {
+            return _moveFocused(
+              event.logicalKey == LogicalKeyboardKey.arrowLeft
+                  ? TraversalDirection.left
+                  : TraversalDirection.right,
+            );
+          }
+          return KeyEventResult.ignored;
+        }
+        // Menu / Info / Y (gamepad + clavier) / F => bascule le favori
+        // (touche info ajoutée, B10).
+        if (_isFavKey(event.logicalKey)) {
           _toggleFav();
           return KeyEventResult.handled;
         }
@@ -3459,19 +4098,24 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
         backgroundColor: Colors.black,
         body: GestureDetector(
           onTap: _toggleControls,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              if (!_useNativeAndroid && _universalController != null)
-                UniversalVideoView(controller: _universalController!),
-              if (_loading) _buildLoading(),
-              if (_error != null && !_loading) _buildError(),
-              if (!_useNativeAndroid &&
-                  _showControls &&
-                  _error == null &&
-                  !_loading)
-                _buildControlsOverlay(),
-            ],
+          // Groupe de traversal ordonné (B10) : Retour(0)/Favori(1) en
+          // lecture, Réessayer(0)/Retour(1) en erreur (jamais co-visibles).
+          child: FocusTraversalGroup(
+            policy: OrderedTraversalPolicy(),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (!_useNativeAndroid && _universalController != null)
+                  UniversalVideoView(controller: _universalController!),
+                if (_loading) _buildLoading(),
+                if (_error != null && !_loading) _buildError(),
+                if (!_useNativeAndroid &&
+                    _showControls &&
+                    _error == null &&
+                    !_loading)
+                  _buildControlsOverlay(),
+              ],
+            ),
           ),
         ),
       ),
@@ -3548,20 +4192,47 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 20),
-              ElevatedButton.icon(
-                onPressed: _openStream,
-                icon: const Icon(Icons.refresh_rounded),
-                label: const Text('Réessayer'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Theme.of(context).colorScheme.primary,
-                  foregroundColor: Neo.readableOnPrimary(context),
+              // Réessayer (ordre 0, autofocus) + Retour (ordre 1) : tous deux
+              // focusables et atteignables au D-pad (B11). Up/Down/Left/Right
+              // circulent via la racine, OK gamepad/numpad relayé au bouton
+              // focusé. Anneau blanc : focus lisible sur fond noir.
+              FocusTraversalOrder(
+                order: const NumericFocusOrder(0),
+                child: ListenableBuilder(
+                  listenable: _retryNode,
+                  builder: (context, _) => Container(
+                    decoration: _playerFocusRing(_retryNode.hasFocus),
+                    child: ElevatedButton.icon(
+                      focusNode: _retryNode,
+                      autofocus: true,
+                      onPressed: _openStream,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Réessayer'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            Theme.of(context).colorScheme.primary,
+                        foregroundColor: Neo.readableOnPrimary(context),
+                      ),
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Retour',
-                    style: TextStyle(color: Colors.white70)),
+              FocusTraversalOrder(
+                order: const NumericFocusOrder(1),
+                child: ListenableBuilder(
+                  listenable: _errorBackNode,
+                  builder: (context, _) => Container(
+                    decoration:
+                        _playerFocusRing(_errorBackNode.hasFocus),
+                    child: TextButton(
+                      focusNode: _errorBackNode,
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Retour',
+                          style: TextStyle(color: Colors.white70)),
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
@@ -3591,9 +4262,23 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
         ),
         child: Row(
           children: [
-            IconButton(
-              icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-              onPressed: () => Navigator.of(context).pop(),
+            // Retour (ordre 0) : atteignable au D-pad (B10) — Up/Down depuis
+            // la racine amène le focus ici, Gauche/Droite circule vers Favori.
+            FocusTraversalOrder(
+              order: const NumericFocusOrder(0),
+              child: ListenableBuilder(
+                listenable: _backNode,
+                builder: (context, _) => Container(
+                  decoration: _playerFocusRing(_backNode.hasFocus),
+                  child: IconButton(
+                    focusNode: _backNode,
+                    icon: const Icon(Icons.arrow_back_rounded,
+                        color: Colors.white),
+                    tooltip: 'Retour',
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ),
+              ),
             ),
             const SizedBox(width: 4),
             Container(
@@ -3636,13 +4321,29 @@ class _LivePlayerScreenState extends State<_LivePlayerScreen> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            IconButton(
-              icon: Icon(
-                _isFav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                color: _isFav ? Neo.primaryRed : Colors.white70,
+            // Favori (ordre 1) : atteignable au D-pad (B10), même relais
+            // OK gamepad/numpad que Retour via la racine.
+            FocusTraversalOrder(
+              order: const NumericFocusOrder(1),
+              child: ListenableBuilder(
+                listenable: _favNode,
+                builder: (context, _) => Container(
+                  decoration: _playerFocusRing(_favNode.hasFocus),
+                  child: IconButton(
+                    focusNode: _favNode,
+                    icon: Icon(
+                      _isFav
+                          ? Icons.favorite_rounded
+                          : Icons.favorite_border_rounded,
+                      color: _isFav ? Neo.primaryRed : Colors.white70,
+                    ),
+                    tooltip: _isFav
+                        ? 'Retirer des favoris'
+                        : 'Ajouter aux favoris',
+                    onPressed: _toggleFav,
+                  ),
+                ),
               ),
-              tooltip: _isFav ? 'Retirer des favoris' : 'Ajouter aux favoris',
-              onPressed: _toggleFav,
             ),
           ],
         ),

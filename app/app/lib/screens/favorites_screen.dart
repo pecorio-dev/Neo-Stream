@@ -155,6 +155,16 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
             style: Neo.bodyMedium(context).copyWith(color: Neo.textSecondary(context)),
             textAlign: TextAlign.center,
           ),
+          // D-pad/TV : empty-state sans sortie → bouton natif focusable
+          // (Enter/Espace natifs) pour revenir à l'accueil (tactile : tap).
+          SizedBox(height: 20),
+          ElevatedButton.icon(
+            autofocus: NeoTheme.needsFocusNavigation(context),
+            onPressed: () =>
+                Navigator.of(context).popUntil((route) => route.isFirst),
+            icon: Icon(Icons.explore_rounded, size: 18),
+            label: Text('Parcourir'),
+          ),
         ],
       ),
     );
@@ -191,9 +201,14 @@ class _FavCard extends StatelessWidget {
       onTap: onTap,
       child: Focus(
         onKeyEvent: (node, event) {
+          // OK TV complet : Enter/Select + Space/numpadEnter/gameButtonA
+          // (SPACE manquant avant → OK inopérant sur certains gamepads).
           if (event is KeyDownEvent &&
               (event.logicalKey == LogicalKeyboardKey.enter ||
-               event.logicalKey == LogicalKeyboardKey.select)) {
+               event.logicalKey == LogicalKeyboardKey.select ||
+               event.logicalKey == LogicalKeyboardKey.space ||
+               event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+               event.logicalKey == LogicalKeyboardKey.gameButtonA)) {
             onTap();
             return KeyEventResult.handled;
           }

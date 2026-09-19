@@ -477,7 +477,9 @@ class _DetailScreenState extends State<DetailScreen>
                       if (event is KeyDownEvent &&
                           (event.logicalKey == LogicalKeyboardKey.enter ||
                               event.logicalKey == LogicalKeyboardKey.select ||
-                              event.logicalKey == LogicalKeyboardKey.space)) {
+                              event.logicalKey == LogicalKeyboardKey.space ||
+                              event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+                              event.logicalKey == LogicalKeyboardKey.gameButtonA)) {
                         setState(() => _selectedLanguage = lang);
                         return KeyEventResult.handled;
                       }
@@ -812,7 +814,9 @@ class _DetailScreenState extends State<DetailScreen>
                       if (event is KeyDownEvent &&
                           (event.logicalKey == LogicalKeyboardKey.enter ||
                               event.logicalKey == LogicalKeyboardKey.select ||
-                              event.logicalKey == LogicalKeyboardKey.space)) {
+                              event.logicalKey == LogicalKeyboardKey.space ||
+                              event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+                              event.logicalKey == LogicalKeyboardKey.gameButtonA)) {
                         setState(() => _selectedSeason = num);
                         return KeyEventResult.handled;
                       }
@@ -896,7 +900,9 @@ class _DetailScreenState extends State<DetailScreen>
               if (event is KeyDownEvent &&
                   (event.logicalKey == LogicalKeyboardKey.enter ||
                       event.logicalKey == LogicalKeyboardKey.select ||
-                      event.logicalKey == LogicalKeyboardKey.space)) {
+                      event.logicalKey == LogicalKeyboardKey.space ||
+                      event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+                      event.logicalKey == LogicalKeyboardKey.gameButtonA)) {
                 play();
                 return KeyEventResult.handled;
               }
@@ -1251,7 +1257,14 @@ class _DetailScreenState extends State<DetailScreen>
     if (ep != null) {
       _launchPlayer(content, _rankLinks(ep.watchLinks),
           episodeId: 'S${ep.season}E${ep.episode}');
+      return;
     }
+    // D-pad/TV : OK sur Lecture sans source restait silencieux → feedback.
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Aucune source'),
+      backgroundColor: NeoTheme.errorRed,
+    ));
   }
 
   Episode? _resumeEpisode(Content content) {
@@ -1422,11 +1435,15 @@ class _FocusablePlayButtonState extends State<_FocusablePlayButton> {
       },
       onKeyEvent: useFocus
           ? (node, event) {
-              if (widget.canPlay &&
-                  event is KeyDownEvent &&
+              // OK TV complet : Enter/Select/Space + pavé numérique/gamepad.
+              // Déclenche même si canPlay=false pour donner un feedback
+              // "Aucune source" au lieu d'un OK silencieux (tactile inchangé).
+              if (event is KeyDownEvent &&
                   (event.logicalKey == LogicalKeyboardKey.enter ||
                       event.logicalKey == LogicalKeyboardKey.select ||
-                      event.logicalKey == LogicalKeyboardKey.space)) {
+                      event.logicalKey == LogicalKeyboardKey.space ||
+                      event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+                      event.logicalKey == LogicalKeyboardKey.gameButtonA)) {
                 widget.onPlay();
                 return KeyEventResult.handled;
               }
@@ -1434,7 +1451,7 @@ class _FocusablePlayButtonState extends State<_FocusablePlayButton> {
             }
           : null,
       child: GestureDetector(
-        onTap: widget.canPlay ? widget.onPlay : null,
+        onTap: widget.onPlay,
         child: MouseRegion(
           cursor: widget.canPlay
               ? SystemMouseCursors.click
@@ -1528,6 +1545,23 @@ class _FocusableActionIconButtonState extends State<_FocusableActionIconButton> 
     return Focus(
       canRequestFocus: useFocus,
       onFocusChange: (f) => setState(() => _isFocused = f),
+      // D-pad/TV : le Favori n'avait aucun onKeyEvent → OK inopérant.
+      // Enter/Select/Space + numpadEnter/gameButtonA déclenchent le toggle
+      // (tactile inchangé : GestureDetector.onTap conservé).
+      onKeyEvent: useFocus
+          ? (node, event) {
+              if (event is KeyDownEvent &&
+                  (event.logicalKey == LogicalKeyboardKey.enter ||
+                      event.logicalKey == LogicalKeyboardKey.select ||
+                      event.logicalKey == LogicalKeyboardKey.space ||
+                      event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+                      event.logicalKey == LogicalKeyboardKey.gameButtonA)) {
+                widget.onTap();
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            }
+          : null,
       child: GestureDetector(
         onTapDown: (_) => setState(() => _isPressed = true),
         onTapUp: (_) => setState(() => _isPressed = false),

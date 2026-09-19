@@ -89,6 +89,9 @@ class _LoginScreenState extends State<LoginScreen>
           content: Text('Merci de remplir tous les champs requis.'),
         ),
       );
+      // D-pad/TV : après erreur de validation, retour au premier champ
+      // pour corriger sans naviguer à l'aveugle.
+      if (mounted) _usernameNode.requestFocus();
       return;
     }
 
@@ -100,6 +103,9 @@ class _LoginScreenState extends State<LoginScreen>
     }
 
     if (!mounted || !success) {
+      // D-pad/TV : après erreur auth, refocus username (au lieu d'un
+      // unfocus seul qui perd le focus et bloque la navigation OK).
+      if (mounted) _usernameNode.requestFocus();
       return;
     }
 
@@ -486,6 +492,14 @@ class _LoginScreenState extends State<LoginScreen>
                             : Neo.textTertiary(context),
                       ),
                       suffixIcon: IconButton(
+                        // D-pad/TV (audit) : l'œil mot de passe est un stop
+                        // natif du TextField (suffixIcon). Ordre D-pad :
+                        // username → email (register) → password → œil →
+                        // bouton principal → bouton bascule. Pas de fix :
+                        // le TextField garde son nœud et le visuel focus.
+                        tooltip: _obscurePassword
+                            ? 'Afficher le mot de passe'
+                            : 'Masquer le mot de passe',
                         onPressed: () {
                           setState(() {
                             _obscurePassword = !_obscurePassword;
@@ -538,110 +552,73 @@ class _LoginScreenState extends State<LoginScreen>
               ),
             ],
             SizedBox(height: 22),
-            Focus(
-              onKeyEvent: (node, event) {
-                if (event is KeyDownEvent &&
-                    (event.logicalKey == LogicalKeyboardKey.enter ||
-                     event.logicalKey == LogicalKeyboardKey.select ||
-                     event.logicalKey == LogicalKeyboardKey.space)) {
-                  if (!auth.isLoading) _submit();
-                  return KeyEventResult.handled;
-                }
-                return KeyEventResult.ignored;
+            // D-pad/TV : PAS de Focus wrapper ici (double stop Focus+Bouton).
+            // Le ElevatedButton natif est déjà focusable et gère Enter/
+            // Espace en natif — un Focus parent créerait 2 stops et un
+            // double _submit. Tactile inchangé.
+            Builder(
+              builder: (ctx) {
+                // Fond = couleur primaire → texte calculé par luminance.
+                final primaryBg = Theme.of(context).colorScheme.primary;
+                final onBtn = Neo.readableOn(primaryBg);
+                return SizedBox(
+                  height: isTV ? 58 : 52,
+                  child: ElevatedButton(
+                    onPressed: auth.isLoading ? null : _submit,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: primaryBg,
+                      foregroundColor: onBtn,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius:
+                            BorderRadius.circular(NeoTheme.radiusMd),
+                      ),
+                      shadowColor: primaryBg.withValues(alpha: 0.3),
+                      overlayColor: primaryBg.withValues(alpha: 0.3),
+                    ),
+                    child: auth.isLoading
+                        ? SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.2,
+                              color: onBtn,
+                            ),
+                          )
+                        : Text(
+                            _isRegisterMode
+                                ? 'Creer mon compte'
+                                : 'Se connecter',
+                            style: Neo.titleMedium(context).copyWith(
+                              color: onBtn,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                  ),
+                );
               },
-               child: Builder(
-                 builder: (ctx) {
-                   final isFocused = Focus.of(ctx).hasFocus;
-                   // Fond = couleur primaire (blanche en sombre, rouge en clair)
-                   // → texte/icône calculés par luminance (plus de blanc sur blanc).
-                   final primaryBg = Theme.of(context).colorScheme.primary;
-                   final btnBg = isFocused
-                       ? primaryBg.withValues(alpha: 0.85)
-                       : primaryBg;
-                   final onBtn = Neo.readableOn(btnBg);
-                   return AnimatedScale(
-                     scale: isFocused ? 1.04 : 1.0,
-                     duration: NeoTheme.durationFast,
-                     child: SizedBox(
-                       height: isTV ? 58 : 52,
-                       child: ElevatedButton(
-                         onPressed: auth.isLoading ? null : _submit,
-                         style: ElevatedButton.styleFrom(
-                           backgroundColor: btnBg,
-                           foregroundColor: onBtn,
-                           elevation: 0,
-                           shape: RoundedRectangleBorder(
-                             borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
-                             side: BorderSide(
-                               color: isFocused ? onBtn : Colors.transparent,
-                               width: isFocused ? 2.0 : 0.0,
-                             ),
-                           ),
-                           shadowColor: primaryBg.withValues(alpha: 0.3),
-                           overlayColor: primaryBg.withValues(alpha: 0.3),
-                         ),
-                         child: auth.isLoading
-                             ? SizedBox(
-                                 width: 22,
-                                 height: 22,
-                                 child: CircularProgressIndicator(
-                                   strokeWidth: 2.2,
-                                   color: onBtn,
-                                 ),
-                               )
-                             : Text(
-                                 _isRegisterMode ? 'Creer mon compte' : 'Se connecter',
-                                 style: Neo.titleMedium(context).copyWith(
-                                   color: onBtn,
-                                   fontWeight: FontWeight.w700,
-                                 ),
-                               ),
-                       ),
-                     ),
-                   );
-                 }
-               ),
             ),
             SizedBox(height: 14),
-            Focus(
-              onKeyEvent: (node, event) {
-                if (event is KeyDownEvent &&
-                    (event.logicalKey == LogicalKeyboardKey.enter ||
-                     event.logicalKey == LogicalKeyboardKey.select ||
-                     event.logicalKey == LogicalKeyboardKey.space)) {
-                  _toggleMode();
-                  return KeyEventResult.handled;
-                }
-                return KeyEventResult.ignored;
-              },
-              child: Builder(
-                builder: (ctx) {
-                  final isFocused = Focus.of(ctx).hasFocus;
-                  return AnimatedScale(
-                    scale: isFocused ? 1.04 : 1.0,
-                    duration: NeoTheme.durationFast,
-                    child: OutlinedButton(
-                      onPressed: _toggleMode,
-                      style: OutlinedButton.styleFrom(
-                        padding: EdgeInsets.symmetric(vertical: 16),
-                        backgroundColor: isFocused ? Neo.bgHover(context) : Colors.transparent,
-                        side: BorderSide(
-                          color: isFocused ? Theme.of(context).colorScheme.primary : Neo.bgBorder(context).withValues(alpha: 0.25),
-                          width: isFocused ? 2.0 : 0.5,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
-                        ),
-                      ),
-                      child: Text(
-                        _isRegisterMode
-                            ? 'Déjà un compte ? Se connecter'
-                            : 'Nouveau ? Créer un compte',
-                        style: Neo.labelLarge(context).copyWith(color: isFocused ? Colors.white : NeoTheme.infoCyan),
-                      ),
-                    ),
-                  );
-                }
+            // D-pad/TV : idem — OutlinedButton natif focusable, pas de
+            // Focus wrapper redondant (double stop + double _toggleMode).
+            OutlinedButton(
+              onPressed: _toggleMode,
+              style: OutlinedButton.styleFrom(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                side: BorderSide(
+                  color: Neo.bgBorder(context).withValues(alpha: 0.25),
+                  width: 0.5,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
+                ),
+              ),
+              child: Text(
+                _isRegisterMode
+                    ? 'Déjà un compte ? Se connecter'
+                    : 'Nouveau ? Créer un compte',
+                style: Neo.labelLarge(context)
+                    .copyWith(color: NeoTheme.infoCyan),
               ),
             ),
             SizedBox(height: 20),

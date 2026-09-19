@@ -172,6 +172,12 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                 Text(_errorMessage!, textAlign: TextAlign.center),
                 SizedBox(height: 24),
                 ElevatedButton(onPressed: _loadAnime, child: Text('Réessayer')),
+                // Parité detail_screen : sortie D-pad explicite en erreur.
+                SizedBox(height: 12),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text('Retour'),
+                ),
               ],
             ),
           ),
@@ -608,6 +614,12 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                   firstEpisode.$2,
                   firstEpisode.$2.players,
                 );
+              } else {
+                // D-pad/TV : OK silencieux sans source → feedback explicite.
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text('Aucune source'),
+                  backgroundColor: NeoTheme.errorRed,
+                ));
               }
             },
           ),
@@ -746,7 +758,9 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                       if (event is KeyDownEvent &&
                           (event.logicalKey == LogicalKeyboardKey.enter ||
                               event.logicalKey == LogicalKeyboardKey.select ||
-                              event.logicalKey == LogicalKeyboardKey.space)) {
+                              event.logicalKey == LogicalKeyboardKey.space ||
+                              event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+                              event.logicalKey == LogicalKeyboardKey.gameButtonA)) {
                         setState(() => _selectedSeason = num);
                         return KeyEventResult.handled;
                       }
@@ -860,6 +874,17 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
     final useFocus = NeoTheme.needsFocusNavigation(context);
     final sources = episode.players;
 
+    void playWithFeedback() {
+      if (sources.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Aucune source'),
+          backgroundColor: NeoTheme.errorRed,
+        ));
+        return;
+      }
+      _playEpisode(seasonNumber, episode, sources);
+    }
+
     return Focus(
       canRequestFocus: useFocus,
       onKeyEvent: useFocus
@@ -867,8 +892,10 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
               if (event is KeyDownEvent &&
                   (event.logicalKey == LogicalKeyboardKey.enter ||
                       event.logicalKey == LogicalKeyboardKey.select ||
-                      event.logicalKey == LogicalKeyboardKey.space)) {
-                _playEpisode(seasonNumber, episode, sources);
+                      event.logicalKey == LogicalKeyboardKey.space ||
+                      event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+                      event.logicalKey == LogicalKeyboardKey.gameButtonA)) {
+                playWithFeedback();
                 return KeyEventResult.handled;
               }
               return KeyEventResult.ignored;
@@ -878,7 +905,7 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
         builder: (ctx) {
           final isFocused = Focus.of(ctx).hasFocus;
           return GestureDetector(
-            onTap: () => _playEpisode(seasonNumber, episode, sources),
+            onTap: playWithFeedback,
             child: AnimatedContainer(
               duration: NeoTheme.durationFast,
               margin: EdgeInsets.only(bottom: 12),
@@ -1180,11 +1207,14 @@ class _FocusablePlayButtonState extends State<_FocusablePlayButton> {
       },
       onKeyEvent: useFocus
           ? (node, event) {
-              if (widget.canPlay &&
-                  event is KeyDownEvent &&
+              // OK TV complet, y compris sans source → feedback "Aucune
+              // source" au lieu d'un OK silencieux (tactile inchangé).
+              if (event is KeyDownEvent &&
                   (event.logicalKey == LogicalKeyboardKey.enter ||
                       event.logicalKey == LogicalKeyboardKey.select ||
-                      event.logicalKey == LogicalKeyboardKey.space)) {
+                      event.logicalKey == LogicalKeyboardKey.space ||
+                      event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+                      event.logicalKey == LogicalKeyboardKey.gameButtonA)) {
                 widget.onPlay();
                 return KeyEventResult.handled;
               }
@@ -1192,7 +1222,7 @@ class _FocusablePlayButtonState extends State<_FocusablePlayButton> {
             }
           : null,
       child: GestureDetector(
-        onTap: widget.canPlay ? widget.onPlay : null,
+        onTap: widget.onPlay,
         child: MouseRegion(
           cursor: widget.canPlay
               ? SystemMouseCursors.click
@@ -1286,6 +1316,23 @@ class _FocusableActionIconButtonState extends State<_FocusableActionIconButton> 
     return Focus(
       canRequestFocus: useFocus,
       onFocusChange: (f) => setState(() => _isFocused = f),
+      // D-pad/TV : Favori sans onKeyEvent → OK inopérant. Enter/Select/
+      // Space + numpadEnter/gameButtonA déclenchent le toggle (tactile
+      // inchangé : GestureDetector.onTap conservé).
+      onKeyEvent: useFocus
+          ? (node, event) {
+              if (event is KeyDownEvent &&
+                  (event.logicalKey == LogicalKeyboardKey.enter ||
+                      event.logicalKey == LogicalKeyboardKey.select ||
+                      event.logicalKey == LogicalKeyboardKey.space ||
+                      event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+                      event.logicalKey == LogicalKeyboardKey.gameButtonA)) {
+                widget.onTap();
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            }
+          : null,
       child: GestureDetector(
         onTapDown: (_) => setState(() => _isPressed = true),
         onTapUp: (_) => setState(() => _isPressed = false),

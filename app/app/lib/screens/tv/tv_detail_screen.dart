@@ -30,6 +30,11 @@ class _TVDetailScreenState extends State<TVDetailScreen> {
 
   /// Nœud du bouton Regarder : cible initiale + fallback anti perte de focus.
   final FocusNode _watchFocusNode = FocusNode(debugLabel: 'watchButton');
+  // B1/B2 : nœuds dédiés aux états erreur/loading pour garantir un focus
+  // D-pad (Réessayer en autofocus, Retour header en fallback).
+  final FocusNode _retryFocusNode = FocusNode(debugLabel: 'retryButton');
+  final FocusNode _errorBackFocusNode = FocusNode(debugLabel: 'errorBack');
+  final FocusNode _loadingBackFocusNode = FocusNode(debugLabel: 'loadingBack');
   final ScrollController _scrollController = ScrollController();
   bool _didInitialAutofocus = false;
 
@@ -44,23 +49,33 @@ class _TVDetailScreenState extends State<TVDetailScreen> {
   void dispose() {
     FocusManager.instance.removeListener(_handleFocusLoss);
     _watchFocusNode.dispose();
+    _retryFocusNode.dispose();
+    _errorBackFocusNode.dispose();
+    _loadingBackFocusNode.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
   /// Fallback : si le focus primaire devient null après une navigation
   /// D-pad (cas SingleChildScrollView / nœud racine TVWrapper), on le
-  /// restaure sur Regarder au prochain frame. Pas de FocusScope second :
-  /// TVWrapper/TVRemoteNavigator gèrent déjà la racine.
+  /// restaure au prochain frame. Cible selon l'état : loading -> Retour
+  /// header (B2), erreur -> Réessayer (B1), contenu -> Regarder.
+  /// Pas de FocusScope second : TVWrapper/TVRemoteNavigator gèrent la racine.
   void _handleFocusLoss() {
-    if (!mounted || _isLoading || _content == null || _isNavigating) return;
+    if (!mounted || _isNavigating) return;
     if (FocusManager.instance.primaryFocus != null) return;
     if (ModalRoute.of(context)?.isCurrent != true) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _isNavigating) return;
       if (FocusManager.instance.primaryFocus == null &&
           ModalRoute.of(context)?.isCurrent == true) {
-        _watchFocusNode.requestFocus();
+        if (_isLoading) {
+          _loadingBackFocusNode.requestFocus();
+        } else if (_error != null || _content == null) {
+          _retryFocusNode.requestFocus();
+        } else {
+          _watchFocusNode.requestFocus();
+        }
       }
     });
   }
@@ -77,6 +92,12 @@ class _TVDetailScreenState extends State<TVDetailScreen> {
   }
 
   Future<void> _loadDetail() async {
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+    }
     try {
       final content = await _api.getContentDetail(widget.contentId);
       if (!mounted) return;
@@ -93,6 +114,13 @@ class _TVDetailScreenState extends State<TVDetailScreen> {
       setState(() {
         _error = 'Impossible de charger le contenu';
         _isLoading = false;
+      });
+      // B1 : focus mort en erreur -> autofocus Réessayer au prochain frame.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (FocusManager.instance.primaryFocus == null) {
+          _retryFocusNode.requestFocus();
+        }
       });
     }
   }
@@ -134,13 +162,44 @@ class _TVDetailScreenState extends State<TVDetailScreen> {
       showBackButton: true,
       onBack: () => Navigator.pop(context),
       child: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: TVTheme.accentRed))
+          ? _buildLoading()
           : _error != null || _content == null
               ? _buildError()
               : _buildContent(),
     );
   }
 
+  /// B2 loading : spinner display-only + bouton Retour focusable avec
+  /// autofocus (miroir du header Retour, non adressable depuis le child).
+  /// Garantit une cible D-pad pendant le chargement.
+  Widget _buildLoading() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const CircularProgressIndicator(color: TVTheme.accentRed),
+          const SizedBox(height: 24),
+          TVFocusableCard(
+            focusNode: _loadingBackFocusNode,
+            autoFocus: true,
+            onTap: () => Navigator.pop(context),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.arrow_back, color: TVTheme.textPrimary),
+                SizedBox(width: 8),
+                Text('Retour', style: TextStyle(color: TVTheme.textPrimary)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// B1 : erreur focusable D-pad (Réessayer autofocus + Retour fallback
+  /// header). MaListe reste atteignable via l'écran contenu après retry.
   Widget _buildError() {
     return Center(
       child: Column(
@@ -150,11 +209,40 @@ class _TVDetailScreenState extends State<TVDetailScreen> {
           const SizedBox(height: 16),
           Text(_error ?? 'Contenu introuvable', style: const TextStyle(color: TVTheme.textPrimary, fontSize: 18)),
           const SizedBox(height: 24),
-          FilledButton.icon(
-            onPressed: () => Navigator.pop(context),
-            style: FilledButton.styleFrom(backgroundColor: TVTheme.accentRed),
-            icon: const Icon(Icons.arrow_back),
-            label: const Text('Retour'),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            alignment: WrapAlignment.center,
+            children: [
+              TVFocusableCard(
+                focusNode: _retryFocusNode,
+                autoFocus: true,
+                onTap: _loadDetail,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.refresh, color: Colors.white),
+                    SizedBox(width: 8),
+                    Text('Réessayer', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ),
+              TVFocusableCard(
+                focusNode: _errorBackFocusNode,
+                autoFocus: false,
+                onTap: () => Navigator.pop(context),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.arrow_back, color: TVTheme.textPrimary),
+                    SizedBox(width: 8),
+                    Text('Retour', style: TextStyle(color: TVTheme.textPrimary)),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -468,6 +556,12 @@ class _TVDetailScreenState extends State<TVDetailScreen> {
               );
             }),
           ],
+          // B5 : série sans saisons -> bandeau explicite display-only
+          // (ExcludeFocus : pas de cible D-pad morte, simple information).
+          if (content.isSerie && content.seasons.isEmpty)
+            const ExcludeFocus(
+              child: _NoSeasonBanner(),
+            ),
           if (content.similar.isNotEmpty) ...[
             const SizedBox(height: 32),
             const Text('Contenus similaires', style: TextStyle(color: TVTheme.textPrimary, fontSize: 20, fontWeight: FontWeight.w600)),
@@ -492,7 +586,10 @@ class _TVDetailScreenState extends State<TVDetailScreen> {
                       padding: EdgeInsets.zero,
                       borderRadius: BorderRadius.circular(12),
                       onTap: () {
-                        Navigator.pushReplacement(
+                        // B4 : push simple (pas de replacement) pour que BACK
+                        // revienne à la fiche précédente. MaListe reste
+                        // atteignable via chaque fiche (bouton + header).
+                        Navigator.push(
                           context,
                           MaterialPageRoute(builder: (_) => TVDetailScreen(contentId: item.id)),
                         );
@@ -620,6 +717,38 @@ class _TVFocusableChipState extends State<_TVFocusableChip> {
               fontWeight: widget.isSelected || _isFocused ? FontWeight.bold : FontWeight.normal,
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Header progression série TV : "Progression : X/Y épisodes (Z%)" + barre.
+class _NoSeasonBanner extends StatelessWidget {
+  const _NoSeasonBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'Aucune saison disponible pour cette série',
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: TVTheme.cardColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: TVTheme.defaultBorderColor),
+        ),
+        child: const Row(
+          children: [
+            Icon(Icons.info_outline, color: TVTheme.textSecondary),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Aucune saison disponible pour cette série pour le moment.',
+                style: TextStyle(color: TVTheme.textSecondary),
+              ),
+            ),
+          ],
         ),
       ),
     );

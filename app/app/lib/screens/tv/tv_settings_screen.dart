@@ -25,7 +25,9 @@ class _TVSettingsScreenState extends State<TVSettingsScreen> {
   bool _isRefreshingSecurity = false;
   bool _isCheckingUpdate = false;
   bool _allowPreRelease = false;
-  int _focusedSection = 0;
+  // S1 : autofocus initial sur LectureAuto (section 1, item 0 logique),
+  // pas sur Mot de passe (0,0) pour une entrée D-pad prévisible.
+  int _focusedSection = 1;
   int _focusedIndex = 0;
 
   @override
@@ -498,12 +500,17 @@ class _TVSettingsScreenState extends State<TVSettingsScreen> {
               ],
             ),
           ),
-          Switch.adaptive(
-            value: value,
-            onChanged: onChanged,
-            activeTrackColor: TVTheme.accentRed.withValues(alpha: 0.35),
-            inactiveThumbColor: TVTheme.textDisabled,
-            inactiveTrackColor: const Color(0xFF2A2A4A).withValues(alpha: 0.5),
+          // S5 : Switch natif exclu du traversal (la carte gère le toggle
+          // au D-pad) pour éviter le double stop focus carte + switch.
+          ExcludeFocus(
+            child: Switch.adaptive(
+              value: value,
+              onChanged: onChanged,
+              activeTrackColor: TVTheme.accentRed.withValues(alpha: 0.35),
+              inactiveThumbColor: TVTheme.textDisabled,
+              inactiveTrackColor:
+                  const Color(0xFF2A2A4A).withValues(alpha: 0.5),
+            ),
           ),
         ],
       ),
@@ -766,6 +773,10 @@ class _TVSettingsScreenState extends State<TVSettingsScreen> {
   }
 
   void _confirmClearFavorites() {
+    // S6 (audit) : VÉRIFIÉ — aucun appel API avant (snackbar seule).
+    // Branché sur le vrai vidage : ApiService.clearLibrary() -> POST
+    // library/clear (même endpoint que settings mobile). Conservé le bouton
+    // car l'endpoint dédié existe, pas de suppression nécessaire.
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -784,13 +795,23 @@ class _TVSettingsScreenState extends State<TVSettingsScreen> {
             child: const Text('Annuler'),
           ),
           FilledButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(ctx);
-              if (mounted) {
+              try {
+                await _api.clearLibrary();
+                if (!mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text('Favoris vides'),
                     backgroundColor: TVTheme.accentRed,
+                  ),
+                );
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Erreur: $e'),
+                    backgroundColor: TVTheme.errorRed,
                   ),
                 );
               }

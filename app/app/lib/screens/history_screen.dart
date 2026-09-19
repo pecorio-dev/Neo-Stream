@@ -434,115 +434,162 @@ class _HistoryListCard extends StatelessWidget {
     );
     final episodeId = item['episode_id']?.toString() ?? '';
     final updatedAt = formatDate(item['updated_at']?.toString() ?? '');
+    final useFocus = NeoTheme.needsFocusNavigation(context);
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
-      onTap: () => onTap(contentId),
-      child: Container(
-        height: NeoTheme.searchCardHeight(context),
-        decoration: BoxDecoration(
-          gradient: Neo.surfaceGradient(context),
-          borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
-          border: Border.all(
-            color: Neo.bgBorder(context).withValues(alpha: 0.15),
-            width: 0.5,
-          ),
-          boxShadow: NeoTheme.shadowLevel1,
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Row(
-          children: [
-            SizedBox(width: 108, child: _Poster(poster: poster)),
-            Expanded(
-              child: Padding(
-                padding: EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: Neo.titleMedium(context),
-                          ),
-                        ),
-                        if (rating != null) ...[
-                          SizedBox(width: 10),
-                          _RatingPill(value: rating.toString()),
-                        ],
-                      ],
+    // D-pad/TV : InkWell sans visuel focus → Focus wrapper + bordure quand
+    // focused + OK (Enter/Select/Space/numpadEnter/gameButtonA) qui ouvre
+    // le détail. Tactile inchangé : onTap conservé.
+    return Focus(
+      canRequestFocus: useFocus,
+      onKeyEvent: useFocus
+          ? (node, event) {
+              if (event is KeyDownEvent &&
+                  (event.logicalKey == LogicalKeyboardKey.enter ||
+                      event.logicalKey == LogicalKeyboardKey.select ||
+                      event.logicalKey == LogicalKeyboardKey.space ||
+                      event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+                      event.logicalKey == LogicalKeyboardKey.gameButtonA)) {
+                onTap(contentId);
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            }
+          : null,
+      child: Builder(
+        builder: (ctx) {
+          final focused = Focus.of(ctx).hasFocus;
+          return GestureDetector(
+            onTap: () => onTap(contentId),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              height: NeoTheme.searchCardHeight(context),
+              decoration: BoxDecoration(
+                gradient: Neo.surfaceGradient(context),
+                borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
+                border: Border.all(
+                  color: focused
+                      ? Theme.of(context).colorScheme.primary
+                      : Neo.bgBorder(context).withValues(alpha: 0.15),
+                  width: focused ? 2.0 : 0.5,
+                ),
+                boxShadow: [
+                  ...NeoTheme.shadowLevel1,
+                  if (focused)
+                    BoxShadow(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withValues(alpha: 0.35),
+                      blurRadius: 14,
+                      spreadRadius: 1,
                     ),
-                    SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _MetaPill(
-                          label: type == 'serie' ? 'Serie' : 'Film',
-                          color: type == 'serie'
-                              ? NeoTheme.infoCyan
-                              : Theme.of(context).colorScheme.primary,
-                        ),
-                        if (episodeId.isNotEmpty)
-                          _MetaPill(
-                            label: episodeId,
-                            color: NeoTheme.purpleAccent,
-                          ),
-                        _MetaPill(
-                          label: updatedAt,
-                          color: Neo.textTertiary(context),
-                          subtle: true,
-                        ),
-                      ],
-                    ),
-                    Spacer(),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Container(
-                            height: 6,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(999),
-                              color: Neo.bgBorder(context).withValues(alpha: 0.2),
-                            ),
-                            child: FractionallySizedBox(
-                              alignment: Alignment.centerLeft,
-                              widthFactor: progress,
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(999),
-                                  color: Theme.of(context).colorScheme.primary,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
-                                      blurRadius: 8,
-                                      offset: Offset(0, 0),
-                                    ),
-                                  ],
+                ],
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Row(
+                children: [
+                  SizedBox(width: 108, child: _Poster(poster: poster)),
+                  Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  title,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Neo.titleMedium(context),
                                 ),
                               ),
-                            ),
+                              if (rating != null) ...[
+                                SizedBox(width: 10),
+                                _RatingPill(value: rating.toString()),
+                              ],
+                            ],
                           ),
-                        ),
-                        SizedBox(width: 10),
-                        Text(
-                          '${formatDuration(item['current_time'])} / ${formatDuration(item['total_duration'])}',
-                          style: NeoTheme.labelMedium(
-                            context,
-                          ).copyWith(color: Neo.textSecondary(context)),
-                        ),
-                      ],
+                          SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              _MetaPill(
+                                label: type == 'serie' ? 'Serie' : 'Film',
+                                color: type == 'serie'
+                                    ? NeoTheme.infoCyan
+                                    : Theme.of(context).colorScheme.primary,
+                              ),
+                              if (episodeId.isNotEmpty)
+                                _MetaPill(
+                                  label: episodeId,
+                                  color: NeoTheme.purpleAccent,
+                                ),
+                              _MetaPill(
+                                label: updatedAt,
+                                color: Neo.textTertiary(context),
+                                subtle: true,
+                              ),
+                            ],
+                          ),
+                          Spacer(),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Container(
+                                  height: 6,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(999),
+                                    color: Neo.bgBorder(context)
+                                        .withValues(alpha: 0.2),
+                                  ),
+                                  child: FractionallySizedBox(
+                                    alignment: Alignment.centerLeft,
+                                    widthFactor: progress,
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        borderRadius:
+                                            BorderRadius.circular(999),
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .primary,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .primary
+                                                .withValues(alpha: 0.5),
+                                            blurRadius: 8,
+                                            offset: Offset(0, 0),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              SizedBox(width: 10),
+                              Text(
+                                '${formatDuration(item['current_time'])} / ${formatDuration(item['total_duration'])}',
+                                style: NeoTheme.labelMedium(
+                                  context,
+                                ).copyWith(
+                                    color: Neo.textSecondary(context)),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -577,22 +624,56 @@ class _HistoryGridCard extends StatelessWidget {
       1.0,
     );
     final episodeId = item['episode_id']?.toString() ?? '';
+    final useFocus = NeoTheme.needsFocusNavigation(context);
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
-      onTap: () => onTap(contentId),
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: Neo.surfaceGradient(context),
-          borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
-          border: Border.all(
-            color: Neo.bgBorder(context).withValues(alpha: 0.15),
-            width: 0.5,
-          ),
-          boxShadow: NeoTheme.shadowLevel1,
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
+    // D-pad/TV : même correctif que la carte liste — bordure focus + OK.
+    return Focus(
+      canRequestFocus: useFocus,
+      onKeyEvent: useFocus
+          ? (node, event) {
+              if (event is KeyDownEvent &&
+                  (event.logicalKey == LogicalKeyboardKey.enter ||
+                      event.logicalKey == LogicalKeyboardKey.select ||
+                      event.logicalKey == LogicalKeyboardKey.space ||
+                      event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+                      event.logicalKey == LogicalKeyboardKey.gameButtonA)) {
+                onTap(contentId);
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            }
+          : null,
+      child: Builder(
+        builder: (ctx) {
+          final focused = Focus.of(ctx).hasFocus;
+          return GestureDetector(
+            onTap: () => onTap(contentId),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              decoration: BoxDecoration(
+                gradient: Neo.surfaceGradient(context),
+                borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
+                border: Border.all(
+                  color: focused
+                      ? Theme.of(context).colorScheme.primary
+                      : Neo.bgBorder(context).withValues(alpha: 0.15),
+                  width: focused ? 2.0 : 0.5,
+                ),
+                boxShadow: [
+                  ...NeoTheme.shadowLevel1,
+                  if (focused)
+                    BoxShadow(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withValues(alpha: 0.35),
+                      blurRadius: 14,
+                      spreadRadius: 1,
+                    ),
+                ],
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
@@ -683,7 +764,10 @@ class _HistoryGridCard extends StatelessWidget {
               ),
             ),
           ],
-        ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }

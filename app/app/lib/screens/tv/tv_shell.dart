@@ -52,6 +52,7 @@ class _TVShellState extends State<TVShell> {
   // Contrôleurs de focus pour la recherche
   late final FocusNode _searchFocusNode = FocusNode();
   late final FocusNode _searchTextFieldNode = FocusNode();
+  late final FocusNode _searchClearFocusNode = FocusNode();
   late final FocusNode _themeToggleFocusNode = FocusNode();
 
   // Contrôleur de recherche
@@ -112,13 +113,23 @@ class _TVShellState extends State<TVShell> {
       // on active le mode recherche via _searchQuery non vide.
       return;
     }
-    if (contentIndex != _index) {
-      setState(() {
-        _index = contentIndex;
-        _searchQuery = '';
-        _searchController.clear();
-      });
+    // B5 : OK/RIGHT sur la nav déjà active doit sortir du mode recherche.
+    // Sans ça, valider l'onglet courant garde _searchQuery et l'écran
+    // de recherche, l'utilisateur reste « coincé » en recherche.
+    if (contentIndex == _index) {
+      if (_searchQuery.isNotEmpty) {
+        setState(() {
+          _searchQuery = '';
+          _searchController.clear();
+        });
+      }
+      return;
     }
+    setState(() {
+      _index = contentIndex;
+      _searchQuery = '';
+      _searchController.clear();
+    });
   }
 
   @override
@@ -129,6 +140,7 @@ class _TVShellState extends State<TVShell> {
     }
     _searchFocusNode.dispose();
     _searchTextFieldNode.dispose();
+    _searchClearFocusNode.dispose();
     _themeToggleFocusNode.dispose();
     _searchController.dispose();
     _sidebarFocusScopeNode.dispose();
@@ -144,7 +156,10 @@ class _TVShellState extends State<TVShell> {
   /// Entrée navbar -> contenu : requestFocus sur le scope seul laisse le
   /// focus sur un scope vide. On descend ensuite vers le premier focusable
   /// (autofocus : 1er chip catégorie / 1re carte) au prochain frame.
+  /// B1/B2/B3 : utiliser ce helper partout pour les transitions
+  /// sidebar -> contenu, jamais requestFocus() seul sur le scope.
   void _focusContentFirst() {
+    if (!mounted) return;
     _contentFocusScopeNode.requestFocus();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -154,6 +169,27 @@ class _TVShellState extends State<TVShell> {
         _contentFocusScopeNode.nextFocus();
       }
     });
+  }
+
+  /// B6 : le TextField n'existe que sidebar dépliée (expanded). Ne jamais
+  /// requestFocus sur un node non attaché, sinon focus mort.
+  void _focusSearchTextField() {
+    if (!mounted || !_isSidebarFocused) return;
+    if (_searchTextFieldNode.context == null) return;
+    _searchTextFieldNode.requestFocus();
+  }
+
+  /// B4 : efface la recherche puis rend le focus au champ de saisie.
+  void _clearSearch() {
+    _searchController.clear();
+    if (mounted) {
+      setState(() {
+        _searchQuery = '';
+      });
+    } else {
+      _searchQuery = '';
+    }
+    _focusSearchTextField();
   }
 
   @override
@@ -289,7 +325,7 @@ class _TVShellState extends State<TVShell> {
           return KeyEventResult.handled;
         }
         if (key == LogicalKeyboardKey.arrowRight) {
-          _contentFocusScopeNode.requestFocus();
+          _focusContentFirst();
           return KeyEventResult.handled;
         }
         if (key == LogicalKeyboardKey.enter ||
@@ -403,14 +439,17 @@ class _TVShellState extends State<TVShell> {
           _themeToggleFocusNode.requestFocus();
           return KeyEventResult.handled;
         }
-        // Enter/OK : activer le TextField pour taper
+        // Enter/OK : activer le TextField pour taper (B6 : garde-fou,
+        // le TextField n'existe que sidebar dépliée).
         if (key == LogicalKeyboardKey.enter || key == LogicalKeyboardKey.select) {
-          _searchTextFieldNode.requestFocus();
+          _focusSearchTextField();
           return KeyEventResult.handled;
         }
         // Flèche droite : aller dans les résultats (si recherche en cours)
+        // B1 : passer par _focusContentFirst pour éviter le focus mort
+        // sur scope vide.
         if (key == LogicalKeyboardKey.arrowRight) {
-          if (mounted) _contentFocusScopeNode.requestFocus();
+          _focusContentFirst();
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
@@ -476,7 +515,7 @@ class _TVShellState extends State<TVShell> {
                         }
                         if (key == LogicalKeyboardKey.arrowRight) {
                           _searchTextFieldNode.unfocus();
-                          if (mounted) _contentFocusScopeNode.requestFocus();
+                          _focusContentFirst();
                           return KeyEventResult.handled;
                         }
                         return KeyEventResult.ignored;
@@ -499,7 +538,7 @@ class _TVShellState extends State<TVShell> {
                         onSubmitted: (_) {
                           if (_searchQuery.isNotEmpty && mounted) {
                             _searchTextFieldNode.unfocus();
-                            _contentFocusScopeNode.requestFocus();
+                            _focusContentFirst();
                           }
                         },
                       ),
@@ -507,16 +546,38 @@ class _TVShellState extends State<TVShell> {
                   ),
                   if (_searchQuery.isNotEmpty)
                     Focus(
+                      focusNode: _searchClearFocusNode,
+                      onKeyEvent: (node, event) {
+                        if (event is! KeyDownEvent) {
+                          return KeyEventResult.ignored;
+                        }
+                        final key = event.logicalKey;
+                        if (key == LogicalKeyboardKey.enter ||
+                            key == LogicalKeyboardKey.select ||
+                            key == LogicalKeyboardKey.space) {
+                          _clearSearch();
+                          return KeyEventResult.handled;
+                        }
+                        if (key == LogicalKeyboardKey.arrowLeft ||
+                            key == LogicalKeyboardKey.arrowUp) {
+                          _focusSearchTextField();
+                          return KeyEventResult.handled;
+                        }
+                        if (key == LogicalKeyboardKey.arrowDown) {
+                          _navNodes[0].requestFocus();
+                          return KeyEventResult.handled;
+                        }
+                        if (key == LogicalKeyboardKey.arrowRight) {
+                          _focusContentFirst();
+                          return KeyEventResult.handled;
+                        }
+                        return KeyEventResult.ignored;
+                      },
                       child: Builder(
                         builder: (ctx) {
                           final focused = Focus.of(ctx).hasFocus;
                           return InkWell(
-                            onTap: () {
-                              _searchController.clear();
-                              setState(() {
-                                _searchQuery = '';
-                              });
-                            },
+                            onTap: _clearSearch,
                             borderRadius: BorderRadius.circular(12),
                             child: Padding(
                               padding: const EdgeInsets.all(4.0),

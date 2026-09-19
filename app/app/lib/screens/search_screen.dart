@@ -506,37 +506,80 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Widget _toggleChip(String label, bool selected, ValueChanged<bool> onChanged) {
+    final useFocus = NeoTheme.needsFocusNavigation(context);
+    void toggle() {
+      HapticFeedback.selectionClick();
+      onChanged(!selected);
+    }
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 8, right: 8),
-      child: GestureDetector(
-        onTap: () {
-          HapticFeedback.selectionClick();
-          onChanged(!selected);
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            color: selected
-                ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.18)
-                : Neo.bgOverlay(context),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: selected
-                  ? Theme.of(context).colorScheme.primary
-                  : Neo.bgBorder(context).withValues(alpha: 0.25),
-              width: selected ? 1.5 : 0.5,
-            ),
-          ),
-          child: Text(
-            label,
-            style: Neo.labelMedium(context).copyWith(
-              color: selected
-                  ? Theme.of(context).colorScheme.primary
-                  : Neo.textSecondary(context),
-              fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
-            ),
-          ),
+      // D-pad/TV : chips 100% tactiles (0 stop) → Focus + OK toggle.
+      // Tactile inchangé : GestureDetector.onTap conservé.
+      child: Focus(
+        canRequestFocus: useFocus,
+        onKeyEvent: useFocus
+            ? (node, event) {
+                if (event is KeyDownEvent &&
+                    (event.logicalKey == LogicalKeyboardKey.enter ||
+                        event.logicalKey == LogicalKeyboardKey.select ||
+                        event.logicalKey == LogicalKeyboardKey.space ||
+                        event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+                        event.logicalKey == LogicalKeyboardKey.gameButtonA)) {
+                  toggle();
+                  return KeyEventResult.handled;
+                }
+                return KeyEventResult.ignored;
+              }
+            : null,
+        child: Builder(
+          builder: (ctx) {
+            final focused = Focus.of(ctx).hasFocus;
+            return GestureDetector(
+              onTap: toggle,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.18)
+                      : (focused
+                          ? Neo.bgActive(context)
+                          : Neo.bgOverlay(context)),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: focused
+                        ? Theme.of(context).colorScheme.primary
+                        : (selected
+                            ? Theme.of(context).colorScheme.primary
+                            : Neo.bgBorder(context).withValues(alpha: 0.25)),
+                    width: (focused || selected) ? 1.5 : 0.5,
+                  ),
+                  boxShadow: focused
+                      ? [
+                          BoxShadow(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primary
+                                .withValues(alpha: 0.35),
+                            blurRadius: 10,
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Text(
+                  label,
+                  style: Neo.labelMedium(context).copyWith(
+                    color: (selected || focused)
+                        ? Theme.of(context).colorScheme.primary
+                        : Neo.textSecondary(context),
+                    fontWeight:
+                        selected ? FontWeight.w800 : FontWeight.w500,
+                  ),
+                ),
+              ),
+            );
+          },
         ),
       ),
     );
@@ -590,38 +633,94 @@ class _SearchScreenState extends State<SearchScreen> {
                   runSpacing: 8,
                   children: [
                     for (var i = 0; i < recent.length; i++)
-                      GestureDetector(
-                        onTap: () {
-                          HapticFeedback.selectionClick();
-                          _controller.text = recent[i];
-                          _search(recent[i]);
-                        },
-                        onLongPress: () {
-                          HapticFeedback.mediumImpact();
-                          SearchHistory.instance.remove(recent[i]);
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 9),
-                          decoration: BoxDecoration(
-                            color: Neo.bgOverlay(context),
-                            borderRadius: BorderRadius.circular(999),
-                            border: Border.all(
-                              color: Neo.bgBorder(context).withValues(alpha: 0.25),
-                              width: 0.5,
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.history_rounded,
-                                  size: 15, color: Neo.textTertiary(context)),
-                              const SizedBox(width: 6),
-                              Text(recent[i], style: Neo.bodyMedium(context)),
-                            ],
-                          ),
+                      Focus(
+                        canRequestFocus:
+                            NeoTheme.needsFocusNavigation(context),
+                        onKeyEvent: NeoTheme.needsFocusNavigation(context)
+                            ? (node, event) {
+                                // D-pad/TV : OK relance la recherche récente.
+                                if (event is KeyDownEvent &&
+                                    (event.logicalKey ==
+                                            LogicalKeyboardKey.enter ||
+                                        event.logicalKey ==
+                                            LogicalKeyboardKey.select ||
+                                        event.logicalKey ==
+                                            LogicalKeyboardKey.space ||
+                                        event.logicalKey ==
+                                            LogicalKeyboardKey.numpadEnter ||
+                                        event.logicalKey ==
+                                            LogicalKeyboardKey.gameButtonA)) {
+                                  HapticFeedback.selectionClick();
+                                  _controller.text = recent[i];
+                                  _search(recent[i]);
+                                  return KeyEventResult.handled;
+                                }
+                                return KeyEventResult.ignored;
+                              }
+                            : null,
+                        child: Builder(
+                          builder: (chipCtx) {
+                            final chipFocused =
+                                Focus.of(chipCtx).hasFocus;
+                            return GestureDetector(
+                              onTap: () {
+                                HapticFeedback.selectionClick();
+                                _controller.text = recent[i];
+                                _search(recent[i]);
+                              },
+                              onLongPress: () {
+                                HapticFeedback.mediumImpact();
+                                SearchHistory.instance.remove(recent[i]);
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 9),
+                                decoration: BoxDecoration(
+                                  color: chipFocused
+                                      ? Neo.bgActive(context)
+                                      : Neo.bgOverlay(context),
+                                  borderRadius: BorderRadius.circular(999),
+                                  border: Border.all(
+                                    color: chipFocused
+                                        ? Theme.of(context)
+                                            .colorScheme
+                                            .primary
+                                        : Neo.bgBorder(context)
+                                            .withValues(alpha: 0.25),
+                                    width: chipFocused ? 1.5 : 0.5,
+                                  ),
+                                  boxShadow: chipFocused
+                                      ? [
+                                          BoxShadow(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .primary
+                                                .withValues(alpha: 0.35),
+                                            blurRadius: 10,
+                                          ),
+                                        ]
+                                      : null,
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.history_rounded,
+                                        size: 15,
+                                        color: chipFocused
+                                            ? Theme.of(context)
+                                                .colorScheme
+                                                .primary
+                                            : Neo.textTertiary(context)),
+                                    const SizedBox(width: 6),
+                                    Text(recent[i],
+                                        style: Neo.bodyMedium(context)),
+                                  ],
+                                ),
+                              ),
+                            ).springPop(index: i);
+                          },
                         ),
-                      ).springPop(index: i),
+                      ),
                   ],
                 ),
               ),

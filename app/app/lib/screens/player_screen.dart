@@ -1295,9 +1295,45 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return KeyEventResult.handled;
     }
 
+    // ── État erreur VOD (B11) : Enter/Space (+ relais gamepad/numpad) doit
+    // déclencher Réessayer, pas playOrPause (controller nul → OK silencieux).
+    // Up/Down/Left/Right circulent entre Réessayer/Retour (boutons natifs
+    // focusables) au lieu d'être consommés par seek/volume.
+    if (_errorMessage != null && !_isLoading && !_isWaitingForNetwork) {
+      if (key == LogicalKeyboardKey.enter ||
+          key == LogicalKeyboardKey.numpadEnter ||
+          key == LogicalKeyboardKey.select ||
+          key == LogicalKeyboardKey.space ||
+          key == LogicalKeyboardKey.gameButtonA ||
+          key == LogicalKeyboardKey.mediaPlayPause) {
+        _startLoading();
+        return KeyEventResult.handled;
+      }
+      if (key == LogicalKeyboardKey.arrowUp ||
+          key == LogicalKeyboardKey.arrowDown ||
+          key == LogicalKeyboardKey.arrowLeft ||
+          key == LogicalKeyboardKey.arrowRight) {
+        final ctx = node.context;
+        if (ctx != null) {
+          if (key == LogicalKeyboardKey.arrowDown ||
+              key == LogicalKeyboardKey.arrowRight) {
+            FocusScope.of(ctx).nextFocus();
+          } else {
+            FocusScope.of(ctx).previousFocus();
+          }
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      }
+      return KeyEventResult.ignored;
+    }
+
+    // OK TV complet : Enter/Select/Space + numpadEnter/gameButtonA.
     if (key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter ||
         key == LogicalKeyboardKey.select ||
         key == LogicalKeyboardKey.space ||
+        key == LogicalKeyboardKey.gameButtonA ||
         key == LogicalKeyboardKey.mediaPlayPause) {
       _playerController?.playOrPause();
       _showControlsBriefly();
@@ -1319,6 +1355,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return KeyEventResult.handled;
     }
 
+    // ── Choix sûr VOD (documenté, pas de redirection overlay) : Up/Down
+    // = volume et Left/Right = seek ±10 s sont conservés tels quels.
+    // Contrairement au live (iptv_screen B10 où Up/Down amène le focus sur
+    // l'overlay Retour/Favori), une redirection ici casserait seek/volume
+    // et risquerait d'avaler BACK ; les boutons overlay restent tactiles
+    // (IgnorePointer quand masqués) et OK affiche/masque les contrôles.
     if (key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.audioVolumeUp) {
       final vol = (_playerController?.volume ?? 0.5) + 0.1;
       _playerController?.setVolume(vol.clamp(0.0, 1.0));

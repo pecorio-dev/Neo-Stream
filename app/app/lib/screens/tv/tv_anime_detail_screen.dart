@@ -29,6 +29,9 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
 
   /// Nœud du bouton Regarder : cible initiale + fallback anti perte de focus.
   final FocusNode _watchFocusNode = FocusNode(debugLabel: 'watchButton');
+  // A3 : nœuds dédiés à l'état erreur (Réessayer autofocus + Retour fallback).
+  final FocusNode _retryFocusNode = FocusNode(debugLabel: 'retryButton');
+  final FocusNode _errorBackFocusNode = FocusNode(debugLabel: 'errorBack');
   final ScrollController _scrollController = ScrollController();
   bool _didInitialAutofocus = false;
 
@@ -43,22 +46,29 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
   void dispose() {
     FocusManager.instance.removeListener(_handleFocusLoss);
     _watchFocusNode.dispose();
+    _retryFocusNode.dispose();
+    _errorBackFocusNode.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
   /// Fallback : si le focus primaire devient null après une navigation
-  /// D-pad, on le restaure sur Regarder au prochain frame. Pas de
-  /// FocusScope interne (TVWrapper/TVRemoteNavigator gèrent la racine).
+  /// D-pad, on le restaure au prochain frame. Erreur (anime null) ->
+  /// Réessayer (A3), contenu -> Regarder. Pas de FocusScope interne
+  /// (TVWrapper/TVRemoteNavigator gèrent la racine).
   void _handleFocusLoss() {
-    if (!mounted || _isLoading || _anime == null) return;
+    if (!mounted || _isLoading) return;
     if (FocusManager.instance.primaryFocus != null) return;
     if (ModalRoute.of(context)?.isCurrent != true) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (FocusManager.instance.primaryFocus == null &&
           ModalRoute.of(context)?.isCurrent == true) {
-        _watchFocusNode.requestFocus();
+        if (_errorMessage != null || _anime == null) {
+          _retryFocusNode.requestFocus();
+        } else {
+          _watchFocusNode.requestFocus();
+        }
       }
     });
   }
@@ -109,6 +119,13 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
         _errorMessage = error.toString();
         _isLoading = false;
       });
+      // A3 : focus mort en erreur -> autofocus Réessayer au prochain frame.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (FocusManager.instance.primaryFocus == null) {
+          _retryFocusNode.requestFocus();
+        }
+      });
     }
   }
 
@@ -142,6 +159,7 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
     );
   }
 
+  /// A3 : erreur focusable D-pad (Réessayer autofocus + Retour fallback header).
   Widget _buildError() {
     return Center(
       child: Column(
@@ -151,11 +169,40 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
           const SizedBox(height: 16),
           Text(_errorMessage ?? 'Erreur', style: const TextStyle(color: TVTheme.textPrimary, fontSize: 18)),
           const SizedBox(height: 24),
-          FilledButton.icon(
-            onPressed: _loadAnime,
-            style: FilledButton.styleFrom(backgroundColor: TVTheme.accentRed),
-            icon: const Icon(Icons.refresh),
-            label: const Text('Réessayer'),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            alignment: WrapAlignment.center,
+            children: [
+              TVFocusableCard(
+                focusNode: _retryFocusNode,
+                autoFocus: true,
+                onTap: _loadAnime,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.refresh, color: Colors.white),
+                    SizedBox(width: 8),
+                    Text('Réessayer', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ),
+              TVFocusableCard(
+                focusNode: _errorBackFocusNode,
+                autoFocus: false,
+                onTap: () => Navigator.pop(context),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.arrow_back, color: TVTheme.textPrimary),
+                    SizedBox(width: 8),
+                    Text('Retour', style: TextStyle(color: TVTheme.textPrimary)),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -165,6 +212,9 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
   Widget _buildContent() {
     final anime = _anime!;
     final season = anime.seasons[_selectedSeason];
+    // A1/A2 : jouable seulement si au moins une saison valide non vide.
+    // Grisé visuel comme VOD quand non jouable, MaListe reste atteignable.
+    final canPlay = _validSeasonKeys.isNotEmpty;
 
     // Groupe de traversal ordonné haut->bas / gauche->droite pour un
     // ordre D-pad prévisible. Pas de FocusScope interne (racine déjà
@@ -271,22 +321,42 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
                           // flèches en ignored dans TVFocusableCard).
                           focusNode: _watchFocusNode,
                           autoFocus: !_didInitialAutofocus,
-                          onTap: () {
-                            if (anime.seasons.isNotEmpty) {
-                              final firstSeasonKey = anime.seasons.keys.first;
-                              final firstSeason = anime.seasons[firstSeasonKey];
-                              if (firstSeason != null && firstSeason.episodes.isNotEmpty) {
-                                _playEpisode(firstSeasonKey, firstSeason.episodes[0], firstSeason.episodes[0].players);
-                              }
-                            }
-                          },
+                          onTap: canPlay
+                              ? () {
+                                  // A2 : joue la saison sélectionnée si
+                                  // valide, sinon validKeys.first (jamais
+                                  // keys.first brut qui peut être vide).
+                                  final playKey =
+                                      _validSeasonKeys.contains(_selectedSeason)
+                                          ? _selectedSeason
+                                          : _validSeasonKeys.first;
+                                  final playSeason = anime.seasons[playKey];
+                                  if (playSeason != null &&
+                                      playSeason.episodes.isNotEmpty) {
+                                    _playEpisode(
+                                        playKey,
+                                        playSeason.episodes[0],
+                                        playSeason.episodes[0].players);
+                                  }
+                                }
+                              : () {},
                           padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
-                            children: const [
-                              Icon(Icons.play_arrow, color: Colors.white, size: 28),
-                              SizedBox(width: 8),
-                              Text('LANCER LA LECTURE', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                            children: [
+                              Icon(Icons.play_arrow,
+                                  color: canPlay
+                                      ? Colors.white
+                                      : TVTheme.textDisabled,
+                                  size: 28),
+                              const SizedBox(width: 8),
+                              Text('LANCER LA LECTURE',
+                                  style: TextStyle(
+                                      color: canPlay
+                                          ? Colors.white
+                                          : TVTheme.textDisabled,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold)),
                             ],
                           ),
                         ),

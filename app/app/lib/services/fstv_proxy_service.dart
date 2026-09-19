@@ -44,9 +44,28 @@ class FstvProxyService {
 
   /// Base LIVE directe — jamais neo-stream.eu (VOD uniquement).
   /// Normalisée avec slash final pour la résolution des chemins.
+  /// VERROU : toute URL live transitant par neo-stream.eu est rejetée
+  /// explicitement ([_requireLiveHost]) pour empêcher toute régression
+  /// silencieuse vers le site au lieu du proxy direct iptv.mine.bz.
   String get _liveBase {
     const base = AppConstants.fstvProxyBaseUrl;
+    assert(!base.contains('neo-stream.eu'),
+        'LIVE interdit via neo-stream.eu : utiliser iptv.mine.bz');
+    if (base.contains('neo-stream.eu')) {
+      throw StateError(
+          'LIVE interdit via neo-stream.eu : utiliser iptv.mine.bz');
+    }
     return base.endsWith('/') ? base : '$base/';
+  }
+
+  /// Rejette toute URL live pointant vers un autre hôte que le proxy direct.
+  static String _requireLiveHost(String url, String liveBase) {
+    final host = Uri.tryParse(url)?.host ?? '';
+    final baseHost = Uri.tryParse(liveBase)?.host ?? '';
+    if (host.isNotEmpty && baseHost.isNotEmpty && host != baseHost) {
+      throw StateError('URL live hors proxy direct ($host) : $url');
+    }
+    return url;
   }
 
   Uri get _channelsUri =>
@@ -56,8 +75,9 @@ class FstvProxyService {
       Uri.parse('${_liveBase}live_proxy.php?action=validate');
 
   /// URL directe de playlist pour un identifiant de source FSTV.
-  String m3u8UrlForId(String id) =>
-      '${_liveBase}live_proxy.php?action=m3u8&id=${Uri.encodeComponent(id)}';
+  String m3u8UrlForId(String id) => _requireLiveHost(
+      '${_liveBase}live_proxy.php?action=m3u8&id=${Uri.encodeComponent(id)}',
+      _liveBase);
 
   Map<String, String> get _jsonHeaders => {
         'Accept': 'application/json',
@@ -351,12 +371,20 @@ class FstvProxyService {
   }
 
   /// Résout une URL (absolue ou relative) contre la base live iptv.mine.bz.
+  /// VERROU : toute URL absolue pointant vers un autre hôte (ex.
+  /// neo-stream.eu) est REJETÉE (null) — le live passe toujours par le
+  /// proxy direct, jamais par le site.
   String? _absolutizeLive(String raw) {
     final base = Uri.parse(_liveBase);
     final uri =
         raw.startsWith('/') ? base.resolve(raw) : Uri.tryParse(raw);
     if (uri == null || !uri.hasScheme) return null;
     if (uri.scheme != 'https' && uri.scheme != 'http') return null;
+    try {
+      _requireLiveHost(uri.toString(), _liveBase);
+    } on StateError {
+      return null;
+    }
     return uri.toString();
   }
 
