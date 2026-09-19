@@ -6,6 +6,7 @@ import '../../models/anime.dart';
 import '../../services/api_service.dart';
 import '../../widgets/tv_wrapper.dart';
 import '../../widgets/tv_focusable_card.dart';
+import '../../widgets/metadata_pill.dart';
 import '../player_screen.dart';
 
 class TVAnimeDetailScreen extends StatefulWidget {
@@ -26,10 +27,51 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
   bool _inLibrary = false;
   List<int> _validSeasonKeys = [];
 
+  /// Nœud du bouton Regarder : cible initiale + fallback anti perte de focus.
+  final FocusNode _watchFocusNode = FocusNode(debugLabel: 'watchButton');
+  final ScrollController _scrollController = ScrollController();
+  bool _didInitialAutofocus = false;
+
   @override
   void initState() {
     super.initState();
+    FocusManager.instance.addListener(_handleFocusLoss);
     _loadAnime();
+  }
+
+  @override
+  void dispose() {
+    FocusManager.instance.removeListener(_handleFocusLoss);
+    _watchFocusNode.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  /// Fallback : si le focus primaire devient null après une navigation
+  /// D-pad, on le restaure sur Regarder au prochain frame. Pas de
+  /// FocusScope interne (TVWrapper/TVRemoteNavigator gèrent la racine).
+  void _handleFocusLoss() {
+    if (!mounted || _isLoading || _anime == null) return;
+    if (FocusManager.instance.primaryFocus != null) return;
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (FocusManager.instance.primaryFocus == null &&
+          ModalRoute.of(context)?.isCurrent == true) {
+        _watchFocusNode.requestFocus();
+      }
+    });
+  }
+
+  void _requestInitialFocus() {
+    if (_didInitialAutofocus) return;
+    _didInitialAutofocus = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (FocusManager.instance.primaryFocus == null) {
+        _watchFocusNode.requestFocus();
+      }
+    });
   }
 
   Future<void> _loadAnime() async {
@@ -60,6 +102,7 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
         _selectedSeason = validKeys.isNotEmpty ? validKeys.first : 1;
         _isLoading = false;
       });
+      _requestInitialFocus();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -123,8 +166,14 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
     final anime = _anime!;
     final season = anime.seasons[_selectedSeason];
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(32),
+    // Groupe de traversal ordonné haut->bas / gauche->droite pour un
+    // ordre D-pad prévisible. Pas de FocusScope interne (racine déjà
+    // gérée par TVWrapper/TVRemoteNavigator).
+    return FocusTraversalGroup(
+      policy: WidgetOrderTraversalPolicy(),
+      child: SingleChildScrollView(
+        controller: _scrollController,
+        padding: const EdgeInsets.all(32),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -156,26 +205,45 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
                       Text(anime.titleAlt!, style: const TextStyle(color: TVTheme.textSecondary, fontSize: 16)),
                     ],
                     const SizedBox(height: 16),
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 8,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(color: TVTheme.accentRed.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(20)),
-                          child: Row(mainAxisSize: MainAxisSize.min, children: [
-                            const Icon(Icons.play_circle, color: TVTheme.accentRed, size: 14),
-                            const SizedBox(width: 4),
-                            Text('${anime.totalEpisodes} episodes', style: const TextStyle(color: TVTheme.accentRed, fontWeight: FontWeight.bold)),
-                          ]),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(color: TVTheme.cardColor, borderRadius: BorderRadius.circular(20)),
-                          child: Text('${anime.totalSeasons} saison${anime.totalSeasons > 1 ? 's' : ''}', style: const TextStyle(color: TVTheme.textSecondary)),
-                        ),
-                      ],
+                    MetadataPillsRow(
+                      pills: pillsFromAnime(anime, short: true),
+                      maxPills: 4,
+                      fontSize: 10,
                     ),
+                    const SizedBox(height: 12),
+                    Builder(builder: (context) {
+                      final stats = animeWatchStats(anime);
+                      if (stats.total <= 0 || stats.watched <= 0) {
+                        return const SizedBox.shrink();
+                      }
+                      final label = seriesProgressLabel(
+                          stats.watched, stats.total, stats.percent);
+                      return Semantics(
+                        label: label,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(label,
+                                style: const TextStyle(
+                                    color: TVTheme.textSecondary,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600)),
+                            const SizedBox(height: 6),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(3),
+                              child: LinearProgressIndicator(
+                                value:
+                                    (stats.percent / 100).clamp(0.0, 1.0),
+                                backgroundColor: Colors.white12,
+                                valueColor: const AlwaysStoppedAnimation(
+                                    TVTheme.accentRed),
+                                minHeight: 4,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
                     if (anime.genres.isNotEmpty) ...[
                       const SizedBox(height: 16),
                       Wrap(
@@ -198,7 +266,11 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
                     Row(
                       children: [
                         TVFocusableCard(
-                          autoFocus: true,
+                          // Seul autofocus de l'écran, consommé au premier
+                          // chargement. Right -> Ma Liste (même Row,
+                          // flèches en ignored dans TVFocusableCard).
+                          focusNode: _watchFocusNode,
+                          autoFocus: !_didInitialAutofocus,
                           onTap: () {
                             if (anime.seasons.isNotEmpty) {
                               final firstSeasonKey = anime.seasons.keys.first;
@@ -259,18 +331,21 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
           if (_validSeasonKeys.isNotEmpty) ...[
             const Text('Épisodes', style: TextStyle(color: TVTheme.textPrimary, fontSize: 20, fontWeight: FontWeight.w600)),
             const SizedBox(height: 16),
-            Wrap(
-              spacing: 12,
-              children: _validSeasonKeys.map((seasonNum) {
-                final isSelected = _selectedSeason == seasonNum;
-                final seasonName = anime.seasons[seasonNum]?.name ?? 'Saison $seasonNum';
-                final episodeCount = anime.seasons[seasonNum]?.episodes.length ?? 0;
-                return _TVFocusableChip(
-                  label: episodeCount > 0 ? '$seasonName ($episodeCount)' : seasonName,
-                  isSelected: isSelected,
-                  onTap: () => setState(() => _selectedSeason = seasonNum),
-                );
-              }).toList(),
+            FocusTraversalGroup(
+              policy: WidgetOrderTraversalPolicy(),
+              child: Wrap(
+                spacing: 12,
+                children: _validSeasonKeys.map((seasonNum) {
+                  final isSelected = _selectedSeason == seasonNum;
+                  final seasonName = anime.seasons[seasonNum]?.name ?? 'Saison $seasonNum';
+                  final episodeCount = anime.seasons[seasonNum]?.episodes.length ?? 0;
+                  return _TVFocusableChip(
+                    label: episodeCount > 0 ? '$seasonName ($episodeCount)' : seasonName,
+                    isSelected: isSelected,
+                    onTap: () => setState(() => _selectedSeason = seasonNum),
+                  );
+                }).toList(),
+              ),
             ),
             const SizedBox(height: 16),
             if (season != null && season.episodes.isNotEmpty)
@@ -279,6 +354,8 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: TVFocusableCard(
+                    // onTap toujours non-null : chaque épisode est
+                    // focusable au D-pad.
                     onTap: () => _playEpisode(_selectedSeason, episode, sources),
                     child: Row(
                       children: [
@@ -293,9 +370,50 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(episode.title.isNotEmpty ? episode.title : 'Episode ${episode.episodeNumber}', style: const TextStyle(color: TVTheme.textPrimary, fontWeight: FontWeight.w600)),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                        episode.title.isNotEmpty
+                                            ? episode.title
+                                            : 'Episode ${episode.episodeNumber}',
+                                        style: const TextStyle(
+                                            color: TVTheme.textPrimary,
+                                            fontWeight: FontWeight.w600)),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  EpisodeProgressPill(
+                                    apiPercent: episode.progressPercent,
+                                    localKey:
+                                        localProgressKeyForAnimeEpisode(
+                                            anime.id,
+                                            _selectedSeason,
+                                            episode.episodeNumber),
+                                    fontSize: 9,
+                                  ),
+                                ],
+                              ),
                               const SizedBox(height: 4),
-                              Text('${anime.seasons[_selectedSeason]?.name ?? 'Saison $_selectedSeason'} - ${sources.length} source${sources.length > 1 ? 's' : ''}', style: const TextStyle(color: TVTheme.textSecondary, fontSize: 12)),
+                              Text(
+                                  '${anime.seasons[_selectedSeason]?.name ?? 'Saison $_selectedSeason'} - ${sources.length} source${sources.length > 1 ? 's' : ''}',
+                                  style: const TextStyle(
+                                      color: TVTheme.textSecondary,
+                                      fontSize: 12)),
+                              if ((episode.progressPercent ?? 0) > 0) ...[
+                                const SizedBox(height: 6),
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(3),
+                                  child: LinearProgressIndicator(
+                                    value: (episode.progressPercent! / 100)
+                                        .clamp(0.0, 1.0),
+                                    backgroundColor: Colors.white12,
+                                    valueColor:
+                                        const AlwaysStoppedAnimation(
+                                            TVTheme.accentRed),
+                                    minHeight: 3,
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -324,6 +442,7 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
           ],
           const SizedBox(height: 40),
         ],
+      ),
       ),
     );
   }
@@ -359,6 +478,7 @@ class _TVFocusableChipState extends State<_TVFocusableChip> {
           widget.onTap();
           return KeyEventResult.handled;
         }
+        // Flèches en ignored : traversal directionnel D-pad.
         return KeyEventResult.ignored;
       },
       child: GestureDetector(
@@ -370,6 +490,7 @@ class _TVFocusableChipState extends State<_TVFocusableChip> {
             gradient: widget.isSelected ? TVTheme.heroGradient : null,
             color: widget.isSelected ? null : (_isFocused ? TVTheme.surfaceColor : TVTheme.cardColor),
             borderRadius: BorderRadius.circular(8),
+            // Visuel focus : bordure rouge épaisse + halo.
             border: Border.all(
               color: widget.isSelected
                   ? TVTheme.accentRed

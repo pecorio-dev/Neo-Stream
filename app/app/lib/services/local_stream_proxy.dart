@@ -238,6 +238,7 @@ class LocalStreamProxy {
   String? _guessContentType(String url) {
     final u = url.toLowerCase();
     if (u.contains('.m3u8')) return 'application/vnd.apple.mpegurl';
+    if (u.contains('.mpd')) return 'application/dash+xml';
     if (u.contains('.ts')) return 'video/mp2t';
     if (u.contains('.m4s')) return 'video/iso.segment';
     if (u.contains('.mp4') || u.contains('.mkv')) return 'video/mp4';

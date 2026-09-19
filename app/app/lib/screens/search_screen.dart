@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
-import 'package:shimmer/shimmer.dart';
 
 import '../config/theme.dart';
 import '../config/neo.dart';
@@ -17,6 +16,7 @@ import '../services/search_history.dart';
 import '../widgets/content_card.dart';
 import '../widgets/floating_search_bar.dart';
 import '../widgets/satisfying_animations.dart';
+import '../widgets/shimmer_loading.dart';
 import '../widgets/section_header.dart';
 import 'anime_detail_screen.dart';
 import 'detail_screen.dart';
@@ -37,9 +37,20 @@ class _SearchScreenState extends State<SearchScreen> {
   List<Content> _results = [];
   List<Anime> _animeResults = [];
   bool _loading = false;
+  bool _loadingMore = false;
   String _query = '';
   String? _error;
   int _searchId = 0;
+  final ScrollController _scrollCtrl = ScrollController();
+  int _pageFilms = 1;
+  int _pageSeries = 1;
+  int _pageAnime = 1;
+  bool _hasMoreFilms = true;
+  bool _hasMoreSeries = true;
+  bool _hasMoreAnime = true;
+  static const int _filmsPerPage = 20;
+  static const int _seriesPerPage = 20;
+  static const int _animePerPage = 10;
 
   /// Panneau de prévisualisation des résultats affiché pendant la saisie
   /// (mobile uniquement — le mode TV conserve son dialogue dédié).
@@ -58,6 +69,7 @@ class _SearchScreenState extends State<SearchScreen> {
   void initState() {
     super.initState();
     _focusNode.addListener(_onFocus);
+    _scrollCtrl.addListener(_onScroll);
     SearchHistory.instance.load();
     // Ne pas ouvrir automatiquement le dialogue - l'utilisateur doit cliquer explicitement
   }
@@ -84,16 +96,38 @@ class _SearchScreenState extends State<SearchScreen> {
     _controller.dispose();
     _focusNode.removeListener(_onFocus);
     _focusNode.dispose();
+    _scrollCtrl.removeListener(_onScroll);
+    _scrollCtrl.dispose();
     super.dispose();
   }
 
+  void _onScroll() {
+    if (!_scrollCtrl.hasClients || _loading || _loadingMore) return;
+    if (_scrollCtrl.position.pixels > _scrollCtrl.position.maxScrollExtent - 400) {
+      _loadMore();
+    }
+  }
+
+  void _resetPaging() {
+    _pageFilms = 1;
+    _pageSeries = 1;
+    _pageAnime = 1;
+    _hasMoreFilms = true;
+    _hasMoreSeries = true;
+    _hasMoreAnime = true;
+    _loadingMore = false;
+  }
+
   void _onChanged(String v) {
+    // Évite un rebuild complet à chaque frappe : seul le bouton clear
+    // dépend de l'état vide/non-vide, géré en interne par FloatingSearchBar.
     _debounce?.cancel();
-    setState(() {});
-    _debounce = Timer(Duration(milliseconds: 320), () {
+    _debounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) return;
       final q = v.trim();
+      // Requête identique ignorée (anti-refetch) + anti-race via _searchId.
       if (q.length >= 2 && q != _query) _search(q, openPreview: true);
-      if (q.isEmpty) setState(() { _results = []; _animeResults = []; _query = ''; _error = null; _previewOpen = false; });
+      if (q.isEmpty) setState(() { _results = []; _animeResults = []; _query = ''; _error = null; _previewOpen = false; _resetPaging(); });
     });
   }
 
@@ -124,52 +158,151 @@ class _SearchScreenState extends State<SearchScreen> {
       _error = null;
       _previewOpen = false;
     });
+    _resetPaging();
     _focusNode.requestFocus();
   }
 
-  /// Recherche lancée par la saisie ([openPreview] = true) : le panneau de
-  /// prévisualisation s'ouvre dès l'arrivée des résultats. Les autres
-  /// déclencheurs (historique, validation) épinglent directement la grille.
-  Future<void> _search(String q, {bool openPreview = false}) async {
+  /// Recherche paginée : films p1 (20) + séries p1 (20) + anime p1 (10)
+  /// en parallèle. Le scroll bas appelle [_loadMore] pour la suite.
+  /// [force] contourne le garde anti-refetch (bouton Réessayer).
+  Future<void> _search(String q, {bool openPreview = false, bool force = false}) async {
+    final query = q.trim();
+    if (query.length < 2) return;
+    // Pas de refetch inutile : même requête déjà affichée → on garde l'état.
+    if (!force &&
+        query == _query &&
+        !_loading &&
+        (_results.isNotEmpty || _animeResults.isNotEmpty)) {
+      if (openPreview) setState(() => _previewOpen = true);
+      return;
+    }
     final currentId = ++_searchId;
-    setState(() { _loading = true; _query = q; _error = null; if (openPreview) _previewOpen = true; });
+    setState(() { _loading = true; _loadingMore = false; _query = query; _error = null; if (openPreview) _previewOpen = true; });
+    _resetPaging();
     try {
-      final raw = await _api.searchContent(q);
+      final results = await Future.wait([
+        _api.searchContentPaged(q, page: 1, type: 'film', perPage: _filmsPerPage),
+        _api.searchContentPaged(q, page: 1, type: 'serie', perPage: _seriesPerPage),
+        _api.searchAnimePaged(q, page: 1, limit: _animePerPage),
+      ]);
       SearchHistory.instance.add(q);
       if (!mounted) return;
-      final films = raw.where((c) => c.contentType != 'anime').toList();
-      final animeAsContent = raw.where((c) => c.contentType == 'anime').toList();
-      // Lancer aussi la recherche anime en parallèle
+      if (currentId != _searchId) return; // stale request
+      final filmsPage = results[0] as PagedContentResult;
+      final seriesPage = results[1] as PagedContentResult;
+      final animesPage = results[2] as PagedAnimeResult;
       List<Anime> animes = [];
       try {
-        final animeData = await _api.searchAnime(q);
-        animes = animeData.map((e) => Anime.fromJson(e)).toList();
+        animes = animesPage.items.map((e) => Anime.fromJson(e)).toList();
       } catch (_) {}
-      if (currentId != _searchId) return; // stale request
-      // Fusionner : si un anime est dans les deux listes, garder fromJson
-      final animeIds = {for (final a in animes) a.id};
-      final extraAnimes = animeAsContent
-          .where((c) => !animeIds.contains(c.id))
-          .map((c) => Anime.fromJson({
-                'id': c.id, 'anime_id': c.id.toString(), 'url': c.id.toString(),
-                'title': c.title, 'genres': c.genres,
-                'poster_url': c.poster, 'seasons': {}, 'total_seasons': 0,
-                'total_episodes': 0,
-              }))
-          .toList();
       setState(() {
-        _results = films;
-        _animeResults = [...animes, ...extraAnimes];
+        _results = [...filmsPage.items, ...seriesPage.items];
+        _animeResults = animes;
+        _hasMoreFilms = filmsPage.hasMore;
+        _hasMoreSeries = seriesPage.hasMore;
+        _hasMoreAnime = animesPage.hasMore;
         _loading = false;
         _previewOpen = openPreview && _previewOpen;
         _focusedResultIndex = 0;
         _autoFocusFirstResult = NeoTheme.isTV(context) &&
-            (films.isNotEmpty || animes.isNotEmpty || extraAnimes.isNotEmpty);
+            (_results.isNotEmpty || animes.isNotEmpty);
       });
     } catch (e) {
       if (currentId != _searchId) return; // stale request
       if (!mounted) return;
-      setState(() { _loading = false; _error = e.toString(); _previewOpen = false; });
+      setState(() { _loading = false; _error = humanizeApiError(e); _previewOpen = false; });
+    }
+  }
+
+  /// Suite de résultats selon le filtre actif (anti-race via [_searchId]).
+  Future<void> _loadMore() async {
+    if (_loading || _loadingMore || _query.isEmpty) return;
+    final wantFilms = _typeFilter == '' || _typeFilter == 'film';
+    final wantSeries = _typeFilter == '' || _typeFilter == 'serie';
+    final wantAnime = _typeFilter == '' || _typeFilter == 'anime';
+    final loadFilms = wantFilms && _hasMoreFilms;
+    final loadSeries = wantSeries && _hasMoreSeries;
+    final loadAnime = wantAnime && _hasMoreAnime;
+    if (!loadFilms && !loadSeries && !loadAnime) return;
+    final id = _searchId;
+    final q = _query;
+    setState(() => _loadingMore = true);
+    try {
+      final futures = <Future>[];
+      // Ordre fixe : films, séries, anime — pour réassocier les réponses.
+      if (loadFilms) {
+        futures.add(_api.searchContentPaged(q,
+            page: _pageFilms + 1, type: 'film', perPage: _filmsPerPage));
+      }
+      if (loadSeries) {
+        futures.add(_api.searchContentPaged(q,
+            page: _pageSeries + 1, type: 'serie', perPage: _seriesPerPage));
+      }
+      if (loadAnime) {
+        futures.add(
+            _api.searchAnimePaged(q, page: _pageAnime + 1, limit: _animePerPage));
+      }
+      final out = await Future.wait(futures);
+      if (!mounted || id != _searchId) return;
+      int c = 0;
+      setState(() {
+        if (loadFilms) {
+          final p = out[c++] as PagedContentResult;
+          _results = [..._results, ...p.items];
+          _pageFilms += 1;
+          _hasMoreFilms = p.hasMore;
+        }
+        if (loadSeries) {
+          final p = out[c++] as PagedContentResult;
+          _results = [..._results, ...p.items];
+          _pageSeries += 1;
+          _hasMoreSeries = p.hasMore;
+        }
+        if (loadAnime) {
+          final p = out[c++] as PagedAnimeResult;
+          final more = <Anime>[];
+          for (final e in p.items) {
+            try {
+              more.add(Anime.fromJson(e));
+            } catch (_) {}
+          }
+          _animeResults = [..._animeResults, ...more];
+          _pageAnime += 1;
+          _hasMoreAnime = p.hasMore;
+        }
+        _loadingMore = false;
+      });
+    } catch (_) {
+      if (!mounted || id != _searchId) return;
+      setState(() => _loadingMore = false);
+    }
+  }
+
+  int get _filmCount => _results.where((c) => c.isFilm).length;
+  int get _serieCount =>
+      _results.where((c) => c.contentType == 'serie').length;
+  int get _totalCount => _results.length + _animeResults.length;
+  bool get _hasActiveFilters =>
+      _typeFilter.isNotEmpty || _topRatedOnly || _minYear > 0;
+
+  void _clearFilters() {
+    setState(() {
+      _typeFilter = '';
+      _topRatedOnly = false;
+      _minYear = 0;
+    });
+  }
+
+  bool get _hasMoreForFilter {
+    switch (_typeFilter) {
+      case 'film':
+        return _hasMoreFilms;
+      case 'serie':
+        return _hasMoreSeries;
+      case 'anime':
+        return _hasMoreAnime;
+      default:
+        return _hasMoreFilms || _hasMoreSeries || _hasMoreAnime;
     }
   }
 
@@ -293,10 +426,10 @@ class _SearchScreenState extends State<SearchScreen> {
                         scrollDirection: Axis.horizontal,
                         child: Row(
                           children: [
-                      _filterChip('', 'Tous'),
-                      _filterChip('film', 'Films'),
-                      _filterChip('serie', 'Séries'),
-                      _filterChip('anime', 'Anime'),
+                      _filterChip('', 'Tous ($_totalCount)'),
+                      _filterChip('film', 'Films ($_filmCount)'),
+                      _filterChip('serie', 'Séries ($_serieCount)'),
+                      _filterChip('anime', 'Anime (${_animeResults.length})'),
                       _toggleChip('⭐ 7+', _topRatedOnly, (v) {
                         setState(() => _topRatedOnly = v);
                       }),
@@ -538,7 +671,10 @@ class _SearchScreenState extends State<SearchScreen> {
 
     var films = _results;
     var animes = _animeResults;
-    if (_typeFilter == 'film') animes = [];
+    if (_typeFilter == 'film') {
+      films = films.where((c) => c.isFilm).toList();
+      animes = [];
+    }
     if (_typeFilter == 'serie') {
       films = films.where((c) => c.contentType == 'serie').toList();
       animes = [];
@@ -557,6 +693,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
     if (useGrid) {
       final total = all.length;
+      final showLoader = _hasMoreForFilter;
       return Focus(
         canRequestFocus: false,
         onKeyEvent: isTV
@@ -579,6 +716,13 @@ class _SearchScreenState extends State<SearchScreen> {
         child: FocusTraversalGroup(
           policy: ReadingOrderTraversalPolicy(),
           child: GridView.builder(
+            controller: _scrollCtrl,
+            // Grille stable au scroll : étendue de cache + pas de
+            // keep-alive coûteux, cartes déjà en RepaintBoundary.
+            // ignore: deprecated_member_use
+            cacheExtent: 800,
+            addAutomaticKeepAlives: false,
+            addRepaintBoundaries: true,
             padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, isTV ? 32 : 132),
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: cols,
@@ -586,19 +730,68 @@ class _SearchScreenState extends State<SearchScreen> {
               crossAxisSpacing: NeoTheme.gridSpacing(context),
               mainAxisSpacing: NeoTheme.gridSpacing(context),
             ),
-            itemCount: all.length,
-            itemBuilder: (ctx, i) => _buildCard(ctx, all[i], i),
+            itemCount: all.length + (showLoader ? 1 : 0),
+            findChildIndexCallback: (key) {
+              final k = key as ValueKey<String>?;
+              if (k == null) return null;
+              final idx = all.indexWhere((e) => _searchItemKey(e) == k.value);
+              return idx < 0 ? null : idx;
+            },
+            itemBuilder: (ctx, i) {
+              if (i >= all.length) return _buildDiscreteLoader(context);
+              return _buildCard(ctx, all[i], i);
+            },
           ),
         ),
       );
     }
 
     return ListView.builder(
+      controller: _scrollCtrl,
+      // ignore: deprecated_member_use
+      cacheExtent: 800,
+      addAutomaticKeepAlives: false,
+      addRepaintBoundaries: true,
       padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, isTV ? 32 : 132),
-      itemCount: all.length,
-      itemBuilder: (ctx, i) => Padding(
-        padding: EdgeInsets.only(bottom: 10),
-        child: _buildCard(ctx, all[i], i),
+      itemCount: all.length + (_hasMoreForFilter ? 1 : 0),
+      itemBuilder: (ctx, i) {
+        if (i >= all.length) return _buildDiscreteLoader(context);
+        return Padding(
+          padding: EdgeInsets.only(bottom: 10),
+          child: _buildCard(ctx, all[i], i),
+        );
+      },
+    );
+  }
+
+  /// Clé stable par résultat (évite les rebuilds croisés au scroll).
+  String _searchItemKey(dynamic item) {
+    if (item is Anime) return 'anime_${item.id}';
+    final c = item as Content;
+    return '${c.contentType}_${c.id}';
+  }
+
+  /// Loader de fin discret : petit spinner 20px + libellé.
+  Widget _buildDiscreteLoader(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      child: Center(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'Chargement…',
+              style: Neo.bodySmall(context)
+                  .copyWith(color: Neo.textTertiary(context)),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -612,6 +805,8 @@ class _SearchScreenState extends State<SearchScreen> {
         id: item.id, title: item.title, description: item.synopsis,
         contentType: 'anime', genres: item.genres, rating: 0,
         poster: item.posterUrl, keywords: [], watchLinks: [],
+        seasonCount: item.totalSeasons,
+        episodeCount: item.totalEpisodes,
         releaseDate: null, createdAt: null,
       );
       onTap = () => _openAnime(item);
@@ -621,6 +816,7 @@ class _SearchScreenState extends State<SearchScreen> {
     }
 
     return ContentCard(
+      key: ValueKey(_searchItemKey(item)),
       content: content,
       variant: NeoTheme.isTV(context) ? CardVariant.standard : CardVariant.search,
       index: index,
@@ -638,17 +834,29 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Widget _buildEmpty(BuildContext context, bool isError, {bool compact = false}) {
+    final hasFilters = _hasActiveFilters && !isError && _query.isNotEmpty;
     return Center(
       child: Padding(
         padding: EdgeInsets.all(compact ? 16 : 32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              isError ? Icons.wifi_off_rounded
-                  : _query.isEmpty ? Icons.search_rounded
-                  : Icons.search_off_rounded,
-              size: 56, color: Neo.textDisabled(context),
+            Container(
+              width: 88,
+              height: 88,
+              decoration: BoxDecoration(
+                color: Neo.bgOverlay(context),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Neo.bgBorder(context).withValues(alpha: 0.25),
+                ),
+              ),
+              child: Icon(
+                isError ? Icons.wifi_off_rounded
+                    : _query.isEmpty ? Icons.search_rounded
+                    : Icons.search_off_rounded,
+                size: 40, color: Neo.textDisabled(context),
+              ),
             ),
             SizedBox(height: 16),
             Text(
@@ -658,11 +866,34 @@ class _SearchScreenState extends State<SearchScreen> {
               style: Neo.titleMedium(context),
               textAlign: TextAlign.center,
             ),
-            if (_query.isEmpty) ...[
-              SizedBox(height: 8),
-              Text('Tapez au moins 2 caractères',
-                  style: Neo.bodyMedium(context).copyWith(color: Neo.textSecondary(context)),
-                  textAlign: TextAlign.center),
+            SizedBox(height: 8),
+            Text(
+              isError
+                  ? (_error ?? 'Connexion impossible. Vérifiez votre réseau.')
+                  : _query.isEmpty
+                      ? 'Tapez au moins 2 caractères'
+                      : hasFilters
+                          ? 'Essayez d\'élargir les filtres ou une autre orthographe.'
+                          : 'Essayez un autre titre ou une autre orthographe.',
+              style: Neo.bodyMedium(context).copyWith(color: Neo.textSecondary(context)),
+              textAlign: TextAlign.center,
+            ),
+            if (isError) ...[
+              SizedBox(height: 20),
+              ElevatedButton.icon(
+                onPressed: _query.isNotEmpty
+                    ? () => _search(_query, force: true)
+                    : null,
+                icon: Icon(Icons.refresh_rounded, size: 18),
+                label: Text('Réessayer'),
+              ),
+            ] else if (hasFilters) ...[
+              SizedBox(height: 20),
+              OutlinedButton.icon(
+                onPressed: _clearFilters,
+                icon: Icon(Icons.filter_alt_off_rounded, size: 18),
+                label: Text('Effacer les filtres'),
+              ),
             ],
           ],
         ),
@@ -708,25 +939,12 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildShimmer(BuildContext context, bool isTV, EdgeInsets pad) {
     final cols = isTV ? 5 : 2;
-    return GridView.builder(
-      padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, isTV ? 32 : 132),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: cols,
-        childAspectRatio: 2 / 3,
-        crossAxisSpacing: NeoTheme.gridSpacing(context),
-        mainAxisSpacing: NeoTheme.gridSpacing(context),
-      ),
+    return ShimmerSearchGrid(
+      crossAxisCount: cols,
+      isTV: isTV,
       itemCount: cols * 3,
-      itemBuilder: (_1, _2) => Shimmer.fromColors(
-        baseColor: Neo.bgElevated(context),
-        highlightColor: Neo.bgBorder(context).withValues(alpha: 0.3),
-        child: Container(
-          decoration: BoxDecoration(
-            color: Neo.bgElevated(context),
-            borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
-          ),
-        ),
-      ),
+      padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, isTV ? 32 : 132),
+      childAspectRatio: 2 / 3,
     );
   }
 }

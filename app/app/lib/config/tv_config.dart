@@ -19,10 +19,14 @@ class TVConfig {
   static const double focusScale = 1.08;
   static const double unfocusScale = 1.0;
 
+  // Focus TV lisible à 3 m : bordure très épaisse + rouge vif.
+  // Utilisé par TVFocusableCard et comme référence par les écrans
+  // à focus custom (ex. IptvScreen).
   static const Color focusBorderColor = Color(0xFFE50914);
+  static const Color focusHaloColor = Color(0xFFFFFFFF);
   static const Color defaultBorderColor = Color(0x33FFFFFF);
 
-  static const double focusBorderWidth = 3.0;
+  static const double focusBorderWidth = 4.0;
   static const double defaultBorderWidth = 0.5;
 
   static const double remoteDpadScrollStep = 0.15;
@@ -135,10 +139,13 @@ class TVTheme {
   static BoxDecoration get focusedCardDecoration => BoxDecoration(
     gradient: cardGradient,
     borderRadius: BorderRadius.circular(16),
+    // Anneau bien visible à 3 m : bordure épaisse rouge + halo blanc externe.
     border: Border.all(color: TVConfig.focusBorderColor, width: TVConfig.focusBorderWidth),
     boxShadow: const [
-      BoxShadow(color: Color(0x60E50914), blurRadius: 24, offset: Offset(0, 12)),
-      BoxShadow(color: Color(0x40E50914), blurRadius: 48, spreadRadius: 4),
+      // Halo blanc fin : détache la carte du fond sombre.
+      BoxShadow(color: Color(0xE6FFFFFF), blurRadius: 6, spreadRadius: 1.5),
+      BoxShadow(color: Color(0x90E50914), blurRadius: 28, offset: Offset(0, 12)),
+      BoxShadow(color: Color(0x55E50914), blurRadius: 64, spreadRadius: 8),
     ],
   );
 

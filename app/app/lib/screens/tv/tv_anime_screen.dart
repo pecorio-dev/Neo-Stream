@@ -6,6 +6,7 @@ import '../../services/api_service.dart';
 import '../../widgets/tv_wrapper.dart';
 import '../../widgets/tv_focusable_card.dart';
 import '../../widgets/tv_content_card.dart';
+import '../../widgets/metadata_pill.dart';
 import 'tv_anime_detail_screen.dart';
 
 class TVAnimeScreen extends StatefulWidget {
@@ -286,6 +287,8 @@ class _TVAnimeScreenState extends State<TVAnimeScreen> {
             return const Center(child: CircularProgressIndicator(color: TVTheme.accentRed));
           }
           final anime = _items[index];
+          final stats = animeWatchStats(anime);
+          final progress = stats.percent > 0 ? stats.percent : null;
           return TVFocusableCard(
             onTap: () => _navigateToDetail(anime),
             padding: EdgeInsets.zero,
@@ -295,11 +298,12 @@ class _TVAnimeScreenState extends State<TVAnimeScreen> {
             child: TVContentCard(
               posterUrl: anime.posterUrl ?? '',
               title: anime.title,
-              subtitle: '${anime.totalSeasons} saison${anime.totalSeasons > 1 ? 's' : ''}',
+              pills: pillsFromAnime(anime, short: true),
               typeLabel: 'Anime',
               typeIcon: Icons.animation,
-              badgeValue: anime.totalEpisodes,
-              badgeIcon: Icons.play_circle_outline,
+              progressPercent: progress,
+              badgeLabel:
+                  anime.totalEpisodes > 0 ? '${anime.totalEpisodes} ép.' : null,
             ),
           );
         },

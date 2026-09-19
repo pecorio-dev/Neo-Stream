@@ -2,14 +2,15 @@
 class AppConstants {
   AppConstants._();
 
-  // API (slash final pour résolution correcte des chemins relatifs)
+  // API VOD films/séries (inchangée — ne jamais utiliser pour le LIVE).
   static const String apiBaseUrl = 'https://neo-stream.eu/app/';
 
-  // Proxy IPTV PHP (live_proxy.php) — gère l'auth session + la clé admin WITV.
+  // Proxy PHP neo-stream.eu (VOD uniquement).
   // Endpoints : auth.php (login), live_proxy.php (validate, channels, m3u8).
   static const String phpProxyBaseUrl = 'https://neo-stream.eu/api/';
 
-  // Proxy IPTV FSTV (legacy — reverse proxy vers witv_secure_proxy.py:8080).
+  // Proxy IPTV LIVE — connexion DIRECTE officielle (jamais via neo-stream.eu).
+  // Contrat : live_proxy.php?action=channels|m3u8|stream|validate.
   static const String fstvProxyBaseUrl = 'https://iptv.mine.bz';
 
   /// URL d’API pour un chemin relatif, ex. `auth/login` ou `content/search?q=…`.
@@ -19,7 +20,7 @@ class AppConstants {
   }
   static const Duration apiTimeout = Duration(seconds: 30);
   static const Duration extractTimeout = Duration(seconds: 30);
-  static const String appVersion = '1.4.1';
+  static const String appVersion = '1.5.0';
   static const String appClient = 'neo-stream-flutter';
   static const Duration integrityRefreshMargin = Duration(minutes: 10);
 

@@ -6,6 +6,7 @@ import 'package:shimmer/shimmer.dart';
 import '../config/theme.dart';
 import '../config/neo.dart';
 import '../models/content.dart';
+import 'metadata_pill.dart';
 
 enum CardVariant {
   standard,
@@ -145,7 +146,8 @@ class _ContentCardState extends State<ContentCard> {
 
   Widget _buildStandardCard(BuildContext context) {
     final compact = MediaQuery.of(context).size.width < 430;
-    final footerPills = _buildFooterPills(context, limit: compact ? 2 : 3);
+    final pills = pillsFromContent(widget.content, short: compact);
+    final cardProgress = effectiveCardProgress(widget.content);
 
     return Container(
       width: NeoTheme.cardWidth(context),
@@ -212,14 +214,13 @@ class _ContentCardState extends State<ContentCard> {
             ),
           ),
 
-          // Progress bar
-          if (widget.content.progressPercent != null &&
-              widget.content.progressPercent! > 0)
+          // Progress bar (films : position/durée ; séries : dernier épisode joué)
+          if (cardProgress > 0)
             Positioned(
               left: 0,
               right: 0,
               bottom: 0,
-              child: _buildProgressBar(widget.content.progressPercent!),
+              child: _buildProgressBar(cardProgress),
             ),
 
           // Info footer
@@ -247,15 +248,6 @@ class _ContentCardState extends State<ContentCard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (widget.content.languageTag.isNotEmpty)
-                    Padding(
-                      padding: EdgeInsets.only(bottom: 8),
-                      child: _buildInfoPill(
-                        context,
-                        widget.content.languageTag,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
                   Text(
                     widget.content.displayTitle,
                     maxLines: 2,
@@ -265,21 +257,11 @@ class _ContentCardState extends State<ContentCard> {
                       height: 1.15,
                     ),
                   ),
-                  SizedBox(height: 5),
-                  Text(
-                    _metaLine(),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Neo.labelSmall(context)
-                        .copyWith(color: Neo.textSecondary(context)),
+                  SizedBox(height: 8),
+                  MetadataPillsRow(
+                    pills: pills,
+                    maxPills: compact ? 2 : 3,
                   ),
-                  if (footerPills.isNotEmpty) ...[
-                    SizedBox(height: 9),
-                    Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: footerPills),
-                  ],
                   if (!compact &&
                       widget.content.description != null &&
                       widget.content.description!.trim().isNotEmpty) ...[
@@ -377,7 +359,7 @@ class _ContentCardState extends State<ContentCard> {
   // ─── Recommendation Card ─────────────────────────────────────────
 
   Widget _buildRecommendationCard(BuildContext context) {
-    final footerPills = _buildFooterPills(context, limit: 2);
+    final pills = pillsFromContent(widget.content, short: true);
 
     return Container(
       width: NeoTheme.cardWidth(context),
@@ -482,14 +464,6 @@ class _ContentCardState extends State<ContentCard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (widget.content.languageTag.isNotEmpty) ...[
-                    _buildInfoPill(
-                      context,
-                      widget.content.languageTag,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    SizedBox(height: 8),
-                  ],
                   FittedBox(
                     fit: BoxFit.scaleDown,
                     alignment: Alignment.centerLeft,
@@ -502,19 +476,8 @@ class _ContentCardState extends State<ContentCard> {
                       ),
                     ),
                   ),
-                  SizedBox(height: 5),
-                  Text(
-                    widget.content.typeLabel,
-                    style: Neo.labelSmall(context)
-                        .copyWith(color: Neo.textSecondary(context)),
-                  ),
-                  if (footerPills.isNotEmpty) ...[
-                    SizedBox(height: 9),
-                    Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: footerPills),
-                  ],
+                  SizedBox(height: 8),
+                  MetadataPillsRow(pills: pills, maxPills: 2),
                   if (widget.content.description != null &&
                       widget.content.description!.trim().isNotEmpty) ...[
                     SizedBox(height: 8),
@@ -539,6 +502,21 @@ class _ContentCardState extends State<ContentCard> {
 
   Widget _buildContinueWatchingCard(BuildContext context) {
     final isTV = NeoTheme.isTV(context);
+    final cardProgress = effectiveCardProgress(widget.content);
+    final resumePills = <PillData>[
+      if (widget.content.isSerie && widget.content.seasonCount > 0)
+        PillData(
+          widget.content.seasonCount > 1
+              ? '${widget.content.seasonCount} saisons'
+              : '1 saison',
+          tone: PillTone.seasons,
+        ),
+      if (widget.content.episodeCount > 0 &&
+          (widget.content.isSerie || widget.content.isAnime))
+        PillData('${widget.content.episodeCount} ép.', tone: PillTone.episodes),
+      if (widget.content.languageTag.isNotEmpty)
+        PillData(widget.content.languageTag, tone: PillTone.lang),
+    ];
     return Container(
       width: isTV ? 372 : 318,
       decoration: _isFocused
@@ -595,13 +573,17 @@ class _ContentCardState extends State<ContentCard> {
                         overflow: TextOverflow.ellipsis,
                         style: Neo.bodySmall(context),
                       ),
+                      if (resumePills.isNotEmpty) ...[
+                        SizedBox(height: 6),
+                        MetadataPillsRow(pills: resumePills, maxPills: 3),
+                      ],
                     ],
                   ),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (widget.content.progressPercent != null) ...[
-                        _buildProgressBar(widget.content.progressPercent!),
+                      if (cardProgress > 0) ...[
+                        _buildProgressBar(cardProgress),
                         SizedBox(height: 8),
                       ],
                       Row(
@@ -635,6 +617,7 @@ class _ContentCardState extends State<ContentCard> {
 
   Widget _buildSearchCard(BuildContext context) {
     final showDescription = MediaQuery.of(context).size.width >= 900;
+    final pills = pillsFromContent(widget.content);
 
     return Container(
       decoration: BoxDecoration(
@@ -692,38 +675,7 @@ class _ContentCardState extends State<ContentCard> {
                     ],
                   ),
                   SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _buildTypeBadge(),
-                      if (widget.content.languageTag.isNotEmpty)
-                        _buildInfoPill(
-                          context,
-                          widget.content.languageTag,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                      if (widget.content.releaseDate != null)
-                        _buildInfoPill(
-                          context,
-                          '${widget.content.releaseDate}',
-                        ),
-                    ],
-                  ),
-                  SizedBox(height: 10),
-                  Text(
-                    widget.content.genresText,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Neo.bodySmall(context)
-                        .copyWith(color: Neo.textSecondary(context)),
-                  ),
-                  SizedBox(height: 12),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: _buildFooterPills(context, limit: 2),
-                  ),
+                  MetadataPillsRow(pills: pills, maxPills: 4),
                   SizedBox(height: 12),
                   if (showDescription &&
                       widget.content.description != null &&
@@ -915,72 +867,6 @@ class _ContentCardState extends State<ContentCard> {
     );
   }
 
-  String _metaLine() {
-    final parts = <String>[];
-    if (widget.content.releaseDate != null) {
-      parts.add('${widget.content.releaseDate}');
-    }
-    if (parts.isEmpty) {
-      parts.add(widget.content.typeLabel);
-    }
-    return parts.join(' / ');
-  }
-
-  List<Widget> _buildFooterPills(BuildContext context, {int limit = 3}) {
-    final pills = <Widget>[];
-
-    if (widget.content.isSerie && widget.content.seasonCount > 0) {
-      pills.add(
-        _buildInfoPill(
-          context,
-          widget.content.seasonCount > 1
-              ? '${widget.content.seasonCount} saisons'
-              : '1 saison',
-        ),
-      );
-    }
-
-    if (widget.content.episodeCount > 0) {
-      pills.add(
-          _buildInfoPill(context, '${widget.content.episodeCount} ep'));
-    }
-
-    if (widget.content.mainGenre.isNotEmpty) {
-      pills.add(
-        _buildInfoPill(
-          context,
-          widget.content.mainGenre,
-          color: Neo.textPrimary(context),
-        ),
-      );
-    }
-
-    if (widget.content.matchPercent != null) {
-      final showMatchInFooter =
-          widget.variant != CardVariant.recommendation;
-      if (showMatchInFooter) {
-        pills.add(
-          _buildInfoPill(
-            context,
-            '${widget.content.matchPercent}% match',
-            color: Theme.of(context).colorScheme.primary,
-          ),
-        );
-      }
-    }
-
-    if ((widget.content.todayViews ?? 0) > 0) {
-      pills.add(
-        _buildInfoPill(
-          context,
-          '${widget.content.todayViews} vues',
-          color: Neo.textPrimary(context),
-        ),
-      );
-    }
-
-    return pills.take(limit).toList();
-  }
 }
 
 /// Affiche bundlée « Image non disponible » utilisée quand le poster

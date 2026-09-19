@@ -579,15 +579,102 @@ class ApiService {
         as Map<String, dynamic>;
   }
 
-  Future<List<Content>> searchContent(String query, {int page = 1}) async {
-    final data = await _get(
-      'content/search?q=${Uri.encodeComponent(query)}&page=$page',
-    );
-    final items = ((data as Map<String, dynamic>)['items'] as List?) ?? [];
-    return items
+  /// Résultat paginé de `content/search`.
+  /// `totalPages` est renseigné quand le backend le fournit, sinon `hasMore`
+  /// se déduit de `items.length >= perPage`.
+  ///
+  /// Perf : cache mémoire court (90s) + déduplication des requêtes
+  /// identiques en vol. La pagination 20+20+10 et le proxy live sont
+  /// inchangés — seul le réseau redondant est évité.
+  static const Duration _searchCacheTtl = Duration(seconds: 90);
+  static final Map<String, ({DateTime at, PagedContentResult res})>
+      _contentSearchCache = {};
+  static final Map<String, ({DateTime at, PagedAnimeResult res})>
+      _animeSearchCache = {};
+  static final Map<String, Future> _searchInflight = {};
+
+  static String _contentSearchKey(
+          String q, int page, String? type, int perPage) =>
+      'c|${q.trim().toLowerCase()}|$page|${type ?? ''}|$perPage';
+  static String _animeSearchKey(String q, int page, int limit) =>
+      'a|${q.trim().toLowerCase()}|$page|$limit';
+
+  Future<PagedContentResult> searchContentPaged(
+    String query, {
+    int page = 1,
+    String? type,
+    int perPage = 20,
+  }) async {
+    final params = <String, String>{
+      'q': query,
+      'page': page.toString(),
+      'per_page': perPage.toString(),
+    };
+    if (type != null && type.isNotEmpty) params['type'] = type;
+    final qs = params.entries
+        .map((e) => '${e.key}=${Uri.encodeComponent(e.value)}')
+        .join('&');
+    final key = _contentSearchKey(query, page, type, perPage);
+    final cached = _contentSearchCache[key];
+    if (cached != null &&
+        DateTime.now().difference(cached.at) < _searchCacheTtl) {
+      return cached.res;
+    }
+    final inflight = _searchInflight[key];
+    if (inflight is Future<PagedContentResult>) return inflight;
+    final future = _fetchContentPaged(qs, page, perPage);
+    _searchInflight[key] = future;
+    try {
+      final res = await future;
+      if (_contentSearchCache.length > 120) _contentSearchCache.clear();
+      _contentSearchCache[key] = (at: DateTime.now(), res: res);
+      return res;
+    } finally {
+      _searchInflight.remove(key);
+    }
+  }
+
+  Future<PagedContentResult> _fetchContentPaged(
+      String qs, int page, int perPage) async {
+    final data = await _get('content/search?$qs');
+    final map = data as Map<String, dynamic>;
+    final items = ((map['items'] as List?) ?? [])
         .map((e) => Content.fromJson(e as Map<String, dynamic>))
         .where((c) => c.hasPoster)
         .toList();
+    int? totalPages;
+    for (final key in ['total_pages', 'totalPages', 'pages', 'page_count']) {
+      final v = map[key];
+      if (v is int && v > 0) {
+        totalPages = v;
+        break;
+      }
+      final parsed = int.tryParse(v?.toString() ?? '');
+      if (parsed != null && parsed > 0) {
+        totalPages = parsed;
+        break;
+      }
+    }
+    // Certains backends exposent total/total_items + per_page.
+    if (totalPages == null) {
+      final total = int.tryParse(
+          (map['total'] ?? map['total_items'] ?? map['count'])?.toString() ?? '');
+      if (total != null && total >= 0) {
+        totalPages = (total / perPage).ceil();
+      }
+    }
+    final currentPage = int.tryParse(map['page']?.toString() ?? '') ?? page;
+    final bool hasMore = totalPages != null
+        ? currentPage < totalPages
+        : items.length >= perPage;
+    return PagedContentResult(
+        items: items, hasMore: hasMore, totalPages: totalPages, page: currentPage);
+  }
+
+  /// Compat : recherche films/séries non paginée (page 1, 20 résultats).
+  Future<List<Content>> searchContent(String query, {int page = 1}) async {
+    final res = await searchContentPaged(query, page: page, perPage: 20);
+    return res.items;
   }
 
   Future<List<Content>> getDailyTop({String? type, int limit = 10}) async {
@@ -848,12 +935,70 @@ class ApiService {
         as Map<String, dynamic>;
   }
 
-  Future<List<Map<String, dynamic>>> searchAnime(String query, {int limit = 20}) async {
+  /// Recherche anime paginée : `anime?action=search&q=&page=&limit=`.
+  /// Même cache court + dédup que [searchContentPaged].
+  Future<PagedAnimeResult> searchAnimePaged(
+    String query, {
+    int page = 1,
+    int limit = 10,
+  }) async {
+    final key = _animeSearchKey(query, page, limit);
+    final cached = _animeSearchCache[key];
+    if (cached != null &&
+        DateTime.now().difference(cached.at) < _searchCacheTtl) {
+      return cached.res;
+    }
+    final inflight = _searchInflight[key];
+    if (inflight is Future<PagedAnimeResult>) return inflight;
+    final future = _fetchAnimePaged(query, page: page, limit: limit);
+    _searchInflight[key] = future;
+    try {
+      final res = await future;
+      if (_animeSearchCache.length > 120) _animeSearchCache.clear();
+      _animeSearchCache[key] = (at: DateTime.now(), res: res);
+      return res;
+    } finally {
+      _searchInflight.remove(key);
+    }
+  }
+
+  Future<PagedAnimeResult> _fetchAnimePaged(
+    String query, {
+    int page = 1,
+    int limit = 10,
+  }) async {
     final data = await _get(
-      'anime?action=search&q=${Uri.encodeComponent(query)}&limit=$limit',
+      'anime?action=search&q=${Uri.encodeComponent(query)}&page=$page&limit=$limit',
     );
-    final results = ((data as Map<String, dynamic>)['results'] as List?) ?? [];
-    return results.cast<Map<String, dynamic>>();
+    final map = data as Map<String, dynamic>;
+    final results = ((map['results'] as List?) ?? [])
+        .cast<Map<String, dynamic>>();
+    int? totalPages;
+    for (final key in ['total_pages', 'totalPages', 'pages', 'page_count']) {
+      final parsed = int.tryParse(map[key]?.toString() ?? '');
+      if (parsed != null && parsed > 0) {
+        totalPages = parsed;
+        break;
+      }
+    }
+    final currentPage = int.tryParse(map['page']?.toString() ?? '') ?? page;
+    final rawHasMore = map['has_more'] ?? map['hasMore'];
+    final bool hasMore;
+    if (rawHasMore is bool) {
+      hasMore = rawHasMore;
+    } else if (totalPages != null) {
+      hasMore = currentPage < totalPages;
+    } else {
+      hasMore = results.length >= limit;
+    }
+    return PagedAnimeResult(
+        items: results, hasMore: hasMore, totalPages: totalPages, page: currentPage);
+  }
+
+  /// Compat : recherche anime non paginée (page 1, `limit` résultats).
+  Future<List<Map<String, dynamic>>> searchAnime(String query, {int limit = 20}) async {
+    final res = await searchAnimePaged(query, page: 1, limit: limit);
+    return res.items;
   }
 
   Future<Map<String, dynamic>> getAnimeSeasons(int id) async {
@@ -904,4 +1049,34 @@ class PremiumRequiredException extends ApiException {
 
 class RateLimitException extends ApiException {
   RateLimitException(String message) : super(message, 429);
+}
+
+/// Page de résultats `content/search` (films/séries).
+class PagedContentResult {
+  final List<Content> items;
+  final bool hasMore;
+  final int? totalPages;
+  final int page;
+
+  const PagedContentResult({
+    required this.items,
+    required this.hasMore,
+    this.totalPages,
+    required this.page,
+  });
+}
+
+/// Page de résultats `anime?action=search`.
+class PagedAnimeResult {
+  final List<Map<String, dynamic>> items;
+  final bool hasMore;
+  final int? totalPages;
+  final int page;
+
+  const PagedAnimeResult({
+    required this.items,
+    required this.hasMore,
+    this.totalPages,
+    required this.page,
+  });
 }

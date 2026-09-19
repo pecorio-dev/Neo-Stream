@@ -22,6 +22,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   final ApiService _api = ApiService();
   List<Content> _items = [];
   bool _isLoading = true;
+  bool _loadInFlight = false;
   String? _error;
 
   @override
@@ -38,8 +39,8 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   }
 
   Future<void> _load() async {
-    if (!mounted) return;
-    if (_isLoading) return;
+    if (!mounted || _loadInFlight) return;
+    _loadInFlight = true;
     setState(() { _isLoading = true; _error = null; });
     try {
       final data = await _api.getLibrary();
@@ -51,6 +52,8 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() { _error = humanizeApiError(e); _isLoading = false; });
+    } finally {
+      _loadInFlight = false;
     }
   }
 

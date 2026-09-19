@@ -22,6 +22,13 @@ class _LoginScreenState extends State<LoginScreen>
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
+  // Ordre D-pad haut -> bas : username, email (register), password,
+  // bouton principal, bouton de bascule. Jamais de Focus a
+  // canRequestFocus:false autour des champs : le TextField garde son
+  // propre noeud et le visuel focus reste visible.
+  final FocusNode _usernameNode = FocusNode(debugLabel: 'loginUsername');
+  final FocusNode _emailNode = FocusNode(debugLabel: 'loginEmail');
+  final FocusNode _passwordNode = FocusNode(debugLabel: 'loginPassword');
 
   bool _obscurePassword = true;
   bool _isRegisterMode = false;
@@ -52,6 +59,9 @@ class _LoginScreenState extends State<LoginScreen>
     _usernameController.dispose();
     _passwordController.dispose();
     _emailController.dispose();
+    _usernameNode.dispose();
+    _emailNode.dispose();
+    _passwordNode.dispose();
     _introController.dispose();
     super.dispose();
   }
@@ -344,7 +354,9 @@ class _LoginScreenState extends State<LoginScreen>
         boxShadow: NeoTheme.shadowLevel2,
       ),
       child: FocusTraversalGroup(
-        policy: OrderedTraversalPolicy(),
+        // Ordre haut -> bas des widgets : Up/Down D-pad naviguent au lieu
+        // de boucler, Enter (next/done) avance au champ/bouton suivant.
+        policy: WidgetOrderTraversalPolicy(),
         child: AutofillGroup(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -361,92 +373,50 @@ class _LoginScreenState extends State<LoginScreen>
               style: Neo.bodyMedium(context).copyWith(color: Neo.textTertiary(context)),
             ),
             SizedBox(height: 22),
-            Focus(
-              // Ne pas capter le focus : laisser le D-pad/OK atteindre
-              // directement le TextField pour ouvrir le clavier.
-              canRequestFocus: false,
-              skipTraversal: true,
-              child: Builder(
-                builder: (ctx) {
-                  final isFocused = Focus.of(ctx).hasFocus;
-                  return AnimatedContainer(
-                    duration: NeoTheme.durationFast,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
-                      border: Border.all(
-                        color: isFocused ? Theme.of(context).colorScheme.primary : Colors.transparent,
-                        width: isFocused ? 2.0 : 0.0,
-                      ),
-                      boxShadow: isFocused ? NeoTheme.shadowLevel1 : null,
+            ListenableBuilder(
+              listenable: _usernameNode,
+              builder: (context, _) {
+                final isFocused = _usernameNode.hasFocus;
+                return AnimatedContainer(
+                  duration: NeoTheme.durationFast,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
+                    border: Border.all(
+                      color: isFocused ? Theme.of(context).colorScheme.primary : Colors.transparent,
+                      width: isFocused ? 2.0 : 0.0,
                     ),
-                    child: TextField(
-                      controller: _usernameController,
-                      autofillHints: const [AutofillHints.username],
-                      style: NeoTheme.bodyLarge(
-                        context,
-                      ).copyWith(color: Neo.textPrimary(context)),
-                      decoration: InputDecoration(
-                        labelText: 'Nom utilisateur',
-                        prefixIcon: Icon(
-                          Icons.person_outline_rounded,
-                          color: Neo.textTertiary(context),
-                        ),
+                    boxShadow: isFocused ? NeoTheme.shadowLevel1 : null,
+                  ),
+                  child: TextField(
+                    controller: _usernameController,
+                    focusNode: _usernameNode,
+                    autofillHints: const [AutofillHints.username],
+                    style: NeoTheme.bodyLarge(
+                      context,
+                    ).copyWith(color: Neo.textPrimary(context)),
+                    decoration: InputDecoration(
+                      labelText: 'Nom utilisateur',
+                      prefixIcon: Icon(
+                        Icons.person_outline_rounded,
+                        color: isFocused
+                            ? Theme.of(context).colorScheme.primary
+                            : Neo.textTertiary(context),
                       ),
-                      textInputAction: TextInputAction.next,
-                      autofocus: true,
                     ),
-                  );
-                }
-              ),
+                    textInputAction: TextInputAction.next,
+                    onSubmitted: (_) =>
+                        FocusScope.of(context).nextFocus(),
+                    autofocus: true,
+                  ),
+                );
+              },
             ),
             if (_isRegisterMode) ...[
               SizedBox(height: 16),
-              Focus(
-                canRequestFocus: false,
-                skipTraversal: true,
-                child: Builder(
-                  builder: (ctx) {
-                    final isFocused = Focus.of(ctx).hasFocus;
-                    return AnimatedContainer(
-                      duration: NeoTheme.durationFast,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
-                        border: Border.all(
-                          color: isFocused ? Theme.of(context).colorScheme.primary : Colors.transparent,
-                          width: isFocused ? 2.0 : 0.0,
-                        ),
-                        boxShadow: isFocused ? NeoTheme.shadowLevel1 : null,
-                      ),
-                      child: TextField(
-                        controller: _emailController,
-                        autofillHints: const [AutofillHints.email],
-                        keyboardType: TextInputType.emailAddress,
-                        style: NeoTheme.bodyLarge(
-                          context,
-                        ).copyWith(color: Neo.textPrimary(context)),
-                        decoration: InputDecoration(
-                          labelText: 'Email',
-                          prefixIcon: Icon(
-                            Icons.email_outlined,
-                            color: Neo.textTertiary(context),
-                          ),
-                        ),
-                        textInputAction: TextInputAction.next,
-                      ),
-                    );
-                  }
-                ),
-              ),
-            ],
-            SizedBox(height: 16),
-            Focus(
-              // Ne pas capter le focus : laisser le D-pad/OK atteindre
-              // directement le TextField pour ouvrir le clavier.
-              canRequestFocus: false,
-              skipTraversal: true,
-              child: Builder(
-                builder: (ctx) {
-                  final isFocused = Focus.of(ctx).hasFocus;
+              ListenableBuilder(
+                listenable: _emailNode,
+                builder: (context, _) {
+                  final isFocused = _emailNode.hasFocus;
                   return AnimatedContainer(
                     duration: NeoTheme.durationFast,
                     decoration: BoxDecoration(
@@ -458,40 +428,82 @@ class _LoginScreenState extends State<LoginScreen>
                       boxShadow: isFocused ? NeoTheme.shadowLevel1 : null,
                     ),
                     child: TextField(
-                      controller: _passwordController,
-                      autofillHints: _isRegisterMode
-                          ? const [AutofillHints.newPassword]
-                          : const [AutofillHints.password],
-                      obscureText: _obscurePassword,
+                      controller: _emailController,
+                      focusNode: _emailNode,
+                      autofillHints: const [AutofillHints.email],
+                      keyboardType: TextInputType.emailAddress,
                       style: NeoTheme.bodyLarge(
                         context,
                       ).copyWith(color: Neo.textPrimary(context)),
                       decoration: InputDecoration(
-                        labelText: 'Mot de passe',
+                        labelText: 'Email',
                         prefixIcon: Icon(
-                          Icons.lock_outline_rounded,
-                          color: Neo.textTertiary(context),
-                        ),
-                        suffixIcon: IconButton(
-                          onPressed: () {
-                            setState(() {
-                              _obscurePassword = !_obscurePassword;
-                            });
-                          },
-                          icon: Icon(
-                            _obscurePassword
-                                ? Icons.visibility_off_outlined
-                                : Icons.visibility_outlined,
-                            color: Neo.textTertiary(context),
-                          ),
+                          Icons.email_outlined,
+                          color: isFocused
+                              ? Theme.of(context).colorScheme.primary
+                              : Neo.textTertiary(context),
                         ),
                       ),
-                      textInputAction: TextInputAction.done,
-                      onSubmitted: (_) => _submit(),
+                      textInputAction: TextInputAction.next,
+                      onSubmitted: (_) =>
+                          FocusScope.of(context).nextFocus(),
                     ),
                   );
-                }
+                },
               ),
+            ],
+            SizedBox(height: 16),
+            ListenableBuilder(
+              listenable: _passwordNode,
+              builder: (context, _) {
+                final isFocused = _passwordNode.hasFocus;
+                return AnimatedContainer(
+                  duration: NeoTheme.durationFast,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
+                    border: Border.all(
+                      color: isFocused ? Theme.of(context).colorScheme.primary : Colors.transparent,
+                      width: isFocused ? 2.0 : 0.0,
+                    ),
+                    boxShadow: isFocused ? NeoTheme.shadowLevel1 : null,
+                  ),
+                  child: TextField(
+                    controller: _passwordController,
+                    focusNode: _passwordNode,
+                    autofillHints: _isRegisterMode
+                        ? const [AutofillHints.newPassword]
+                        : const [AutofillHints.password],
+                    obscureText: _obscurePassword,
+                    style: NeoTheme.bodyLarge(
+                      context,
+                    ).copyWith(color: Neo.textPrimary(context)),
+                    decoration: InputDecoration(
+                      labelText: 'Mot de passe',
+                      prefixIcon: Icon(
+                        Icons.lock_outline_rounded,
+                        color: isFocused
+                            ? Theme.of(context).colorScheme.primary
+                            : Neo.textTertiary(context),
+                      ),
+                      suffixIcon: IconButton(
+                        onPressed: () {
+                          setState(() {
+                            _obscurePassword = !_obscurePassword;
+                          });
+                        },
+                        icon: Icon(
+                          _obscurePassword
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                          color: Neo.textTertiary(context),
+                        ),
+                      ),
+                    ),
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) => _submit(),
+                  ),
+                );
+              },
             ),
             if (auth.error != null) ...[
               SizedBox(height: 18),

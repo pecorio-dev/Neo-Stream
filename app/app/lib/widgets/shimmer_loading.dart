@@ -3,6 +3,102 @@ import 'package:shimmer/shimmer.dart';
 
 import '../config/theme.dart';
 import '../config/neo.dart';
+import '../config/tv_config.dart';
+
+/// Grille skeleton élégante pour les écrans de recherche (phone + TV).
+///
+/// Remplace le spinner brut pendant le chargement initial : cartes
+/// factices 2/3 avec titre + pills, dimensionnement stable identique à la
+/// vraie grille pour éviter tout saut de layout.
+class ShimmerSearchGrid extends StatelessWidget {
+  final int crossAxisCount;
+  final bool isTV;
+  final int itemCount;
+  final EdgeInsetsGeometry padding;
+  final double childAspectRatio;
+
+  const ShimmerSearchGrid({
+    super.key,
+    this.crossAxisCount = 2,
+    this.isTV = false,
+    this.itemCount = 12,
+    this.padding = EdgeInsets.zero,
+    this.childAspectRatio = 0.55,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final base = isTV ? TVTheme.cardColor : Neo.bgElevated(context);
+    final highlight =
+        isTV ? const Color(0xFF2A2A35) : Neo.bgBorder(context).withValues(alpha: 0.3);
+    return RepaintBoundary(
+      child: Shimmer.fromColors(
+        baseColor: base,
+        highlightColor: highlight,
+        period: const Duration(milliseconds: 1400),
+        child: GridView.builder(
+          physics: const NeverScrollableScrollPhysics(),
+          padding: padding,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            childAspectRatio: childAspectRatio,
+            mainAxisSpacing: 20,
+            crossAxisSpacing: 20,
+          ),
+          itemCount: itemCount,
+          itemBuilder: (_, __) => RepaintBoundary(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: base,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  height: 12,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: base,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        height: 16,
+                        decoration: BoxDecoration(
+                          color: base,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Container(
+                        height: 16,
+                        decoration: BoxDecoration(
+                          color: base,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class ShimmerHomeLoading extends StatelessWidget {
   ShimmerHomeLoading({super.key});

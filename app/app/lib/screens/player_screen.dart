@@ -116,6 +116,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Episode? _nextEpisode;
   bool _showNextUp = false;
 
+  // ── Reprise de lecture ──
+  /// Position restaurée (locale + serveur) AVANT init du controller.
+  /// Conservée pour l'affichage "Reprendre à MM:SS" même après le seek.
+  Duration? _resumeFrom;
+  bool _resumeDismissed = false;
+  /// Dernière durée totale connue (sert quand le controller reporte 0,
+  /// ex. lecteur natif Android qui ne remonte que la position).
+  Duration? _lastKnownDuration;
+  DateTime? _lastServerSave;
+
   String _debugInfo = '';
   bool _showDebug = !kIsWeb && Platform.isAndroid;
 
@@ -131,6 +141,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ]);
     }
     _startLoading();
+    // Pré-charge la reprise (locale + serveur) EN PARALLÈLE de l'extraction
+    // pour que _resumePosition soit prête avant l'init du controller.
+    // (Double filet : _playPreparedStreams attend aussi si null.)
+    _restoreProgress();
     // Restaure la vitesse de lecture mémorisée.
     PlayerPrefs.load().then((prefs) {
       if (mounted && prefs.playbackRate != 1.0) {
@@ -143,9 +157,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void dispose() {
     final pos = _playerController?.currentPosition.inSeconds.toDouble() ?? 0;
-    final dur = _playerController?.totalDuration.inSeconds.toDouble() ?? 0;
+    var dur = _playerController?.totalDuration.inSeconds.toDouble() ?? 0;
+    if (dur <= 0) dur = _lastKnownDuration?.inSeconds.toDouble() ?? 0;
+    if (dur > 0) _lastKnownDuration = Duration(seconds: dur.toInt());
     if (pos > 0) {
       PlayerPrefs.saveLocalProgress(_progressKey, position: pos, duration: dur);
+      // Dernier flush serveur (fire-and-forget, sans throttle).
+      unawaited(_saveServerProgress(pos, dur));
     }
     _cleanupPlayer();
     _progressTimer?.cancel();
@@ -166,18 +184,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
     super.dispose();
   }
 
-  String get _progressKey {
-    if (widget.localFilePath != null) {
-      return 'local_${widget.localFilePath}';
-    }
-    if (widget.episodeId != null) {
-      return '${widget.content?.id ?? ''}_${widget.episodeId}';
-    }
-    if (widget.episode != null) {
-      return 'anime_${widget.anime?.id ?? ''}_${widget.seasonNumber ?? ''}_${widget.episode!.episodeNumber}';
-    }
-    return '${widget.content?.id ?? ''}';
-  }
+  /// Clé de progression unique (save ET load passent par ici).
+  /// Délègue à [PlayerPrefs.progressKeyFor] : formats
+  /// `<contentId>`, `<contentId>_S1E2`, `anime_<id>_<s>_<ep>`, `local_<path>`.
+  String get _progressKey => PlayerPrefs.progressKeyFor(
+        contentId: widget.content?.id,
+        episodeId: widget.episodeId,
+        animeId: widget.anime?.id,
+        season: widget.seasonNumber,
+        episode: widget.episode?.episodeNumber,
+        localPath: widget.localFilePath,
+      );
 
   Future<void> _startLoading() async {
     _vodServerIndex = 0;
@@ -635,11 +652,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
             : (posRaw is num ? posRaw.toInt() : int.tryParse('$posRaw') ?? 0);
 
         if (posMs > 1000) {
+          // Le natif ne remonte que la position : réutilise la durée connue
+          // (sinon duration=0 rend la reprise inrestaurable côté _restoreProgress).
+          final dur = _playerController?.totalDuration.inSeconds.toDouble() ??
+              _lastKnownDuration?.inSeconds.toDouble() ??
+              0;
           await PlayerPrefs.saveLocalProgress(
             _progressKey,
             position: posMs / 1000.0,
-            duration: 0,
+            duration: dur,
           );
+          if (dur > 30) unawaited(_saveServerProgress(posMs / 1000.0, dur));
         }
 
         final hadError =
@@ -1080,34 +1103,130 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   // ─── Progression ─────────────────────────────────────────────────
+  // Locale (PlayerPrefs, instantanée) + serveur (continueWatching/historique).
+  // La restauration lit le MAX des deux AVANT l'init du player.
   void _startProgressTimer() {
     _progressTimer?.cancel();
-    _progressTimer = Timer.periodic(const Duration(seconds: 15), (_) => _saveProgress());
+    _progressTimer =
+        Timer.periodic(const Duration(seconds: 10), (_) => _saveProgress());
   }
 
   void _saveProgressSync() {
     final pos = _playerController?.currentPosition.inSeconds.toDouble() ?? 0;
     if (pos <= 0) return;
-    final dur = _playerController?.totalDuration.inSeconds.toDouble() ?? 0;
+    var dur = _playerController?.totalDuration.inSeconds.toDouble() ?? 0;
+    if (dur <= 0) {
+      // Controller pas encore prêt (durée=0) : conserve la durée connue.
+      dur = _lastKnownDuration?.inSeconds.toDouble() ?? 0;
+    } else {
+      _lastKnownDuration = Duration(seconds: dur.toInt());
+    }
     PlayerPrefs.saveLocalProgress(_progressKey, position: pos, duration: dur);
+    _pushServerProgress(pos, dur);
   }
 
   Future<void> _saveProgress() async {
     final pos = _playerController?.currentPosition.inSeconds.toDouble() ?? 0;
     if (pos <= 0) return;
-    final dur = _playerController?.totalDuration.inSeconds.toDouble() ?? 0;
-    await PlayerPrefs.saveLocalProgress(_progressKey, position: pos, duration: dur);
+    var dur = _playerController?.totalDuration.inSeconds.toDouble() ?? 0;
+    if (dur <= 0) {
+      dur = _lastKnownDuration?.inSeconds.toDouble() ?? 0;
+    } else {
+      _lastKnownDuration = Duration(seconds: dur.toInt());
+    }
+    await PlayerPrefs.saveLocalProgress(_progressKey,
+        position: pos, duration: dur);
+    _pushServerProgress(pos, dur);
   }
+
+  /// Envoi serveur throttlé (≥30 s) pour alimenter
+  /// Continuer/Historique sans spammer l'API.
+  void _pushServerProgress(double pos, double dur) {
+    if (widget.localFilePath != null) return;
+    if (pos <= 5 || dur <= 30) return;
+    final now = DateTime.now();
+    if (_lastServerSave != null &&
+        now.difference(_lastServerSave!) < const Duration(seconds: 30)) {
+      return;
+    }
+    _lastServerSave = now;
+    unawaited(_saveServerProgress(pos, dur));
+  }
+
+  Future<void> _saveServerProgress(double pos, double dur) async {
+    if (widget.localFilePath != null) return;
+    if (pos <= 5 || dur <= 30) return;
+    try {
+      if (widget.anime != null && widget.episode != null) {
+        await _api.saveAnimeProgress(
+          animeId: widget.anime!.id,
+          seasonNumber: widget.seasonNumber ?? 1,
+          episodeNumber: widget.episode!.episodeNumber,
+          currentTime: pos,
+          totalDuration: dur,
+        );
+      } else if (widget.content != null) {
+        await _api.saveProgress(
+          contentId: widget.content!.id,
+          currentTime: pos,
+          totalDuration: dur,
+          episodeId: widget.episodeId,
+        );
+      }
+    } catch (_) {}
+  }
+
+  double _asDouble(dynamic v) =>
+      v is num ? v.toDouble() : double.tryParse('$v') ?? 0;
 
   Future<void> _restoreProgress() async {
     if (!mounted) return;
     try {
+      // 1) Locale (instantanée).
+      double? bestPos;
+      double? bestDur;
       final local = await PlayerPrefs.loadLocalProgress(_progressKey);
-      if (local != null && local.position > 10 && local.duration > 0) {
-        final pct = (local.position / local.duration) * 100;
-        if (pct < 95 && mounted) {
-          _resumePosition = Duration(seconds: local.position.toInt());
+      if (local != null && local.position > 10) {
+        bestPos = local.position;
+        if (local.duration > 0) bestDur = local.duration;
+      }
+      // 2) Serveur (réconciliation, max des deux, timeout court).
+      try {
+        Map<String, dynamic>? remote;
+        if (widget.anime != null && widget.episode != null) {
+          remote = await _api
+              .getAnimeProgress(
+                animeId: widget.anime!.id,
+                seasonNumber: widget.seasonNumber ?? 1,
+                episodeNumber: widget.episode!.episodeNumber,
+              )
+              .timeout(const Duration(seconds: 4));
+        } else if (widget.content != null && widget.localFilePath == null) {
+          remote = await _api
+              .getProgress(widget.content!.id, episodeId: widget.episodeId)
+              .timeout(const Duration(seconds: 4));
         }
+        if (remote != null) {
+          final rPos = _asDouble(
+              remote['current_time'] ?? remote['position'] ?? remote['currentTime']);
+          final rDur = _asDouble(
+              remote['total_duration'] ?? remote['duration'] ?? remote['totalDuration']);
+          if (rPos > 10 && rPos > (bestPos ?? 0)) {
+            bestPos = rPos;
+            if (rDur > 0) bestDur = rDur;
+          } else if (rDur > 0 && bestDur == null) {
+            bestDur = rDur;
+          }
+        }
+      } catch (_) {}
+      if (bestPos != null && bestPos > 10 && mounted) {
+        // Ignore les lectures quasi-terminées (≥95% quand durée connue).
+        if (bestDur != null && bestDur > 0) {
+          if (bestPos / bestDur * 100 >= 95) return;
+          _lastKnownDuration = Duration(seconds: bestDur.toInt());
+        }
+        _resumePosition = Duration(seconds: bestPos.toInt());
+        _resumeFrom = _resumePosition;
       }
     } catch (_) {}
   }
@@ -1269,6 +1388,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
             if (!_isLoading && _errorMessage == null && !_isWaitingForNetwork)
               _buildBottomBar(),
 
+            if (!_isLoading && _errorMessage == null && !_isWaitingForNetwork)
+              _buildResumeChip(),
+
             if (_showDebug) _buildDebugOverlay(),
 
             if (_showNextUp) _buildNextUpOverlay(),
@@ -1370,6 +1492,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Widget _buildLoading() {
+    final resumeLabel =
+        _resumeFrom != null ? '\nReprise à ${_formatDuration(_resumeFrom!)}…' : '';
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1377,10 +1501,77 @@ class _PlayerScreenState extends State<PlayerScreen> {
           CircularProgressIndicator(color: Theme.of(context).colorScheme.primary),
           const SizedBox(height: 24),
           Text(
-            _statusLabel,
+            '$_statusLabel$resumeLabel',
             style: const TextStyle(color: Colors.white),
+            textAlign: TextAlign.center,
           ),
         ],
+      ),
+    );
+  }
+
+  /// Bandeau "Repris à MM:SS" + bouton "Recommencer" (desktop/Web).
+  /// Sur Android natif la reprise est injectée à l'init (positionMs) car
+  /// l'Activity recouvre l'écran — le label reste visible sur le chargement.
+  Widget _buildResumeChip() {
+    final from = _resumeFrom;
+    if (from == null || _resumeDismissed) return const SizedBox.shrink();
+    return Positioned(
+      top: MediaQuery.of(context).padding.top + 64,
+      left: 0,
+      right: 0,
+      child: IgnorePointer(
+        ignoring: !_showControls,
+        child: AnimatedOpacity(
+          duration: const Duration(milliseconds: 300),
+          opacity: _showControls ? 1.0 : 0.0,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.75),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .primary
+                      .withValues(alpha: 0.5),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.history_rounded,
+                      size: 16,
+                      color: Theme.of(context).colorScheme.primary),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Repris à ${_formatDuration(from)}',
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () {
+                      _playerController?.seekTo(Duration.zero);
+                      setState(() => _resumeDismissed = true);
+                      _showControlsBriefly();
+                    },
+                    child: const Text(
+                      'Recommencer',
+                      style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                          decoration: TextDecoration.underline),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

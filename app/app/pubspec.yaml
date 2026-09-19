@@ -1,7 +1,7 @@
 name: neo_stream
 description: "Neo-Stream - Application de streaming premium"
 publish_to: 'none'
-version: 1.4.1+7
+version: 1.5.0+8
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

@@ -122,13 +122,36 @@ class _ProfileSelectionScreenState extends State<ProfileSelectionScreen>
 
   Future<String?> _showPasswordDialog(String username) async {
     final controller = TextEditingController();
+    // Ordre D-pad haut -> bas : champ, Annuler, Continuer.
+    final passwordNode = FocusNode(debugLabel: 'profilePassword');
     bool obscure = true;
 
-    return showDialog<String>(
-      context: context,
-      barrierColor: Colors.black54,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => Dialog(
+    KeyEventResult handleAction(
+      FocusNode node,
+      KeyEvent event,
+      VoidCallback action,
+    ) {
+      if (event is! KeyDownEvent) return KeyEventResult.ignored;
+      if (event.logicalKey == LogicalKeyboardKey.enter ||
+          event.logicalKey == LogicalKeyboardKey.select ||
+          event.logicalKey == LogicalKeyboardKey.space ||
+          event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+          event.logicalKey == LogicalKeyboardKey.gameButtonA) {
+        action();
+        return KeyEventResult.handled;
+      }
+      // Fleches Up/Down/Left/Right : laissees au traversal (anti-boucle).
+      return KeyEventResult.ignored;
+    }
+
+    try {
+      return await showDialog<String>(
+        context: context,
+        barrierColor: Colors.black54,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setDialogState) => FocusTraversalGroup(
+            policy: WidgetOrderTraversalPolicy(),
+            child: Dialog(
           backgroundColor: Colors.transparent,
           child: ConstrainedBox(
             constraints: BoxConstraints(maxWidth: 420),
@@ -171,41 +194,122 @@ class _ProfileSelectionScreenState extends State<ProfileSelectionScreen>
                   SizedBox(height: 4),
                   Text('Entrez le mot de passe', style: NeoTheme.bodySmall(ctx)),
                   SizedBox(height: 16),
-                  TextField(
-                    controller: controller,
-                    obscureText: obscure,
-                    autofocus: true,
-                    style: TextStyle(color: Neo.textPrimary(context)),
-                    decoration: InputDecoration(
-                      hintText: 'Mot de passe',
-                      prefixIcon: Icon(Icons.lock_outline_rounded),
-                      suffixIcon: IconButton(
-                        onPressed: () =>
-                            setDialogState(() => obscure = !obscure),
-                        icon: Icon(
-                          obscure
-                              ? Icons.visibility_off_rounded
-                              : Icons.visibility_rounded,
+                  ListenableBuilder(
+                    listenable: passwordNode,
+                    builder: (ctx, _) {
+                      final focused = passwordNode.hasFocus;
+                      return AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: focused
+                                ? Theme.of(context).colorScheme.primary
+                                : Colors.transparent,
+                            width: focused ? 2.0 : 0.0,
+                          ),
                         ),
-                      ),
-                    ),
-                    onSubmitted: (_) => Navigator.of(ctx).pop(controller.text),
+                        child: TextField(
+                          controller: controller,
+                          focusNode: passwordNode,
+                          obscureText: obscure,
+                          autofocus: true,
+                          style:
+                              TextStyle(color: Neo.textPrimary(context)),
+                          decoration: InputDecoration(
+                            hintText: 'Mot de passe',
+                            prefixIcon: Icon(Icons.lock_outline_rounded),
+                            suffixIcon: IconButton(
+                              onPressed: () => setDialogState(
+                                () => obscure = !obscure,
+                              ),
+                              icon: Icon(
+                                obscure
+                                    ? Icons.visibility_off_rounded
+                                    : Icons.visibility_rounded,
+                              ),
+                            ),
+                          ),
+                          textInputAction: TextInputAction.done,
+                          onSubmitted: (_) =>
+                              Navigator.of(ctx).pop(controller.text),
+                        ),
+                      );
+                    },
                   ),
                   SizedBox(height: 16),
                   Row(
                     children: [
                       Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => Navigator.of(ctx).pop(),
-                          child: Text('Annuler'),
+                        child: Focus(
+                          onKeyEvent: (node, event) => handleAction(
+                            node,
+                            event,
+                            () => Navigator.of(ctx).pop(),
+                          ),
+                          child: Builder(
+                            builder: (btnCtx) {
+                              final focused =
+                                  Focus.of(btnCtx).hasFocus;
+                              return AnimatedScale(
+                                scale: focused ? 1.05 : 1.0,
+                                duration:
+                                    const Duration(milliseconds: 150),
+                                child: OutlinedButton(
+                                  onPressed: () =>
+                                      Navigator.of(ctx).pop(),
+                                  style: OutlinedButton.styleFrom(
+                                    side: BorderSide(
+                                      color: focused
+                                          ? Theme.of(context)
+                                              .colorScheme
+                                              .primary
+                                          : Neo.bgBorder(context).withValues(
+                                              alpha: 0.25,
+                                            ),
+                                      width: focused ? 2.0 : 0.5,
+                                    ),
+                                  ),
+                                  child: Text('Annuler'),
+                                ),
+                              );
+                            },
+                          ),
                         ),
                       ),
                       SizedBox(width: 12),
                       Expanded(
-                        child: ElevatedButton(
-                          onPressed: () =>
-                              Navigator.of(ctx).pop(controller.text),
-                          child: Text('Continuer'),
+                        child: Focus(
+                          onKeyEvent: (node, event) => handleAction(
+                            node,
+                            event,
+                            () => Navigator.of(ctx)
+                                .pop(controller.text),
+                          ),
+                          child: Builder(
+                            builder: (btnCtx) {
+                              final focused =
+                                  Focus.of(btnCtx).hasFocus;
+                              return AnimatedScale(
+                                scale: focused ? 1.05 : 1.0,
+                                duration:
+                                    const Duration(milliseconds: 150),
+                                child: ElevatedButton(
+                                  onPressed: () => Navigator.of(ctx)
+                                      .pop(controller.text),
+                                  style: ElevatedButton.styleFrom(
+                                    side: focused
+                                        ? BorderSide(
+                                            color: Colors.white,
+                                            width: 2,
+                                          )
+                                        : BorderSide.none,
+                                  ),
+                                  child: Text('Continuer'),
+                                ),
+                              );
+                            },
+                          ),
                         ),
                       ),
                     ],
@@ -215,8 +319,13 @@ class _ProfileSelectionScreenState extends State<ProfileSelectionScreen>
             ),
           ),
         ),
+        ),
       ),
     );
+    } finally {
+      controller.dispose();
+      passwordNode.dispose();
+    }
   }
 
   int _columnsFor(double width, int count) {

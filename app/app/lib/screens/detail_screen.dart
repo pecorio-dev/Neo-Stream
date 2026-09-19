@@ -11,6 +11,7 @@ import '../services/download_service.dart';
 import '../utils/watch_link_utils.dart';
 import '../widgets/content_card.dart';
 import '../widgets/download_button.dart';
+import '../widgets/metadata_pill.dart';
 import 'player_screen.dart';
 
 class DetailScreen extends StatefulWidget {
@@ -142,6 +143,11 @@ class _DetailScreenState extends State<DetailScreen>
                       children: [
                         _buildMetaRow(context, content),
                         SizedBox(height: 16),
+                        // Header progression série : X/Y épisodes (Z%)
+                        if (content.isSerie) ...[
+                          _buildSeriesProgressHeader(context, content),
+                          SizedBox(height: 16),
+                        ],
                         if (content.genres.isNotEmpty) ...[
                           _buildGenreChips(context, content.genres),
                           SizedBox(height: 16),
@@ -526,7 +532,63 @@ class _DetailScreenState extends State<DetailScreen>
         100;
   }
 
+  /// Header série : "Progression : X/Y épisodes (Z%)" + barre.
+  /// Source : all_progress API (mappée sur Episode.progressPercent),
+  /// complétée par user_progress / currentEpisodeId si besoin.
+  Widget _buildSeriesProgressHeader(BuildContext context, Content content) {
+    final stats = seriesWatchStats(content);
+    final label = seriesProgressLabel(stats.watched, stats.total, stats.percent);
+    return Semantics(
+      label: label,
+      child: Container(
+        padding: EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
+          border: Border.all(
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
+            width: 0.8,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.play_circle_outline_rounded,
+                    size: 14, color: Theme.of(context).colorScheme.primary),
+                SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: Neo.labelSmall(context).copyWith(
+                      color: Neo.textPrimary(context),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: (stats.percent / 100).clamp(0.0, 1.0),
+                backgroundColor: Colors.white10,
+                valueColor: AlwaysStoppedAnimation(
+                    Theme.of(context).colorScheme.primary),
+                minHeight: 6,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Barre film avec libellé "Vu à X%".
   Widget _buildProgressBar(double value) {
+    final label = filmProgressLabel(value * 100);
     return Container(
       padding: EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -557,7 +619,7 @@ class _DetailScreenState extends State<DetailScreen>
                 ],
               ),
               Text(
-                '${(value * 100).round()}%',
+                label,
                 style: Neo.labelSmall(context).copyWith(
                   color: Theme.of(context).colorScheme.primary,
                   fontWeight: FontWeight.bold,
@@ -932,6 +994,18 @@ class _DetailScreenState extends State<DetailScreen>
                                   style: Neo.bodySmall(context).copyWith(
                                     color: Neo.textTertiary(context),
                                   ),
+                                ),
+                                // Pill "Vu" (≥95%) ou "%" en cours — historique API
+                                // (all_progress) avec fallback local PlayerPrefs.
+                                SizedBox(width: 8),
+                                EpisodeProgressPill(
+                                  apiPercent: episode.progressPercent,
+                                  localKey:
+                                      localProgressKeyForContentEpisode(
+                                          content.id,
+                                          episode.season,
+                                          episode.episode),
+                                  fontSize: 9,
                                 ),
                                 if (langs.isNotEmpty) ...[
                                   SizedBox(width: 10),

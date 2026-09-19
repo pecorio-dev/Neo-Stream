@@ -67,176 +67,327 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
       text: existing?.username ?? '',
     );
     final passwordController = TextEditingController();
+    // Ordre D-pad haut -> bas : username, password, switch, Annuler, Creer.
+    // Les flèches Up/Down sont volontairement laissees au
+    // WidgetOrderTraversalPolicy (jamais "handled") pour eviter la boucle.
+    final usernameNode = FocusNode(debugLabel: 'subUsername');
+    final passwordNode = FocusNode(debugLabel: 'subPassword');
+    final cancelNode = FocusNode(debugLabel: 'subCancel');
+    final createNode = FocusNode(debugLabel: 'subCreate');
     bool requirePassword = existing?.requirePassword ?? true;
     bool isSubmitting = false;
 
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              backgroundColor: Neo.bgOverlay(context),
-              title: Text(
-                existing == null ? 'Nouveau profil' : 'Modifier le profil',
-                style: Neo.titleLarge(context),
+    Future<void> submit(void Function(void Function()) setDialogState) async {
+      final username = usernameController.text.trim();
+      final password = passwordController.text.trim();
+
+      if (username.isEmpty) {
+        _showSnack('Le nom utilisateur est requis.', error: true);
+        usernameNode.requestFocus();
+        return;
+      }
+
+      if (existing == null && password.length < 6) {
+        _showSnack(
+          'Le mot de passe doit contenir 6 caracteres minimum.',
+          error: true,
+        );
+        passwordNode.requestFocus();
+        return;
+      }
+
+      if (existing != null &&
+          password.isNotEmpty &&
+          password.length < 6) {
+        _showSnack(
+          'Le nouveau mot de passe doit contenir 6 caracteres minimum.',
+          error: true,
+        );
+        passwordNode.requestFocus();
+        return;
+      }
+
+      setDialogState(() => isSubmitting = true);
+
+      try {
+        if (existing == null) {
+          await _api.createSubAccount(
+            username,
+            password,
+            requirePassword: requirePassword,
+          );
+        } else {
+          await _api.updateSubAccount(
+            existing.id,
+            username: username != existing.username ? username : null,
+            password: password.isNotEmpty ? password : null,
+            requirePassword: requirePassword != existing.requirePassword
+                ? requirePassword
+                : null,
+          );
+        }
+
+        if (!mounted) {
+          return;
+        }
+
+        Navigator.of(context).pop();
+        _showSnack(
+          existing == null ? 'Profil cree avec succes.' : 'Profil mis a jour.',
+        );
+        await _loadSubAccounts();
+      } catch (error) {
+        if (!mounted) {
+          return;
+        }
+        try {
+          setDialogState(() => isSubmitting = false);
+        } catch (_) {}
+        _showSnack('Erreur: $error', error: true);
+      }
+    }
+
+    // Bordure + halo visibles quand le champ a le focus D-pad.
+    Widget tvField({
+      required TextEditingController controller,
+      required FocusNode node,
+      required String label,
+      required String? helper,
+      required IconData icon,
+      required TextInputAction action,
+      required ValueChanged<String> onSubmitted,
+      required bool obscure,
+      required bool autofocus,
+    }) {
+      return ListenableBuilder(
+        listenable: node,
+        builder: (context, _) {
+          final focused = node.hasFocus;
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: focused
+                    ? Theme.of(context).colorScheme.primary
+                    : Colors.transparent,
+                width: focused ? 2.0 : 0.0,
               ),
-              content: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: 420),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: usernameController,
-                      style: NeoTheme.bodyLarge(
-                        context,
-                      ).copyWith(color: Neo.textPrimary(context)),
-                      decoration: InputDecoration(
-                        labelText: 'Nom utilisateur',
-                        prefixIcon: Icon(
-                          Icons.person_outline_rounded,
-                          color: Neo.textTertiary(context),
-                        ),
+              boxShadow: focused
+                  ? [
+                      BoxShadow(
+                        color: Theme.of(context).colorScheme.primary
+                            .withValues(alpha: 0.35),
+                        blurRadius: 16,
+                        spreadRadius: 1,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: TextField(
+              controller: controller,
+              focusNode: node,
+              autofocus: autofocus,
+              obscureText: obscure,
+              style: NeoTheme.bodyLarge(
+                context,
+              ).copyWith(color: Neo.textPrimary(context)),
+              decoration: InputDecoration(
+                labelText: label,
+                helperText: helper,
+                prefixIcon: Icon(
+                  icon,
+                  color: focused
+                      ? Theme.of(context).colorScheme.primary
+                      : Neo.textTertiary(context),
+                ),
+              ),
+              textInputAction: action,
+              onSubmitted: onSubmitted,
+            ),
+          );
+        },
+      );
+    }
+
+    // Bouton d'action du dialogue : UN seul noeud de focus (pas de bouton
+    // Material imbrique -> pas de double stop au D-pad), visuel visible,
+    // Enter/Select/Space (et touche A manette) => action. Fleches ignorees
+    // pour laisser le WidgetOrderTraversalPolicy naviguer (anti-boucle).
+    Widget dialogAction({
+      required FocusNode node,
+      required String label,
+      required Color color,
+      required VoidCallback? onTap,
+    }) {
+      return ListenableBuilder(
+        listenable: node,
+        builder: (context, _) {
+          final focused = node.hasFocus;
+          return Focus(
+            focusNode: node,
+            onKeyEvent: (focusNode, event) {
+              if (event is! KeyDownEvent) return KeyEventResult.ignored;
+              if (event.logicalKey == LogicalKeyboardKey.enter ||
+                  event.logicalKey == LogicalKeyboardKey.select ||
+                  event.logicalKey == LogicalKeyboardKey.space ||
+                  event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+                  event.logicalKey == LogicalKeyboardKey.gameButtonA) {
+                if (onTap != null) onTap();
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
+            child: GestureDetector(
+              onTap: onTap,
+              behavior: HitTestBehavior.opaque,
+              child: Semantics(
+                button: true,
+                enabled: onTap != null,
+                focused: focused,
+                label: label,
+                child: AnimatedScale(
+                  scale: focused ? 1.06 : 1.0,
+                  duration: const Duration(milliseconds: 150),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: focused ? color : Colors.transparent,
+                        width: focused ? 2.0 : 0.0,
+                      ),
+                      color: focused
+                          ? color.withValues(alpha: 0.12)
+                          : Colors.transparent,
+                    ),
+                    child: Text(
+                      label.toUpperCase(),
+                      style: NeoTheme.labelLarge(context).copyWith(
+                        color: onTap == null
+                            ? Neo.textDisabled(context)
+                            : color,
+                        fontWeight:
+                            focused ? FontWeight.w800 : FontWeight.w600,
                       ),
                     ),
-                    SizedBox(height: 14),
-                    TextField(
-                      controller: passwordController,
-                      obscureText: true,
-                      style: NeoTheme.bodyLarge(
-                        context,
-                      ).copyWith(color: Neo.textPrimary(context)),
-                      decoration: InputDecoration(
-                        labelText: existing == null
-                            ? 'Mot de passe'
-                            : 'Nouveau mot de passe',
-                        helperText: existing == null
-                            ? 'Minimum 6 caracteres'
-                            : 'Laisser vide pour conserver le mot de passe actuel',
-                        prefixIcon: Icon(
-                          Icons.lock_outline_rounded,
-                          color: Neo.textTertiary(context),
-                        ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    }
+
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              // Un seul groupe ordonne : contenu (haut) puis actions (bas).
+              // WidgetOrderTraversalPolicy gere Up/Down en directionnel :
+              // plus de boucle, le bouton Creer est atteignable.
+              return FocusTraversalGroup(
+                policy: WidgetOrderTraversalPolicy(),
+                child: AlertDialog(
+                  backgroundColor: Neo.bgOverlay(context),
+                  title: Text(
+                    existing == null ? 'Nouveau profil' : 'Modifier le profil',
+                    style: Neo.titleLarge(context),
+                  ),
+                  content: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: 420),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          tvField(
+                            controller: usernameController,
+                            node: usernameNode,
+                            label: 'Nom utilisateur',
+                            helper: null,
+                            icon: Icons.person_outline_rounded,
+                            action: TextInputAction.next,
+                            autofocus: true,
+                            obscure: false,
+                            onSubmitted: (_) =>
+                                passwordNode.requestFocus(),
+                          ),
+                          SizedBox(height: 14),
+                          tvField(
+                            controller: passwordController,
+                            node: passwordNode,
+                            label: existing == null
+                                ? 'Mot de passe'
+                                : 'Nouveau mot de passe',
+                            helper: existing == null
+                                ? 'Minimum 6 caracteres'
+                                : 'Laisser vide pour conserver le mot de passe actuel',
+                            icon: Icons.lock_outline_rounded,
+                            action: TextInputAction.done,
+                            autofocus: false,
+                            obscure: true,
+                            onSubmitted: (_) =>
+                                isSubmitting ? null : submit(setDialogState),
+                          ),
+                          SizedBox(height: 10),
+                          SwitchListTile.adaptive(
+                            value: requirePassword,
+                            contentPadding: EdgeInsets.zero,
+                            activeTrackColor:
+                                Theme.of(context).colorScheme.primary,
+                            title: Text(
+                              'Mot de passe requis a la connexion',
+                              style: NeoTheme.bodyMedium(
+                                context,
+                              ).copyWith(color: Neo.textPrimary(context)),
+                            ),
+                            onChanged: (value) {
+                              setDialogState(() => requirePassword = value);
+                            },
+                          ),
+                        ],
                       ),
                     ),
-                    SizedBox(height: 10),
-                    SwitchListTile.adaptive(
-                      value: requirePassword,
-                      contentPadding: EdgeInsets.zero,
-                      activeTrackColor: Theme.of(context).colorScheme.primary,
-                      title: Text(
-                        'Mot de passe requis a la connexion',
-                        style: NeoTheme.bodyMedium(
-                          context,
-                        ).copyWith(color: Neo.textPrimary(context)),
-                      ),
-                      onChanged: (value) {
-                        setDialogState(() => requirePassword = value);
-                      },
+                  ),
+                  actions: [
+                    dialogAction(
+                      node: cancelNode,
+                      label: 'Annuler',
+                      color: Neo.textSecondary(context),
+                      onTap: isSubmitting
+                          ? null
+                          : () => Navigator.of(dialogContext).pop(),
+                    ),
+                    dialogAction(
+                      node: createNode,
+                      label: existing == null ? 'Creer' : 'Enregistrer',
+                      color: Theme.of(context).colorScheme.primary,
+                      onTap: isSubmitting
+                          ? null
+                          : () => submit(setDialogState),
                     ),
                   ],
                 ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: isSubmitting
-                      ? null
-                      : () => Navigator.of(dialogContext).pop(),
-                  child: Text(
-                    'Annuler',
-                    style: NeoTheme.labelLarge(
-                      context,
-                    ).copyWith(color: Neo.textSecondary(context)),
-                  ),
-                ),
-                TextButton(
-                  onPressed: isSubmitting
-                      ? null
-                      : () async {
-                          final username = usernameController.text.trim();
-                          final password = passwordController.text.trim();
-
-                          if (username.isEmpty) {
-                            _showSnack(
-                              'Le nom utilisateur est requis.',
-                              error: true,
-                            );
-                            return;
-                          }
-
-                          if (existing == null && password.length < 6) {
-                            _showSnack(
-                              'Le mot de passe doit contenir 6 caracteres minimum.',
-                              error: true,
-                            );
-                            return;
-                          }
-
-                          if (existing != null &&
-                              password.isNotEmpty &&
-                              password.length < 6) {
-                            _showSnack(
-                              'Le nouveau mot de passe doit contenir 6 caracteres minimum.',
-                              error: true,
-                            );
-                            return;
-                          }
-
-                          setDialogState(() => isSubmitting = true);
-
-                          try {
-                            if (existing == null) {
-                              await _api.createSubAccount(
-                                username,
-                                password,
-                                requirePassword: requirePassword,
-                              );
-                            } else {
-                              await _api.updateSubAccount(
-                                existing.id,
-                                username: username != existing.username
-                                    ? username
-                                    : null,
-                                password: password.isNotEmpty ? password : null,
-                                requirePassword:
-                                    requirePassword != existing.requirePassword
-                                    ? requirePassword
-                                    : null,
-                              );
-                            }
-
-                            if (!dialogContext.mounted) {
-                              return;
-                            }
-
-                            Navigator.of(dialogContext).pop();
-                            _showSnack(
-                              existing == null
-                                  ? 'Profil cree avec succes.'
-                                  : 'Profil mis a jour.',
-                            );
-                            await _loadSubAccounts();
-                          } catch (error) {
-                            if (!mounted) {
-                              return;
-                            }
-                            try { setDialogState(() => isSubmitting = false); } catch (_) {}
-                            _showSnack('Erreur: $error', error: true);
-                          }
-                        },
-                  child: Text(
-                    existing == null ? 'Creer' : 'Enregistrer',
-                    style: NeoTheme.labelLarge(
-                      context,
-                    ).copyWith(color: Theme.of(context).colorScheme.primary),
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      usernameController.dispose();
+      passwordController.dispose();
+      usernameNode.dispose();
+      passwordNode.dispose();
+      cancelNode.dispose();
+      createNode.dispose();
+    }
   }
 
   Future<void> _confirmDelete(SubAccount subAccount) async {
@@ -244,7 +395,10 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
         await showDialog<bool>(
           context: context,
           builder: (dialogContext) {
-            return AlertDialog(
+            // Groupe ordonne : Annuler puis Supprimer, atteignables au D-pad.
+            return FocusTraversalGroup(
+              policy: WidgetOrderTraversalPolicy(),
+              child: AlertDialog(
               backgroundColor: Neo.bgOverlay(context),
               title: Text(
                 'Supprimer ce profil ?',
@@ -256,6 +410,7 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
               ),
               actions: [
                 TextButton(
+                  autofocus: true,
                   onPressed: () => Navigator.of(dialogContext).pop(false),
                   child: Text(
                     'Annuler',
@@ -274,6 +429,7 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
                   ),
                 ),
               ],
+              ),
             );
           },
         ) ??
@@ -334,7 +490,13 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
     final maxSubs = user?.maxSubAccounts ?? 4;
     final canAddMore = _subAccounts.length < maxSubs;
 
-    return Focus(
+    // Groupe unique ordonne haut -> bas (AppBar "Ajouter" d'abord, puis
+    // resume, cartes, actions) : Up depuis la liste remonte jusqu'en haut
+    // au lieu de boucler. WidgetOrderTraversalPolicy = navigation Up/Down
+    // directionnelle + Tab/Shift-Tab sequentielle.
+    return FocusTraversalGroup(
+      policy: WidgetOrderTraversalPolicy(),
+      child: Focus(
       autofocus: true,
       onKeyEvent: (node, event) {
         if (event is! KeyDownEvent) return KeyEventResult.ignored;
@@ -356,6 +518,8 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
             Padding(
               padding: EdgeInsets.only(right: 12),
               child: FilledButton.icon(
+                // Premier dans l'ordre : le D-pad demarre/ remonte ici.
+                autofocus: true,
                 onPressed: _showCreateDialog,
                 icon: Icon(Icons.add_rounded),
                 label: Text('Ajouter'),
@@ -413,6 +577,7 @@ class _SubAccountsScreenState extends State<SubAccountsScreen> {
               ),
             ),
     ),
+      ),
     );
   }
 

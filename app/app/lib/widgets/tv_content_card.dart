@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
 import '../config/tv_config.dart';
+import 'metadata_pill.dart';
 
 /// Carte de contenu riche et stylisée pour l'interface TV.
 ///
@@ -18,11 +19,13 @@ import '../config/tv_config.dart';
 class TVContentCard extends StatelessWidget {
   final String posterUrl;
   final String title;
-  final String? subtitle; // ex. "2 saisons", "8 épisodes"
+  final String? subtitle; // fallback si [pills] est vide
+  final List<PillData>? pills; // métadonnées en bulles (max 2 affichées)
   final String? typeLabel; // ex. "Film", "Série", "Anime"
   final double? rating;
   final double? progressPercent; // 0–100
-  final int? badgeValue; // ex. nombre d'épisodes
+  final int? badgeValue; // ex. nombre d'épisodes (legacy, sans unité)
+  final String? badgeLabel; // ex. "24 ép." — prioritaire sur badgeValue
   final IconData? badgeIcon;
   final IconData? typeIcon;
   final VoidCallback? onTap;
@@ -33,10 +36,12 @@ class TVContentCard extends StatelessWidget {
     required this.posterUrl,
     required this.title,
     this.subtitle,
+    this.pills,
     this.typeLabel,
     this.rating,
     this.progressPercent,
     this.badgeValue,
+    this.badgeLabel,
     this.badgeIcon,
     this.typeIcon,
     this.onTap,
@@ -44,6 +49,7 @@ class TVContentCard extends StatelessWidget {
   });
 
   /// Couleur du badge selon le type de contenu.
+  /// Anime en violet #A78BFA pour le différencier du bleu série #38BDF8.
   Color get _typeColor {
     if (accentColor != null) return accentColor!;
     switch (typeLabel) {
@@ -52,13 +58,32 @@ class TVContentCard extends StatelessWidget {
       case 'Série' || 'Serie':
         return const Color(0xFF38BDF8);
       case 'Anime':
-        return const Color(0xFF22D3EE);
+        return const Color(0xFFA78BFA);
       default:
         return TVTheme.accentRed;
     }
   }
 
-  IconData get _typeIcon => typeIcon ?? Icons.play_arrow_rounded;
+  IconData get _typeIcon {
+    if (typeIcon != null) return typeIcon!;
+    switch (typeLabel) {
+      case 'Film':
+        return Icons.movie_rounded;
+      case 'Série' || 'Serie':
+        return Icons.tv_rounded;
+      case 'Anime':
+        return Icons.animation_rounded;
+      default:
+        return Icons.play_arrow_rounded;
+    }
+  }
+
+  /// Libellé du badge bas-droite avec unité (jamais brut sans unité).
+  String? get _badgeText {
+    if (badgeLabel != null && badgeLabel!.isNotEmpty) return badgeLabel;
+    if (badgeValue != null) return '$badgeValue ép.';
+    return null;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -76,11 +101,11 @@ class TVContentCard extends StatelessWidget {
               typeColor: _typeColor,
               rating: rating,
               progressPercent: progressPercent,
-              badgeValue: badgeValue,
+              badgeText: _badgeText,
               badgeIcon: badgeIcon,
             ),
           ),
-          // ── Text ──
+          // ── Text : titre + pills (max 2), fallback subtitle ──
           const SizedBox(height: 8),
           Text(
             title,
@@ -93,7 +118,10 @@ class TVContentCard extends StatelessWidget {
               height: 1.2,
             ),
           ),
-          if (subtitle != null) ...[
+          if (pills != null && pills!.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            MetadataPillsRow(pills: pills!, maxPills: 2, fontSize: 10),
+          ] else if (subtitle != null) ...[
             const SizedBox(height: 2),
             Text(
               subtitle!,
@@ -151,7 +179,7 @@ class _PosterImage extends StatelessWidget {
   final Color typeColor;
   final double? rating;
   final double? progressPercent;
-  final int? badgeValue;
+  final String? badgeText;
   final IconData? badgeIcon;
 
   const _PosterImage({
@@ -161,7 +189,7 @@ class _PosterImage extends StatelessWidget {
     required this.typeColor,
     this.rating,
     this.progressPercent,
-    this.badgeValue,
+    this.badgeText,
     this.badgeIcon,
   });
 
@@ -181,19 +209,15 @@ class _PosterImage extends StatelessWidget {
               ? CachedNetworkImage(
                   imageUrl: posterUrl,
                   fit: BoxFit.cover,
-                  placeholder: (_, __) => Container(
-                    color: TVTheme.cardColor,
-                    child: const Center(
-                      child: SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: TVTheme.accentRed,
-                        ),
-                      ),
-                    ),
-                  ),
+                  // Taille décodée bornée : grille 4 colonnes TV → ~400px
+                  // affichés, x2 pour le scaling focus sans flou.
+                  memCacheWidth: 400,
+                  memCacheHeight: 600,
+                  maxWidthDiskCache: 400,
+                  maxHeightDiskCache: 600,
+                  fadeInDuration: const Duration(milliseconds: 180),
+                  fadeOutDuration: const Duration(milliseconds: 120),
+                  placeholder: (_, __) => Container(color: TVTheme.cardColor),
                   errorWidget: (_, __, ___) => _buildPlaceholder(),
                 )
               : _buildPlaceholder(),
@@ -288,8 +312,8 @@ class _PosterImage extends StatelessWidget {
               ),
             ),
 
-          // ── Badge valeur (bas-droite, ex. nombre épisodes) ──
-          if (badgeValue != null)
+          // ── Badge valeur (bas-droite, toujours avec unité) ──
+          if (badgeText != null && badgeText!.isNotEmpty)
             Positioned(
               bottom: 8,
               right: 8,
@@ -306,7 +330,7 @@ class _PosterImage extends StatelessWidget {
                       Icon(badgeIcon, color: Colors.white70, size: 11),
                     if (badgeIcon != null) const SizedBox(width: 3),
                     Text(
-                      '$badgeValue',
+                      badgeText!,
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 11,

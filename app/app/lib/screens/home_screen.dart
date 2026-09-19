@@ -54,7 +54,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     )..forward();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ContentProvider>().loadHome();
+      final provider = context.read<ContentProvider>();
+      provider.loadHome();
+      // Favoris + Historique : sections Accueil (indépendantes du cache 6h).
+      provider.loadLibrary();
+      provider.loadHistory();
 
       if (NeoTheme.isTV(context)) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -658,6 +662,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final popularSeries = content.popularSeries.take(12).toList();
     final popularAnime = content.popularAnime.take(12).toList();
     final recentAnime = content.recentAnime.take(12).toList();
+    final favorites = content.favorites.take(20).toList();
+    final history = content.history.take(20).toList();
 
     if (content.isLoadingHome) {
       return ShimmerHomeLoading();
@@ -831,6 +837,38 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   height: 196,
                   icon: Icons.play_circle_outline_rounded,
                 ),
+              // Favoris + Historique : toujours visibles (avec empty-state)
+              // dès que le chargement initial est terminé.
+              if (!content.isLoadingHome) ...[
+                if (favorites.isNotEmpty)
+                  _buildHorizontalSection(
+                    'Mes Favoris',
+                    'Votre bibliothèque, à portée de main.',
+                    favorites,
+                    icon: Icons.favorite_rounded,
+                  )
+                else if (!content.isLoadingLibrary)
+                  _buildEmptySection(
+                    'Mes Favoris',
+                    'Ajoutez des favoris depuis une fiche pour les retrouver ici.',
+                    Icons.favorite_border_rounded,
+                  ),
+                if (history.isNotEmpty)
+                  _buildHorizontalSection(
+                    'Historique',
+                    'Vos lectures récentes, avec progression.',
+                    history,
+                    cardVariant: CardVariant.continueWatching,
+                    height: 196,
+                    icon: Icons.history_rounded,
+                  )
+                else if (!content.isLoadingHistory)
+                  _buildEmptySection(
+                    'Historique',
+                    'Regardez un film ou un épisode : il apparaîtra ici.',
+                    Icons.history_toggle_off_rounded,
+                  ),
+              ],
               if (content.dailyTop.isNotEmpty)
                 _buildHorizontalSection(
                   'Top 10 du jour',
@@ -1042,6 +1080,55 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   ),
                 ).staggeredFade(index: index);
               },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Section vide propre (Favoris / Historique sans contenu).
+  SliverToBoxAdapter _buildEmptySection(
+    String title,
+    String subtitle,
+    IconData icon,
+  ) {
+    return SliverToBoxAdapter(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(height: NeoTheme.sectionGap(context)),
+          SectionHeader(title: title, subtitle: subtitle, icon: icon),
+          SizedBox(height: 14),
+          Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: NeoTheme.screenPadding(context).left,
+            ),
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                gradient: Neo.surfaceGradient(context),
+                borderRadius: BorderRadius.circular(NeoTheme.radiusLg),
+                border: Border.all(
+                  color: Neo.bgBorder(context).withValues(alpha: 0.15),
+                  width: 0.5,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(icon,
+                      size: 22, color: Neo.textDisabled(context)),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      subtitle,
+                      style: Neo.bodyMedium(context).copyWith(
+                        color: Neo.textSecondary(context),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],

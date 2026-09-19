@@ -5,6 +5,7 @@ import '../config/theme.dart';
 import '../config/neo.dart';
 import '../models/anime.dart';
 import '../services/api_service.dart';
+import '../widgets/metadata_pill.dart';
 import '../widgets/section_header.dart';
 import '../widgets/shimmer_loading.dart';
 import 'anime_detail_screen.dart';
@@ -590,6 +591,8 @@ class _AnimeScreenState extends State<AnimeScreen> {
 
   Widget _buildAnimeCard(BuildContext context, Anime anime, int index) {
     final useFocus = NeoTheme.needsFocusNavigation(context);
+    final stats = animeWatchStats(anime);
+    final cardProgress = stats.percent > 0 ? stats.percent : 0.0;
 
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0.0, end: 1.0),
@@ -670,13 +673,26 @@ class _AnimeScreenState extends State<AnimeScreen> {
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                 ),
-                                SizedBox(height: 4),
-                                Text(
-                                  '${anime.totalEpisodes} épisodes • ${anime.totalSeasons} saisons',
-                                  style: Neo.labelSmall(context).copyWith(
-                                    color: Colors.white70,
-                                  ),
+                                SizedBox(height: 6),
+                                MetadataPillsRow(
+                                  pills: pillsFromAnime(anime),
+                                  maxPills: 4,
+                                  onPoster: true,
                                 ),
+                                if (cardProgress > 0) ...[
+                                  const SizedBox(height: 8),
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(3),
+                                    child: LinearProgressIndicator(
+                                      value: (cardProgress / 100).clamp(0.0, 1.0),
+                                      backgroundColor:
+                                          Colors.white.withValues(alpha: 0.15),
+                                      valueColor: AlwaysStoppedAnimation(
+                                          Theme.of(context).colorScheme.primary),
+                                      minHeight: 4,
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),

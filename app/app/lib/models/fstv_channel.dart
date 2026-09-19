@@ -47,17 +47,17 @@ class FstvChannel {
   }
 
   /// Devine la catégorie d'une chaîne à partir de son nom et slug.
+  /// (Secours local uniquement — la catégorie vient normalement de l'API.)
+  // ignore: unused_element
   static String _guessCategory(String name, String slug) {
     final s = '${name.toLowerCase()} ${slug.toLowerCase()}';
-    if (s.contains('bein') || s.contains('sport') || s.contains('canal') &&
-        (s.contains('sport') || s.contains('foot') || s.contains('golf') ||
-         s.contains('motogp') || s.contains('formula') || s.contains('ligue'))) {
-      return 'Sport';
-    }
-    if (s.contains('sport') || s.contains('bein') || s.contains('rmc') ||
+    if (s.contains('bein') || s.contains('sport') || s.contains('rmc') ||
         s.contains('dazn') || s.contains('eurosport') || s.contains('equipe') ||
         s.contains('foot') || s.contains('golf') || s.contains('motogp') ||
-        s.contains('ligue') || s.contains('formula') || s.contains('rugby')) {
+        s.contains('ligue') || s.contains('formula') || s.contains('rugby') ||
+        (s.contains('canal') &&
+            (s.contains('sport') || s.contains('foot') || s.contains('golf') ||
+             s.contains('motogp') || s.contains('formula') || s.contains('ligue')))) {
       return 'Sport';
     }
     if (s.contains('ciné') || s.contains('cine') || s.contains('film') ||

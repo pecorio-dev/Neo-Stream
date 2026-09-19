@@ -41,6 +41,37 @@ class PlayerPrefs {
   // la reprise lit d'abord cette valeur locale (instantanée) puis se réconcilie
   // avec l'API en arrière-plan. Évite le « retour au début ».
 
+  /// Clé de progression unifiée pour tout le lecteur.
+  ///
+  /// Formats (alignés sur les helpers `localProgressKeyFor*` de
+  /// metadata_pill.dart et sur PlayerScreen) :
+  ///   - fichier local : `local_<path>`
+  ///   - anime : `anime_<id>_<season>_<episode>`
+  ///   - série (épisode) : `<contentId>_S<season>E<episode>`
+  ///   - film / contenu sans épisode : `<contentId>`
+  ///
+  /// À utiliser PARTOUT (save + load) pour éviter les divergences de clés
+  /// qui cassaient la reprise (ex. save `42` puis load `42_S1E1`).
+  static String progressKeyFor({
+    int? contentId,
+    String? episodeId,
+    int? animeId,
+    int? season,
+    int? episode,
+    String? localPath,
+  }) {
+    if (localPath != null && localPath.isNotEmpty) {
+      return 'local_$localPath';
+    }
+    if (animeId != null && episode != null) {
+      return 'anime_${animeId}_${season ?? ''}_$episode';
+    }
+    if (episodeId != null && episodeId.isNotEmpty) {
+      return '${contentId ?? ''}_$episodeId';
+    }
+    return '${contentId ?? ''}';
+  }
+
   static String _progressKey(String id) => 'local_progress_$id';
 
   /// Sauvegarde la position (et la durée) en secondes pour un média donné.

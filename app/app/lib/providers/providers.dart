@@ -153,6 +153,13 @@ class ContentProvider extends ChangeNotifier {
   List<Content> _recentAnime = [];
   List<Map<String, dynamic>> _byGenre = [];
   List<Map<String, dynamic>> _myLibrary = [];
+  // ── Favoris + Historique (sections Accueil) ──
+  List<Content> _favorites = [];
+  List<Content> _history = [];
+  bool _isLoadingLibrary = false;
+  bool _isLoadingHistory = false;
+  String? _libraryError;
+  String? _historyError;
   bool _isPremium = false;
   int _totalAvailable = 0;
   int _totalFilms = 0;
@@ -175,6 +182,12 @@ class ContentProvider extends ChangeNotifier {
   List<Content> get recentAnime => _recentAnime;
   List<Map<String, dynamic>> get byGenre => _byGenre;
   List<Map<String, dynamic>> get myLibrary => _myLibrary;
+  List<Content> get favorites => _favorites;
+  List<Content> get history => _history;
+  bool get isLoadingLibrary => _isLoadingLibrary;
+  bool get isLoadingHistory => _isLoadingHistory;
+  String? get libraryError => _libraryError;
+  String? get historyError => _historyError;
   bool get isPremium => _isPremium;
   int get totalAvailable => _totalAvailable;
   int get totalFilms => _totalFilms;
@@ -286,6 +299,85 @@ class ContentProvider extends ChangeNotifier {
       _applyHomeData(data);
       notifyListeners();
     } catch (_) {}
+  }
+
+  /// Favoris (bibliothèque) pour la section "Mes Favoris" de l'accueil.
+  Future<void> loadLibrary() async {
+    if (!_api.isLoggedIn || _isLoadingLibrary) return;
+    _isLoadingLibrary = true;
+    _libraryError = null;
+    notifyListeners();
+    try {
+      final items = await _api.getLibrary();
+      _favorites = items
+          .map((e) {
+            try {
+              return Content.fromJson(e);
+            } catch (_) {
+              return null;
+            }
+          })
+          .whereType<Content>()
+          .where((c) => c.hasPoster)
+          .toList();
+    } catch (e) {
+      _libraryError = humanizeApiError(e);
+    }
+    _isLoadingLibrary = false;
+    notifyListeners();
+  }
+
+  /// Historique de lecture pour la section "Historique" de l'accueil.
+  ///
+  /// Les items `progress/history` utilisent `content_id` (et non `id`) —
+  /// on les normalise en [Content] ici. Le filtre poster reprend celui des
+  /// écrans Historique (sans poster résolvable, la carte serait vide).
+  Future<void> loadHistory() async {
+    if (!_api.isLoggedIn || _isLoadingHistory) return;
+    _isLoadingHistory = true;
+    _historyError = null;
+    notifyListeners();
+    try {
+      final items = await _api.getHistory();
+      _history = items
+          .map((e) => _historyItemToContent(e))
+          .whereType<Content>()
+          .where((c) => c.hasPoster)
+          .toList();
+    } catch (e) {
+      _historyError = humanizeApiError(e);
+    }
+    _isLoadingHistory = false;
+    notifyListeners();
+  }
+
+  Content? _historyItemToContent(Map<String, dynamic> item) {
+    try {
+      int asInt(dynamic v) =>
+          v is int ? v : int.tryParse(v?.toString() ?? '') ?? 0;
+      double? asDouble(dynamic v) {
+        if (v == null) return null;
+        if (v is num) return v.toDouble();
+        return double.tryParse(v.toString());
+      }
+      final poster =
+          (item['poster_url'] ?? item['poster'])?.toString();
+      return Content(
+        id: asInt(item['content_id'] ?? item['id']),
+        title: (item['title'] ?? item['name'])?.toString() ?? 'Sans titre',
+        contentType: (item['content_type'] ?? 'film').toString(),
+        poster: poster,
+        posterUrl: item['poster_url']?.toString(),
+        genres: item['genres'] is List
+            ? (item['genres'] as List).map((g) => g.toString()).toList()
+            : const [],
+        rating: asDouble(item['rating']) ?? 0,
+        progressPercent: asDouble(item['progress_percent']),
+        currentEpisodeId: item['episode_id']?.toString(),
+      );
+    } catch (_) {
+      return null;
+    }
   }
 }
 

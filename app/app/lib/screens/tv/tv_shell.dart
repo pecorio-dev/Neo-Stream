@@ -94,7 +94,7 @@ class _TVShellState extends State<TVShell> {
       case 1:
         return const TVAnimeScreen(embedded: true);
       case 2:
-        return const IptvScreen();
+        return IptvScreen(onLeftEdge: _focusActiveNavItem);
       case 3:
         return const TVHistoryScreen(embedded: true);
       case 4:
@@ -141,6 +141,21 @@ class _TVShellState extends State<TVShell> {
     _navNodes[targetIndex].requestFocus();
   }
 
+  /// Entrée navbar -> contenu : requestFocus sur le scope seul laisse le
+  /// focus sur un scope vide. On descend ensuite vers le premier focusable
+  /// (autofocus : 1er chip catégorie / 1re carte) au prochain frame.
+  void _focusContentFirst() {
+    _contentFocusScopeNode.requestFocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      // Si le scope est vide (aucun descendant focalisé), descendre.
+      if (_contentFocusScopeNode.hasFocus &&
+          _contentFocusScopeNode.focusedChild == null) {
+        _contentFocusScopeNode.nextFocus();
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -166,10 +181,30 @@ class _TVShellState extends State<TVShell> {
                     if (event is! KeyDownEvent) return KeyEventResult.ignored;
                     if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
                       final primary = FocusManager.instance.primaryFocus;
-                      if (primary != null && primary.enclosingScope == node) {
-                        _focusActiveNavItem();
-                        return KeyEventResult.handled;
+                      if (primary == null) return KeyEventResult.ignored;
+                      // Robuste aux scopes imbriqués (ex. FocusScope internes
+                      // des écrans) : remonte la chaîne des parents.
+                      FocusNode? c = primary;
+                      var inside = false;
+                      while (c != null) {
+                        if (c == node) {
+                          inside = true;
+                          break;
+                        }
+                        c = c.parent;
                       }
+                      if (!inside) return KeyEventResult.ignored;
+                      // Filet : la voie principale est le callback onLeftEdge
+                      // des bords gauches (qui a déjà retourné handled).
+                      // Ici on ne vole pas la navigation intra-grille : on
+                      // tente d'abord un déplacement gauche dans le contenu.
+                      // S'il réussit, le focus a bougé -> handled.
+                      // Sinon (vrai bord / widget sans voisin gauche),
+                      // on remonte à la navbar.
+                      final moved = node.focusInDirection(TraversalDirection.left);
+                      if (moved) return KeyEventResult.handled;
+                      _focusActiveNavItem();
+                      return KeyEventResult.handled;
                     }
                     return KeyEventResult.ignored;
                   },
@@ -536,7 +571,7 @@ class _TVShellState extends State<TVShell> {
         }
         if (key == LogicalKeyboardKey.arrowRight) {
           _select(index);
-          if (mounted) _contentFocusScopeNode.requestFocus();
+          if (mounted) _focusContentFirst();
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;

@@ -10,6 +10,7 @@ import '../services/anime_extractor.dart';
 import '../services/api_service.dart';
 import '../services/download_service.dart';
 import '../widgets/download_button.dart';
+import '../widgets/metadata_pill.dart';
 import 'player_screen.dart';
 
 class AnimeDetailScreen extends StatefulWidget {
@@ -464,6 +465,8 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
               ),
           ],
         ),
+        SizedBox(height: 14),
+        _buildAnimeProgressHeader(context, anime),
         if (anime.genres.isNotEmpty) ...[
           SizedBox(height: 14),
           _buildGenreChips(context, anime.genres),
@@ -507,6 +510,59 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
             ),
           );
         },
+      ),
+    );
+  }
+
+  /// Header anime : "Progression : X/Y épisodes (Z%)" + barre.
+  /// Source : progress API par épisode (AnimeEpisode.progressPercent).
+  Widget _buildAnimeProgressHeader(BuildContext context, Anime anime) {
+    final stats = animeWatchStats(anime);
+    final label = seriesProgressLabel(stats.watched, stats.total, stats.percent);
+    return Semantics(
+      label: label,
+      child: Container(
+        padding: EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
+          border: Border.all(
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
+            width: 0.8,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.play_circle_outline_rounded,
+                    size: 14, color: Theme.of(context).colorScheme.primary),
+                SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: Neo.labelSmall(context).copyWith(
+                      color: Neo.textPrimary(context),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: (stats.percent / 100).clamp(0.0, 1.0),
+                backgroundColor: Colors.white10,
+                valueColor: AlwaysStoppedAnimation(
+                    Theme.of(context).colorScheme.primary),
+                minHeight: 6,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -928,29 +984,15 @@ class _AnimeDetailScreenState extends State<AnimeDetailScreen>
                           style: Neo.bodySmall(context)
                               .copyWith(color: Neo.textSecondary(context)),
                         ),
-                        if (episode.progressPercent != null &&
-                            episode.progressPercent! > 0) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.primary
-                                  .withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              episode.progressPercent! >= 95
-                                  ? 'Terminé'
-                                  : '${episode.progressPercent!.round()}%',
-                              style: Neo.labelSmall(context).copyWith(
-                                color: Theme.of(context).colorScheme.primary,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ],
+                        const SizedBox(width: 8),
+                        EpisodeProgressPill(
+                          apiPercent: episode.progressPercent,
+                          localKey: localProgressKeyForAnimeEpisode(
+                              _anime!.id,
+                              seasonNumber,
+                              episode.episodeNumber),
+                          fontSize: 9,
+                        ),
                           ],
                         ),
                       ],

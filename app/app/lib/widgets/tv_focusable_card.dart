@@ -7,6 +7,10 @@ class TVFocusableCard extends StatefulWidget {
   final VoidCallback? onTap;
   final VoidCallback? onFocus;
   final bool autoFocus;
+  /// Nœud de focus externe optionnel. Permet à l'écran parent de
+  /// restaurer le focus (fallback anti perte de focus D-pad).
+  /// Si null, un nœud interne est créé.
+  final FocusNode? focusNode;
   final double minWidth;
   final double maxWidth;
   final EdgeInsets padding;
@@ -18,6 +22,7 @@ class TVFocusableCard extends StatefulWidget {
     this.onTap,
     this.onFocus,
     this.autoFocus = false,
+    this.focusNode,
     this.minWidth = TVConfig.cardMinWidth,
     this.maxWidth = TVConfig.cardMaxWidth,
     this.padding = TVConfig.cardPadding,
@@ -30,13 +35,17 @@ class TVFocusableCard extends StatefulWidget {
 
 class _TVFocusableCardState extends State<TVFocusableCard> with SingleTickerProviderStateMixin {
   bool _isFocused = false;
-  final FocusNode _focusNode = FocusNode();
+  FocusNode? _ownNode;
+  FocusNode get _focusNode => widget.focusNode ?? _ownNode!;
   late final AnimationController _pulseController;
   late final Animation<double> _pulseAnimation;
 
   @override
   void initState() {
     super.initState();
+    if (widget.focusNode == null) {
+      _ownNode = FocusNode();
+    }
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 150),
@@ -44,15 +53,21 @@ class _TVFocusableCardState extends State<TVFocusableCard> with SingleTickerProv
     _pulseAnimation = Tween<double>(begin: 1.0, end: 0.95).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
-    if (widget.autoFocus && mounted) {
-      _focusNode.requestFocus();
+    // L'appel direct à requestFocus() dans initState est inefficace
+    // (pas encore attaché). On passe par autofocus + postFrame.
+    if (widget.autoFocus) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && FocusManager.instance.primaryFocus == null) {
+          _focusNode.requestFocus();
+        }
+      });
     }
   }
 
   @override
   void dispose() {
     _pulseController.dispose();
-    _focusNode.dispose();
+    _ownNode?.dispose();
     super.dispose();
   }
 
@@ -89,6 +104,8 @@ class _TVFocusableCardState extends State<TVFocusableCard> with SingleTickerProv
       return KeyEventResult.handled;
     }
 
+    // Flèches Up/Down/Left/Right volontairement en ignored : elles doivent
+    // remonter au FocusTraversalGroup pour la navigation directionnelle D-pad.
     return KeyEventResult.ignored;
   }
 
@@ -98,6 +115,7 @@ class _TVFocusableCardState extends State<TVFocusableCard> with SingleTickerProv
 
     return Focus(
       focusNode: _focusNode,
+      autofocus: widget.autoFocus,
       onFocusChange: _handleFocusChange,
       onKeyEvent: _handleKeyEvent,
       child: GestureDetector(
@@ -306,8 +324,20 @@ class _TVFocusableListTileState extends State<TVFocusableListTile> {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: _isFocused ? TVTheme.accentRed : Colors.transparent,
-                width: 2,
+                width: _isFocused ? TVConfig.focusBorderWidth : 2,
               ),
+              boxShadow: _isFocused
+                  ? const [
+                      BoxShadow(
+                          color: Color(0xE6FFFFFF),
+                          blurRadius: 6,
+                          spreadRadius: 1.5),
+                      BoxShadow(
+                          color: Color(0x90E50914),
+                          blurRadius: 28,
+                          spreadRadius: 3),
+                    ]
+                  : null,
             ),
             child: ListTile(
               contentPadding: widget.padding ?? const EdgeInsets.symmetric(horizontal: 16, vertical: 8),

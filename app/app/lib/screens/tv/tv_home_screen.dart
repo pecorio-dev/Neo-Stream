@@ -6,6 +6,9 @@ import '../../config/tv_config.dart';
 import '../../providers/providers.dart';
 import '../../widgets/tv_focusable_card.dart';
 import '../../widgets/tv_content_card.dart';
+import '../../widgets/metadata_pill.dart';
+import '../../models/anime.dart';
+import '../../models/content.dart';
 import 'tv_detail_screen.dart';
 import 'tv_anime_detail_screen.dart';
 
@@ -41,7 +44,11 @@ class _TVHomeScreenState extends State<TVHomeScreen> with TickerProviderStateMix
       });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ContentProvider>().loadHome();
+      final provider = context.read<ContentProvider>();
+      provider.loadHome();
+      // Favoris + Historique : sections Accueil (indépendantes du cache 6h).
+      provider.loadLibrary();
+      provider.loadHistory();
     });
   }
 
@@ -188,6 +195,24 @@ class _TVHomeScreenState extends State<TVHomeScreen> with TickerProviderStateMix
         icon: Icons.play_circle_outline_rounded,
       ));
     }
+    // Favoris + Historique : visibles même vides (empty-state explicite)
+    // dès que le chargement initial est terminé.
+    if (!provider.isLoadingHome) {
+      sections.add(_HomeSection(
+        title: 'Mes Favoris',
+        items: provider.favorites.take(20).toList(),
+        style: _SectionStyle.standard,
+        icon: Icons.favorite_rounded,
+        emptyHint: 'Ajoutez des favoris depuis une fiche pour les retrouver ici.',
+      ));
+      sections.add(_HomeSection(
+        title: 'Historique',
+        items: provider.history.take(20).toList(),
+        style: _SectionStyle.continueWatching,
+        icon: Icons.history_rounded,
+        emptyHint: 'Regardez un film ou un épisode : il apparaîtra ici.',
+      ));
+    }
     if (provider.addedToday.isNotEmpty) {
       sections.add(_HomeSection(
         title: 'Ajoutés récemment',
@@ -224,6 +249,10 @@ class _TVHomeScreenState extends State<TVHomeScreen> with TickerProviderStateMix
   }
 
   Widget _buildSection(_HomeSection section, int sectionIndex) {
+    if (section.items.isEmpty) {
+      if (section.emptyHint == null) return const SizedBox.shrink();
+      return _buildEmptySection(section, sectionIndex);
+    }
     switch (section.style) {
       case _SectionStyle.hero:
         return _buildHeroSection(section);
@@ -236,6 +265,42 @@ class _TVHomeScreenState extends State<TVHomeScreen> with TickerProviderStateMix
       case _SectionStyle.standard:
         return _buildStandardSection(section, sectionIndex);
     }
+  }
+
+  /// Section vide propre (Favoris / Historique sans contenu).
+  Widget _buildEmptySection(_HomeSection section, int sectionIndex) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader(section.title, section.icon, sectionIndex),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: TVTheme.cardColor,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: TVTheme.defaultBorderColor),
+            ),
+            child: Row(
+              children: [
+                Icon(section.icon ?? Icons.info_outline,
+                    size: 22, color: TVTheme.textDisabled),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    section.emptyHint!,
+                    style: const TextStyle(
+                        color: TVTheme.textSecondary, fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 28),
+      ],
+    );
   }
 
   Widget _buildSectionHeader(String title, IconData? icon, int sectionIndex) {
@@ -582,11 +647,13 @@ class _HomeSection {
   final List<dynamic> items;
   final _SectionStyle style;
   final IconData? icon;
+  final String? emptyHint;
   const _HomeSection({
     required this.title,
     required this.items,
     this.style = _SectionStyle.standard,
     this.icon,
+    this.emptyHint,
   });
 }
 
@@ -599,14 +666,38 @@ class _StandardCard extends StatelessWidget {
     final posterUrl = content.fullPosterUrl as String? ?? '';
     final title = content.title as String? ?? content.displayTitle as String? ?? '';
     final rating = content.rating as double?;
-    final genres = content.genres as List<dynamic>? ?? [];
+
+    List<PillData>? pills;
+    double? progress;
+    String? badgeLabel;
+    if (content is Content) {
+      pills = pillsFromContent(content, short: true);
+      final effective = effectiveCardProgress(content);
+      progress = effective > 0 ? effective : null;
+      if (content.episodeCount > 0 && (content.isSerie || content.isAnime)) {
+        badgeLabel = '${content.episodeCount} ép.';
+      }
+    } else if (content is Anime) {
+      final anime = content as Anime;
+      pills = pillsFromAnime(anime, short: true);
+      final stats = animeWatchStats(anime);
+      progress = stats.percent > 0 ? stats.percent : null;
+      if (anime.totalEpisodes > 0) {
+        badgeLabel = '${anime.totalEpisodes} ép.';
+      }
+    } else {
+      final raw = content.progressPercent as double?;
+      progress = (raw != null && raw > 0) ? raw : null;
+    }
 
     return TVContentCard(
       posterUrl: posterUrl,
       title: title,
-      subtitle: genres.isNotEmpty ? genres.take(2).join(' • ') : null,
+      pills: pills,
       typeLabel: _contentTypeLabel(content),
       rating: rating,
+      progressPercent: progress,
+      badgeLabel: badgeLabel,
     );
   }
 
@@ -682,6 +773,10 @@ class _ContinueWatchingCard extends StatelessWidget {
                 if (episodeId != null && episodeId.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   Text(episodeId, style: const TextStyle(color: TVTheme.textSecondary, fontSize: 12)),
+                ],
+                if (content is Content) ...[
+                  const SizedBox(height: 6),
+                  MetadataPillsRow(pills: pillsFromContent(content, short: true), maxPills: 2, fontSize: 10),
                 ],
                 const Spacer(),
                 if (progress != null && progress > 0) ...[
