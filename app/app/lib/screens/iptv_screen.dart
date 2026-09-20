@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -117,19 +116,16 @@ class _IptvScreenState extends State<IptvScreen> {
   bool _favOnly = false; // filtre "Favoris"
   List<String> _categories = [];
 
-  /// Spotlight "À la une" mémoïsé (recalculé après _load, changement de
-  /// filtre et arrivée du guide — jamais à chaque build : le calcul fait
-  /// ~2 × N requêtes EPG avec normalisations de noms).
+  /// Spotlight "À la une" mémoïsé (recalculé après _load et changement de
+  /// filtre — jamais à chaque build, jamais via l'EPG : tri reprises
+  /// récentes → ordre API uniquement, le guide ne vit que dans le popup).
   List<FstvChannel> _spotlight = const [];
 
-  /// Travail différé annulable (anti-freeze ouverture d'onglet) :
-  /// - [_epgKickTimer] : EPG démarré APRÈS le premier rendu (postFrame +
-  ///   ~1.5 s, priorité basse) pour laisser grille + logos se peindre d'abord.
-  /// - [_preRankTimer] : pré-rank sources SEULEMENT quand idle (~3 s après
-  ///   l'arrivée des chaînes). Annulés dans [dispose] (sortie d'onglet).
-  Timer? _epgKickTimer;
+  /// Pré-rank sources différé et annulable (anti-freeze ouverture d'onglet) :
+  /// [_preRankTimer] démarre le probe SEULEMENT quand idle (~3 s après
+  /// l'arrivée des chaînes). Annulé dans [dispose] (sortie d'onglet).
+  /// Zéro EPG au niveau onglet : aucun timer/pré-chauffe du guide ici.
   Timer? _preRankTimer;
-  bool _epgWarmStarted = false;
 
   @override
   void initState() {
@@ -140,40 +136,6 @@ class _IptvScreenState extends State<IptvScreen> {
     _resume.addListener(_onResumeChanged);
     _resume.load();
     _load();
-    // Guide TV en DIFFÉRÉ après le premier rendu (anti-freeze) : le download
-    // EPG (~6.7 Mo) + parse (~58k programmes) ne doivent jamais concurrencer
-    // le premier paint (grille + logos). PostFrame + délai 1.5 s, priorité
-    // basse. À son arrivée : un seul setState global (re-tri spotlight +
-    // pastilles EPG), jamais un FutureBuilder par carte. Zéro impact live :
-    // ni blocage des chaînes, ni appel au proxy iptv.mine.bz.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _epgKickTimer?.cancel();
-      _epgKickTimer = Timer(
-        const Duration(milliseconds: 1500),
-        _warmEpgLowPriority,
-      );
-    });
-  }
-
-  /// Démarre le guide TV à priorité basse (hors premier rendu).
-  /// Single-flight + cache 12 h côté service : gratuit si déjà chargé.
-  /// Gardes mounted : aucun setState pendant le build ni après dispose.
-  void _warmEpgLowPriority() async {
-    if (!mounted || _epgWarmStarted) return;
-    _epgWarmStarted = true;
-    // Cède un tour d'event-loop avant le gros travail réseau/parse pour
-    // laisser le premier rendu se stabiliser (logos, grille).
-    await Future<void>.delayed(Duration.zero);
-    if (!mounted) return;
-    await EpgService.instance.ensureLoaded();
-    if (!mounted) return;
-    // Re-tri spotlight à priorité idle : le scan (~135 chaînes × requêtes
-    // EPG mémoïsées) ne vole pas la frame en cours.
-    SchedulerBinding.instance.scheduleTask(() {
-      if (!mounted) return;
-      setState(_refreshSpotlight);
-    }, Priority.idle);
   }
 
   /// Planifie le pré-rank sources quand idle (~3 s), annulable à la sortie
@@ -196,7 +158,7 @@ class _IptvScreenState extends State<IptvScreen> {
   }
 
   /// Historique "Reprendre" : simple refresh (re-tri spotlight "reprise
-  /// d'abord" + pastilles des cartes). Aucun reload réseau.
+  /// d'abord"). Aucun reload réseau, aucune lecture EPG.
   void _onResumeChanged() {
     if (!mounted) return;
     setState(_refreshSpotlight);
@@ -204,7 +166,6 @@ class _IptvScreenState extends State<IptvScreen> {
 
   @override
   void dispose() {
-    _epgKickTimer?.cancel();
     _preRankTimer?.cancel();
     _favs.removeListener(_onFavsChanged);
     _resume.removeListener(_onResumeChanged);
@@ -871,7 +832,7 @@ class _IptvScreenState extends State<IptvScreen> {
               crossAxisCount: crossCount,
               mainAxisSpacing: 18,
               crossAxisSpacing: 16,
-              // Même gabarit que les vraies cartes (bloc EPG inclus).
+              // Même gabarit que les vraies cartes (sans EPG).
               childAspectRatio: _gridAspect(
                   MediaQuery.of(context).size.width),
             ),
@@ -1086,46 +1047,45 @@ class _IptvScreenState extends State<IptvScreen> {
     return 2;
   }
 
-  /// Ratio grille partagé (shimmer + grille) : les cartes portent désormais
-  /// le bloc EPG (titre + barre + à suivre) + la pastille reprise, donc plus
-  /// hautes que larges. Petit écran (≤ 3 colonnes) : cartes étroites →
-  /// ratio bas pour absorber le pire cas (nom + EPG + sources + reprise).
+  /// Ratio grille partagé (shimmer + grille) : les cartes portent logo +
+  /// nom + catégorie + sources (+ pastille reprise phone) — sans bloc EPG
+  /// (les programmes ne vivent que dans le popup détails), donc moins
+  /// hautes que larges inversé : ratio relevé en conséquence.
   static double _gridAspect(double width) =>
-      _gridCrossCount(width) <= 3 ? 0.62 : 0.72;
+      _gridCrossCount(width) <= 3 ? 0.75 : 0.88;
 
-  /// Sélection "À la une / En ce moment" : chaînes généralistes d'abord,
-  /// programmes EPG en cours en premier. Vide quand un filtre est actif
-  /// (catégorie ou favoris) pour ne jamais masquer la grille filtrée.
+  /// Sélection "À la une" : chaînes généralistes d'abord (ou ordre API
+  /// sinon). Vide quand un filtre est actif (catégorie ou favoris) pour ne
+  /// jamais masquer la grille filtrée.
   /// "Reprendre" en tête : les chaînes déjà regardées (historique local
-  /// [IptvResume], plus récent d'abord) remontent devant, à EPG égal.
-  /// Coûteux (~2 requêtes EPG / chaîne) → mémoïsé dans [_spotlight],
-  /// recalculé via [_refreshSpotlight] (après load, filtre, arrivée EPG,
+  /// [IptvResume], plus récent d'abord) remontent devant, le reste garde
+  /// l'ordre API. Zéro EPG ici (ni tri ni affichage) : les programmes ne
+  /// vivent que dans le popup détails. O(1) par chaîne → mémoïsé dans
+  /// [_spotlight], recalculé via [_refreshSpotlight] (après load, filtre,
   /// changement d'historique).
   void _refreshSpotlight() {
     _spotlight = _computeSpotlight();
   }
 
-  /// Tri "reprise d'abord" à EPG égal : stable, sans toucher à l'ordre API
-  /// au sein de chaque groupe (reprises récentes → EPG en cours → reste).
+  /// Tri "reprise d'abord" : stable, sans toucher à l'ordre API au sein de
+  /// chaque groupe (reprises récentes → reste dans l'ordre API).
   static List<FstvChannel> _resumeFirst(
-    List<FstvChannel> withEpg,
-    List<FstvChannel> without,
+    List<FstvChannel> base,
     IptvResume resume,
   ) {
-    if (!resume.isLoaded) return [...withEpg, ...without];
+    if (!resume.isLoaded) return List<FstvChannel>.of(base);
     int rankOf(FstvChannel ch) => resume.wasWatched(ch.slug) ? 0 : 1;
     int seenOf(FstvChannel ch) =>
         resume.lastSeen(ch.slug)?.millisecondsSinceEpoch ?? 0;
-    int byResume(FstvChannel a, FstvChannel b) {
+    final out = List<FstvChannel>.of(base);
+    out.sort((a, b) {
       final r = rankOf(a).compareTo(rankOf(b));
       if (r != 0) return r;
       // Plus récent d'abord au sein du groupe "reprendre".
       if (rankOf(a) == 0) return seenOf(b).compareTo(seenOf(a));
       return 0; // ordre API conservé sinon (tri stable de Dart).
-    }
-    final w = List<FstvChannel>.of(withEpg)..sort(byResume);
-    final wo = List<FstvChannel>.of(without)..sort(byResume);
-    return [...w, ...wo];
+    });
+    return out;
   }
 
   List<FstvChannel> _computeSpotlight() {
@@ -1144,20 +1104,8 @@ class _IptvScreenState extends State<IptvScreen> {
       }
     }
     final base = pool.isEmpty ? _flat : pool;
-    final epg = EpgService.instance;
-    final withEpg = <FstvChannel>[];
-    final without = <FstvChannel>[];
-    for (final ch in base) {
-      final nn =
-          epg.getNowAndNext(ch.slug) ?? epg.getNowAndNext(ch.name);
-      if (nn != null) {
-        withEpg.add(ch);
-      } else {
-        without.add(ch);
-      }
-    }
-    // "Reprendre" en tête, à EPG égal (reprises récentes → en cours → reste).
-    final ordered = _resumeFirst(withEpg, without, _resume);
+    // "Reprendre" en tête (reprises récentes → ordre API). Aucun scan EPG.
+    final ordered = _resumeFirst(base, _resume);
     return ordered.take(10).toList(growable: false);
   }
 
@@ -1186,7 +1134,7 @@ class _IptvScreenState extends State<IptvScreen> {
               crossAxisCount: crossCount,
               mainAxisSpacing: 22,
               crossAxisSpacing: 16,
-              // Même gabarit que le shimmer (bloc EPG inclus).
+              // Même gabarit que le shimmer (sans EPG).
               childAspectRatio: _gridAspect(width),
             ),
             itemCount: _filtered.length,
@@ -1436,7 +1384,7 @@ class _ShimmerBlockState extends State<_ShimmerBlock>
 }
 
 /// Carte chaîne factice pour le shimmer (même gabarit que la vraie carte :
-/// logo + nom + catégorie + bloc EPG + sources).
+/// logo + nom + catégorie + sources, sans EPG).
 class _ShimmerChannelCard extends StatelessWidget {
   const _ShimmerChannelCard();
 
@@ -1465,10 +1413,6 @@ class _ShimmerChannelCard extends StatelessWidget {
           const _ShimmerBlock(width: 130, height: 13, radius: 6),
           const SizedBox(height: 9),
           const _ShimmerBlock(width: 80, height: 10, radius: 5),
-          const SizedBox(height: 8),
-          const _ShimmerBlock(width: double.infinity, height: 5, radius: 3),
-          const SizedBox(height: 6),
-          const _ShimmerBlock(width: 110, height: 10, radius: 5),
           const SizedBox(height: 8),
           const Row(
             children: [
@@ -1507,9 +1451,8 @@ class _SpotlightSection extends StatefulWidget {
 }
 
 class _SpotlightSectionState extends State<_SpotlightSection> {
-  // Pas de ensureLoaded() ici : le parent (_IptvScreenState) pré-chauffe le
-  // guide une seule fois et fait un setState global à son arrivée (qui
-  // reconstruit cette section). Un 2e appel ne ferait que doubler le rebuild.
+  // Zéro EPG ici : ni chargement ni lecture du guide (les programmes ne
+  // vivent que dans le popup détails). Cartes = logo + nom + DIRECT.
   @override
   Widget build(BuildContext context) {
     final isTV = NeoTheme.isTV(context);
@@ -1550,8 +1493,8 @@ class _SpotlightSectionState extends State<_SpotlightSection> {
           ),
         ),
         SizedBox(
-          // +12 px vs avant : laisse la place à la ligne "À suivre".
-          height: isTV ? 160 : 152,
+          // Cartes compactes (logo + nom + DIRECT) : hauteur contenue.
+          height: isTV ? 148 : 140,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 10),
@@ -1638,8 +1581,8 @@ class _SpotlightCard extends StatelessWidget {
           final isFocused = Focus.of(ctx).hasFocus;
           final tvFocused = isTV && isFocused;
           final focusColor = Neo.accentColor(context);
-          // Lecture mémoire synchrone (zéro FutureBuilder par carte).
-          final nn = _nowNextOf(channel);
+          // Zéro EPG dans le spotlight : logo + nom + pastille DIRECT
+          // (les programmes ne vivent que dans le popup détails).
           return AnimatedOpacity(
             opacity: isTV && !isFocused ? 0.62 : 1.0,
             duration: const Duration(milliseconds: 180),
@@ -1718,61 +1661,9 @@ class _SpotlightCard extends StatelessWidget {
                                         .lastSeen(channel.slug),
                                   ),
                                 ),
-                              if (nn != null) ...[
-                                Text(
-                                  nn.now.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodySmall
-                                      ?.copyWith(
-                                        color: Neo.textSecondary(context),
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                ),
-                                const SizedBox(height: 6),
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(3),
-                                  child: LinearProgressIndicator(
-                                    value: nn.now
-                                        .progressAt(DateTime.now())
-                                        .clamp(0.0, 1.0),
-                                    minHeight: 4,
-                                    backgroundColor: Neo.errorRed
-                                        .withValues(alpha: 0.15),
-                                    valueColor:
-                                        const AlwaysStoppedAnimation<Color>(
-                                            Neo.errorRed),
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  nn.now.rangeLabel,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .labelSmall
-                                      ?.copyWith(
-                                        color: Neo.textTertiary(context),
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                ),
-                                if (nn.next != null)
-                                  Text(
-                                    'À suivre · ${nn.next!.title}',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .labelSmall
-                                        ?.copyWith(
-                                          color: Neo.textTertiary(context),
-                                          fontWeight: FontWeight.w500,
-                                          fontStyle: FontStyle.italic,
-                                        ),
-                                  ),
-                              ] else ...[
-                                Row(
+                              // Pastille DIRECT + catégorie (zéro EPG : les
+                              // programmes ne vivent que dans le popup).
+                              Row(
                                   children: [
                                     Container(
                                       width: 7,
@@ -1811,7 +1702,6 @@ class _SpotlightCard extends StatelessWidget {
                                     ),
                                   ],
                                 ),
-                              ],
                             ],
                           ),
                         ),
@@ -1935,9 +1825,8 @@ class _ChannelCardState extends State<_ChannelCard> {
           final isFocused = Focus.of(ctx).hasFocus;
           final tvFocused = isTV && isFocused;
           final focusColor = Neo.accentColor(context);
-          // Lecture EPG mémoire synchrone (guide pré-chargé par le parent) :
-          // aucun FutureBuilder / ensureLoaded par carte.
-          final nn = _nowNextOf(ch);
+          // Zéro EPG sur les cartes : chaînes seules (les programmes ne
+          // vivent que dans le popup détails). Aucune lecture du guide ici.
           return AnimatedOpacity(
             // Carte non-focusée assombrie sur TV : contraste à 3 m.
             opacity: isTV && !isFocused ? 0.6 : 1.0,
@@ -2122,10 +2011,32 @@ class _ChannelCardState extends State<_ChannelCard> {
                                 ],
                               ),
                               const SizedBox(height: 8),
-                              // Programme en cours : titre + barre temporelle
-                              // (début/fin EPG) + "à suivre" — ou pastille
-                              // DIRECT simple sans EPG (voir widget dédié).
-                              _ChannelEpgProgress(nowNext: nn),
+                              // Pastille DIRECT statique (zéro EPG : les
+                              // programmes ne vivent que dans le popup).
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 7,
+                                    height: 7,
+                                    decoration: const BoxDecoration(
+                                      color: Neo.successGreen,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'DIRECT',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelSmall
+                                        ?.copyWith(
+                                          color: Neo.successGreen,
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: 0.6,
+                                        ),
+                                  ),
+                                ],
+                              ),
                               const SizedBox(height: 8),
                               // Indicateur nb sources (les chaînes KO amont,
                               // 0 source, restent listées : le popup gère
@@ -2195,92 +2106,15 @@ class _ChannelCardState extends State<_ChannelCard> {
   }
 }
 
-// ── Lecture EPG mémoire partagée (grille + spotlight + cartes) ────────────
+// ── Lecture EPG réservée au popup détails ─────────────────────────────────
 // Un seul point d'accès synchrone : slug d'abord, nom en repli (le mapping
 // se fait par nom normalisé côté EpgService, avec cache de résolution).
-// AUCUN FutureBuilder / ensureLoaded par carte : le parent pré-chauffe le
-// guide une fois et rebuild globalement à son arrivée.
+// Grille + spotlight ne lisent JAMAIS le guide (zéro EPG hors popup) :
+// seul [_ChannelDetailsDialogState] appelle [_nowNextOf], après un
+// ensureLoaded() déclenché à l'ouverture du popup.
 EpgNowNext? _nowNextOf(FstvChannel channel) {
   final epg = EpgService.instance;
   return epg.getNowAndNext(channel.slug) ?? epg.getNowAndNext(channel.name);
-}
-
-// ── Bloc EPG inline des cartes grille ──────────────────────────────────────
-// Affiche où en est le programme : titre en cours + barre de progression
-// temporelle (début/fin EPG) + "à suivre" si dispo — le tout sur UNE ligne
-// méta (horaires + suivant tronqués, ellipsis) pour tenir dans la carte.
-// Sans EPG (chaîne inconnue du guide, trou de grille, guide en panne) :
-// pastille DIRECT simple. Display-only, jamais focusable au D-pad.
-class _ChannelEpgProgress extends StatelessWidget {
-  final EpgNowNext? nowNext;
-
-  const _ChannelEpgProgress({required this.nowNext});
-
-  @override
-  Widget build(BuildContext context) {
-    final nn = nowNext;
-    if (nn == null) {
-      return Row(
-        children: [
-          Container(
-            width: 7,
-            height: 7,
-            decoration: const BoxDecoration(
-              color: Neo.successGreen,
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            'DIRECT',
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: Neo.successGreen,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.6,
-                ),
-          ),
-        ],
-      );
-    }
-    final meta = nn.next == null
-        ? nn.now.rangeLabel
-        : '${nn.now.rangeLabel} · À suivre : ${nn.next!.title}';
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          nn.now.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Neo.textSecondary(context),
-                fontWeight: FontWeight.w600,
-              ),
-        ),
-        const SizedBox(height: 4),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(3),
-          child: LinearProgressIndicator(
-            value: nn.now.progressAt(DateTime.now()).clamp(0.0, 1.0),
-            minHeight: 4,
-            backgroundColor: Neo.errorRed.withValues(alpha: 0.15),
-            valueColor: const AlwaysStoppedAnimation<Color>(Neo.errorRed),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          meta,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: Neo.textTertiary(context),
-                fontWeight: FontWeight.w600,
-              ),
-        ),
-      ],
-    );
-  }
 }
 
 // ── Pastille "Reprendre" phone (direct = récence, pas de timeline) ───────
@@ -2504,9 +2338,11 @@ class _ChannelDetailsDialogState extends State<_ChannelDetailsDialog> {
   void initState() {
     super.initState();
     IptvFavorites.instance.addListener(_onFavsChanged);
-    // Le guide a été pré-chargé à l'ouverture de l'onglet (single-flight,
-    // cache 12 h : cet appel est gratuit quand le guide est déjà là).
-    // Court-circuit synchrone : pas de spinner si déjà prêt.
+    // EPG chargé UNIQUEMENT à l'ouverture du popup (nulle part ailleurs :
+    // ni à l'ouverture de l'onglet, ni dans la grille/spotlight).
+    // Single-flight + cache 12 h côté service. Court-circuit synchrone :
+    // pas de spinner si le guide est déjà prêt, sinon spinner discret
+    // puis contenu ("Maintenant / À suivre" + progression).
     if (EpgService.instance.isLoaded) {
       _epgReady = true;
       return;
