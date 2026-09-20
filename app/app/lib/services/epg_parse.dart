@@ -209,6 +209,39 @@ class EpgParser {
     }
   }
 
+  /// Slug strict du cache serveur pré-calculé (`epg_now.json` exposé via
+  /// `live_proxy.php?action=epg&slug=<slug>`) : minuscules, accents retirés,
+  /// tout caractère non-alphanum SUPPRIMÉ (sans espaces).
+  /// Ex. `France 2` → `france2`, `M6-HD` → `m6hd`, `L'Équipe` → `lequipe`.
+  ///
+  /// DIFFÈRE volontairement de [normalizeName] (qui retire les tokens de
+  /// bruit et garde les espaces : `TF1 HD` → `tf1`) : le serveur utilise
+  /// cette forme stricte, d'où des clés type `tf1hd` possibles côté
+  /// serveur là où [normalizeName] donnerait `tf1`. Ne pas les confondre :
+  /// [serverSlug] sert UNIQUEMENT à interroger l'endpoint serveur, jamais
+  /// au mapping XMLTV local (fallback). Ne lève jamais.
+  static String serverSlug(String raw) {
+    try {
+      var s = raw.toLowerCase().trim();
+      final buf = StringBuffer();
+      for (var i = 0; i < s.length; i++) {
+        final ch = s[i];
+        buf.write(_accents[ch] ?? ch);
+      }
+      s = buf.toString();
+      final out = StringBuffer();
+      for (var i = 0; i < s.length; i++) {
+        final c = s.codeUnitAt(i);
+        final isDigit = c >= 0x30 && c <= 0x39; // 0-9
+        final isLower = c >= 0x61 && c <= 0x7A; // a-z
+        if (isDigit || isLower) out.writeCharCode(c);
+      }
+      return out.toString();
+    } catch (_) {
+      return '';
+    }
+  }
+
   // RegExp précompilées (petites sections uniquement : display-names,
   // champs d'un programme retenu — jamais de balayage global).
   static final RegExp _sepRe = RegExp(r'[._\-+/|]+');

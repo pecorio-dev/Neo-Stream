@@ -46,6 +46,16 @@ class _TVDetailScreenState extends State<TVDetailScreen> {
   void initState() {
     super.initState();
     FocusManager.instance.addListener(_handleFocusLoss);
+    // Focus INITIAL garanti dès le mount, même pendant le loading :
+    // le bouton Retour de l'état loading est focusé en attendant le
+    // contenu (jamais de D-pad mort pendant le fetch réseau).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (ModalRoute.of(context)?.isCurrent != true) return;
+      if (FocusManager.instance.primaryFocus == null) {
+        _loadingBackFocusNode.requestFocus();
+      }
+    });
     _loadDetail();
   }
 
@@ -60,44 +70,67 @@ class _TVDetailScreenState extends State<TVDetailScreen> {
     super.dispose();
   }
 
+  /// Cible de fallback selon l'état courant : loading -> Retour header
+  /// (B2), erreur/contenu null -> Réessayer (B1), contenu -> Regarder.
+  FocusNode _focusTargetForState() {
+    if (_isLoading) return _loadingBackFocusNode;
+    if (_error != null || _content == null) return _retryFocusNode;
+    return _watchFocusNode;
+  }
+
+  /// Force le focus sur [node] au prochain frame, quel que soit le focus
+  /// courant (racine invisible, résiduel de l'écran précédent). Suivi d'un
+  /// second frame de rattrapage si le focus primaire est encore null
+  /// (nœud pas encore attaché au premier frame). Garde-fou : route courante
+  /// uniquement, jamais pendant une navigation player en cours.
+  void _forceFocus(FocusNode node) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _isNavigating) return;
+      if (ModalRoute.of(context)?.isCurrent != true) return;
+      if (node.canRequestFocus && !node.hasFocus) {
+        node.requestFocus();
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _isNavigating) return;
+        if (ModalRoute.of(context)?.isCurrent != true) return;
+        if (FocusManager.instance.primaryFocus == null &&
+            !node.hasFocus &&
+            node.canRequestFocus) {
+          node.requestFocus();
+        }
+      });
+    });
+  }
+
   /// Fallback : si le focus primaire devient null après une navigation
-  /// D-pad (cas SingleChildScrollView / nœud racine TVWrapper), on le
-  /// restaure au prochain frame. Cible selon l'état : loading -> Retour
-  /// header (B2), erreur -> Réessayer (B1), contenu -> Regarder.
+  /// D-pad (cas SingleChildScrollView / rebuild setState / retour player),
+  /// on le restaure au prochain frame selon l'état courant. Se re-déclenche
+  /// à chaque perte (listener FocusManager), pas seulement au premier mount.
   /// Pas de FocusScope second : TVWrapper/TVRemoteNavigator gèrent la racine.
   void _handleFocusLoss() {
     if (!mounted || _isNavigating) return;
     if (FocusManager.instance.primaryFocus != null) return;
     if (ModalRoute.of(context)?.isCurrent != true) return;
+    final target = _focusTargetForState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _isNavigating) return;
       if (FocusManager.instance.primaryFocus == null &&
           ModalRoute.of(context)?.isCurrent == true) {
-        if (_isLoading) {
-          _loadingBackFocusNode.requestFocus();
-        } else if (_error != null || _content == null) {
-          _retryFocusNode.requestFocus();
-        } else {
-          _watchFocusNode.requestFocus();
+        if (target.canRequestFocus && !target.hasFocus) {
+          target.requestFocus();
         }
       }
     });
   }
 
+  /// Focus contenu : forcé à chaque arrivée de contenu (premier chargement,
+  /// retry, retour player, contenu partiel fallback search), pas seulement
+  /// au premier mount. `_didInitialAutofocus` ne sert plus qu'au param
+  /// `autoFocus` du widget (évite le double autofocus) — jamais de garde
+  /// bloquant le restore.
   void _requestInitialFocus() {
-    if (_didInitialAutofocus) return;
     _didInitialAutofocus = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _isNavigating) return;
-      if (ModalRoute.of(context)?.isCurrent != true) return;
-      // Focus garanti sur Regarder quel que soit le chemin d'ouverture :
-      // le nœud racine (TVWrapper/TVRemoteNavigator, autofocus désactivé
-      // ci-dessous) ou un focus résiduel de l'écran précédent ne doit
-      // jamais laisser la fiche sans focus visible.
-      if (!_watchFocusNode.hasFocus) {
-        _watchFocusNode.requestFocus();
-      }
-    });
+    _forceFocus(_watchFocusNode);
   }
 
   Future<void> _loadDetail() async {
@@ -106,6 +139,8 @@ class _TVDetailScreenState extends State<TVDetailScreen> {
         _isLoading = true;
         _error = null;
       });
+      // Transition -> loading : refocus Retour (bouton focusé d'attente).
+      _forceFocus(_loadingBackFocusNode);
     }
     try {
       final content = await _api.getContentDetail(
@@ -129,13 +164,9 @@ class _TVDetailScreenState extends State<TVDetailScreen> {
       });
       // B1 : focus garanti sur Réessayer en erreur, quel que soit le focus
       // courant (racine, résiduel) — jamais de fiche sans focus D-pad.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        if (ModalRoute.of(context)?.isCurrent != true) return;
-        if (!_retryFocusNode.hasFocus) {
-          _retryFocusNode.requestFocus();
-        }
-      });
+      // Inconditionnel : même si un focus existe (nœud détaché/residuel),
+      // Réessayer doit être la cible visible.
+      _forceFocus(_retryFocusNode);
     }
   }
 

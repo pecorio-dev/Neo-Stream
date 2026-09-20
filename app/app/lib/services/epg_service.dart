@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 
+import '../config/constants.dart';
 import 'epg_parse.dart';
 import 'resilient_http.dart';
 
@@ -27,16 +28,17 @@ class _EpgSource {
 ///
 /// Principe radical : on ne charge/parse JAMAIS le guide entier.
 /// Quand le popup d'UNE chaîne s'ouvre :
-///  1. UNE SEULE source est utilisée : dès que la 1re source résout la
+///  1. FAST-PATH serveur : `live_proxy.php?action=epg&slug=<slug>`
+///     (mini-JSON pré-calculé `epg_now.json`, timeout 10 s, try/catch
+///     absolu) → [EpgNowNext]. En cas de succès, AUCUN XMLTV n'est
+///     téléchargé ni parsé,
+///  2. REPLI XMLTV mono-chaîne (code historique conservé tel quel) : UNE
+///     SEULE source est utilisée : dès que la 1re source résout la
 ///     chaîne (IDs trouvés), la 2e n'est NI téléchargée NI parsée,
-///  2. la petite section `<channel>` est indexée pour résoudre
-///     slug/nom → ID XMLTV,
-///  3. `<programme>` est balayé en streaming filtrant
-///     ([EpgParser.parseFiltered]) : seuls les programmes du canal résolu
-///     dans la fenêtre courte (-30 min → +12 h) sont matérialisés
-///     (typiquement < 15 objets),
-///  4. à la fermeture du popup, [releaseMemory] vide la mémoire (les
-///     fichiers gzip restent sur disque).
+///     petite section `<channel>` indexée, `<programme>` balayé en
+///     streaming filtrant ([EpgParser.parseFiltered]) dans la fenêtre
+///     courte (-30 min → +12 h),
+///  3. à la fermeture du popup, [releaseMemory] vide la mémoire.
 ///
 /// Zéro scan global : ni grille, ni spotlight, ni pré-chauffe ne touchent
 /// le guide. Seul le popup appelle [loadChannel] puis [getNowAndNext].
@@ -51,6 +53,14 @@ class EpgService {
 
   /// Timeout STRICT du download EPG : 15 s max, jamais plus.
   static const Duration _httpTimeout = Duration(seconds: 15);
+
+  /// Timeout du fast-path serveur (`?action=epg&slug=`) : 10 s max.
+  static const Duration _serverTimeout = Duration(seconds: 10);
+
+  /// Rang source des programmes venus du serveur pré-calculé. La mémoire
+  /// mono-chaîne ne contient alors QUE ces 1-2 objets : le rang est
+  /// anecdotique (aucun conflit inter-sources), -1 les distingue en debug.
+  static const int _serverSourceRank = -1;
 
   /// Fenêtre réduite mono-chaîne : -30 min (juste de quoi déterminer
   /// l'émission en cours à cheval) → +12 h. Zéro passé inutile.
@@ -102,12 +112,11 @@ class EpgService {
 
   // ── Chargement mono-chaîne ──────────────────────────────────────────
 
-  /// Charge puis parse EN FILTRANT les programmes de la chaîne
-  /// [slug]/[name] dans la fenêtre courte (-30 min → +12 h).
-  /// UNE SEULE source : dès que la 1re source résout la chaîne, la 2e
-  /// n'est ni téléchargée ni parsée. Appels concurrents même chaîne
-  /// fusionnés (single-flight). Ne lève JAMAIS : retourne null si le
-  /// guide est indisponible pour la chaîne.
+  /// Charge le Now/Next de la chaîne [slug]/[name] : fast-path serveur
+  /// (`?action=epg&slug=`, 10 s max) PUIS repli XMLTV mono-chaîne
+  /// (fenêtre -30 min → +12 h, UNE SEULE source). Appels concurrents même
+  /// chaîne fusionnés (single-flight). Ne lève JAMAIS : retourne null si
+  /// le guide est indisponible pour la chaîne.
   Future<EpgNowNext?> loadChannel(String slug, String name,
       {bool forceRefresh = false, DateTime? now}) {
     try {
@@ -163,6 +172,19 @@ class EpgService {
       final from = ref.subtract(windowPast);
       final to = ref.add(windowFuture);
 
+      // ── FAST-PATH : EPG pré-calculé serveur ─────────────────────────
+      // `live_proxy.php?action=epg&slug=<slug>` (mini-JSON issu de
+      // `epg_now.json`). Zéro download XMLTV si succès. Tout échec
+      // (endpoint absent, timeout 10 s, JSON inattendu, trou de grille)
+      // → null silencieux puis REPLI XMLTV ci-dessous. Ne lève jamais.
+      try {
+        final fast = await _fetchServerNowNext(slug, name, ref: ref, key: key);
+        if (fast != null) return fast;
+      } catch (_) {
+        // Repli XMLTV.
+      }
+
+      // ── REPLI : XMLTV mono-chaîne (code historique, conservé) ───────
       // Source par source, ARRÊT dès que la 1re source résout la chaîne :
       // la 2e n'est ni téléchargée ni parsée (pic RAM = 1 seul flux +
       // une poignée de programmes). Chaque étape est en try/catch absolu.
@@ -220,6 +242,226 @@ class EpgService {
       return getNowAndNext(slug, at: ref);
     } catch (_) {
       lastError = 'Guide TV indisponible.';
+      return null;
+    }
+  }
+
+  // ── Fast-path serveur pré-calculé (`epg_now.json`) ───────────────────
+  //
+  // `GET live_proxy.php?action=epg&slug=<slug>` où <slug> = forme stricte
+  // serveur ([EpgParser.serverSlug] : minuscules, sans accents,
+  // non-alphanum retirés). Réponse attendue (filtrée) : mini-JSON
+  // `{"ts":..,"programs":{"<cle>":{"now":{title,sub,start,end},
+  // "next":{...}}}}` — mais le parsing accepte les variantes
+  // (`{"now":..,"next":..}`, `{"programs":{"now":..,"next":..}}`,
+  // programme seul `{"title":..}`) car le contrat `?action=epg&slug=`
+  // reste à confirmer côté serveur. Then fallback XMLTV si quoi que ce
+  // soit dévie. Ne lève JAMAIS.
+
+  /// Base proxy LIVE + chemin EPG. Best-effort : tout échec → null.
+  String? _serverEpgBase() {
+    try {
+      const base = AppConstants.fstvProxyBaseUrl;
+      if (base.isEmpty) return null;
+      return base.endsWith('/') ? base : '$base/';
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Tente le fast-path serveur pour [slug]/[name] : 1 à 2 requêtes
+  /// (`serverSlug(slug)` puis `serverSlug(name)` si distinct), 10 s max
+  /// chacune, try/catch absolu. Succès → mémoire mono-chaîne remplie
+  /// (1-2 objets) + [EpgNowNext] à [ref]. Échec → null (repli XMLTV).
+  Future<EpgNowNext?> _fetchServerNowNext(
+    String slug,
+    String name, {
+    required DateTime ref,
+    required String key,
+  }) async {
+    try {
+      final base = _serverEpgBase();
+      if (base == null) return null;
+      final candidates = <String>[];
+      for (final c in [EpgParser.serverSlug(slug), EpgParser.serverSlug(name)]) {
+        if (c.isNotEmpty && !candidates.contains(c)) candidates.add(c);
+      }
+      if (candidates.isEmpty) return null;
+      for (final cand in candidates) {
+        try {
+          final uri = Uri.parse(
+            '${base}live_proxy.php?action=epg&slug=${Uri.encodeComponent(cand)}',
+          );
+          final resp = await ResilientHttp.get(uri, headers: const {
+            'Accept': 'application/json',
+            'User-Agent': 'NEO-Stream/4.0 (EPG)',
+            'Referer': 'https://iptv.mine.bz/',
+          }).timeout(_serverTimeout);
+          if (resp.statusCode != 200 || resp.bodyBytes.isEmpty) continue;
+          final list = _parseServerPayload(resp.bodyBytes, cand);
+          if (list == null || list.isEmpty) continue;
+          list.sort((a, b) {
+            final c = a.start.compareTo(b.start);
+            if (c != 0) return c;
+            return a.sourceRank.compareTo(b.sourceRank);
+          });
+          _programs = list;
+          _loadedIds = {cand};
+          _loadedKey = key;
+          _loadedAt = DateTime.now();
+          lastError = null;
+          final nn = getNowAndNext(slug, at: ref);
+          // Trou de grille côté serveur (que du futur / que du passé) :
+          // on garde la mémoire mais on retourne null → le popup affiche
+          // "Programmes indisponibles", SANS déclencher le repli XMLTV
+          // (le serveur a répondu : inutile de télécharger 2 flux gzip).
+          return nn;
+        } catch (_) {
+          continue;
+        }
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Parse le corps du mini-JSON serveur → 1-2 [EpgProgram] ([cand] comme
+  /// `channelId`). Retourne null si le contenu est inexploitable
+  /// (→ repli XMLTV par l'appelant). Ne lève jamais.
+  List<EpgProgram>? _parseServerPayload(List<int> bytes, String cand) {
+    try {
+      final decoded = jsonDecode(utf8.decode(bytes, allowMalformed: true));
+      if (decoded is! Map) return null;
+      final map = Map<String, dynamic>.from(decoded);
+      dynamic entry;
+      final programs = map['programs'];
+      if (programs is Map && programs.isNotEmpty) {
+        final pm = Map<String, dynamic>.from(programs);
+        if (pm.containsKey('now') || pm.containsKey('next')) {
+          entry = pm; // Déjà filtré : {"now":..,"next":..}.
+        } else {
+          // Filtré par clé : {"<cle>":{"now":..,"next":..}}.
+          final byKey = pm[cand];
+          if (byKey != null) {
+            entry = byKey;
+          } else if (pm.length == 1) {
+            entry = pm.values.first;
+          } else {
+            // Non filtré (contrat `tout`) : cherche la clé exacte, sinon
+            // la première entrée ressemblant à {now,next} ou programme.
+            for (final v in pm.values) {
+              if (v is Map) {
+                final vm = Map<String, dynamic>.from(v);
+                if (vm.containsKey('now') ||
+                    vm.containsKey('next') ||
+                    vm.containsKey('title')) {
+                  entry = vm;
+                  break;
+                }
+              }
+            }
+            entry ??= pm.values.isEmpty ? null : pm.values.first;
+          }
+        }
+      } else if (map.containsKey('now') || map.containsKey('next')) {
+        entry = map; // {"ts":..,"now":..,"next":..}.
+      } else if (map.containsKey('title')) {
+        entry = {'now': map}; // Programme seul → considéré "en cours".
+      } else {
+        return null;
+      }
+      if (entry is! Map) return null;
+      final em = Map<String, dynamic>.from(entry);
+      final out = <EpgProgram>[];
+      // Cas imbriqué {"now":{...},"next":{...}} vs programme direct.
+      if (em.containsKey('now') || em.containsKey('next')) {
+        final nowP = _serverProgram(em['now'], cand);
+        if (nowP != null) out.add(nowP);
+        final nextP = _serverProgram(em['next'], cand);
+        if (nextP != null && !out.any((p) => p.start == nextP.start && p.title == nextP.title)) {
+          out.add(nextP);
+        }
+      } else {
+        final single = _serverProgram(em, cand);
+        if (single != null) out.add(single);
+      }
+      return out.isEmpty ? null : out;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Construit un [EpgProgram] depuis un nœud serveur
+  /// `{title, sub|subTitle, start, end|stop, desc, category, icon}`.
+  /// Null si titre ou bornes inexploitables. Ne lève jamais.
+  EpgProgram? _serverProgram(dynamic raw, String channelId) {
+    try {
+      if (raw is! Map) return null;
+      final m = Map<String, dynamic>.from(raw);
+      final title = (m['title'] ?? m['name'] ?? '').toString().trim();
+      if (title.isEmpty) return null;
+      final start = _parseServerTime(m['start']);
+      final end = _parseServerTime(m['end'] ?? m['stop'] ?? m['endTime']);
+      if (start == null || end == null || !end.isAfter(start)) return null;
+      String? opt(dynamic v) {
+        try {
+          final s = v?.toString().trim() ?? '';
+          return s.isEmpty ? null : s;
+        } catch (_) {
+          return null;
+        }
+      }
+      return EpgProgram(
+        channelId: channelId,
+        sourceRank: _serverSourceRank,
+        title: title,
+        subTitle: opt(m['sub'] ?? m['subTitle'] ?? m['subtitle']),
+        desc: opt(m['desc'] ?? m['description']),
+        category: opt(m['category'] ?? m['genre']),
+        icon: opt(m['icon'] ?? m['image'] ?? m['logo']),
+        start: start,
+        end: end,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Bornes serveur tolérantes : epoch s (10 chiffres) ou ms (13 chiffres)
+  /// en int/double/chaîne numérique, ISO-8601 (`DateTime.parse`), ou
+  /// format XMLTV (`EpgParser.parseXmltvDate`). Retour UTC. Null si
+  /// inexploitable. Ne lève jamais.
+  DateTime? _parseServerTime(dynamic v) {
+    try {
+      if (v == null) return null;
+      if (v is int) {
+        if (v >= 1000000000000) {
+          return DateTime.fromMillisecondsSinceEpoch(v, isUtc: true);
+        }
+        if (v >= 1000000000) {
+          return DateTime.fromMillisecondsSinceEpoch(v * 1000, isUtc: true);
+        }
+        return null;
+      }
+      if (v is double) {
+        if (!v.isFinite) return null;
+        return _parseServerTime(v.truncate());
+      }
+      final s = v.toString().trim();
+      if (s.isEmpty) return null;
+      if (RegExp(r'^\d+$').hasMatch(s)) {
+        try {
+          return _parseServerTime(int.parse(s));
+        } catch (_) {
+          return null;
+        }
+      }
+      try {
+        return DateTime.parse(s).toUtc();
+      } catch (_) {}
+      return EpgParser.parseXmltvDate(s)?.toUtc();
+    } catch (_) {
       return null;
     }
   }

@@ -32,6 +32,8 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
   // A3 : nœuds dédiés à l'état erreur (Réessayer autofocus + Retour fallback).
   final FocusNode _retryFocusNode = FocusNode(debugLabel: 'retryButton');
   final FocusNode _errorBackFocusNode = FocusNode(debugLabel: 'errorBack');
+  // Loading : bouton Retour focusé d'attente (jamais de D-pad mort).
+  final FocusNode _loadingBackFocusNode = FocusNode(debugLabel: 'loadingBack');
   final ScrollController _scrollController = ScrollController();
   bool _didInitialAutofocus = false;
 
@@ -39,6 +41,14 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
   void initState() {
     super.initState();
     FocusManager.instance.addListener(_handleFocusLoss);
+    // Focus INITIAL garanti dès le mount, même pendant le loading.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (ModalRoute.of(context)?.isCurrent != true) return;
+      if (FocusManager.instance.primaryFocus == null) {
+        _loadingBackFocusNode.requestFocus();
+      }
+    });
     _loadAnime();
   }
 
@@ -48,40 +58,65 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
     _watchFocusNode.dispose();
     _retryFocusNode.dispose();
     _errorBackFocusNode.dispose();
+    _loadingBackFocusNode.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
+  /// Cible de fallback selon l'état courant.
+  FocusNode _focusTargetForState() {
+    if (_isLoading) return _loadingBackFocusNode;
+    if (_errorMessage != null || _anime == null) return _retryFocusNode;
+    return _watchFocusNode;
+  }
+
+  /// Force le focus sur [node] au prochain frame + rattrapage au frame
+  /// suivant si le primaire est encore null (nœud pas encore attaché).
+  void _forceFocus(FocusNode node) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (ModalRoute.of(context)?.isCurrent != true) return;
+      if (node.canRequestFocus && !node.hasFocus) {
+        node.requestFocus();
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (ModalRoute.of(context)?.isCurrent != true) return;
+        if (FocusManager.instance.primaryFocus == null &&
+            !node.hasFocus &&
+            node.canRequestFocus) {
+          node.requestFocus();
+        }
+      });
+    });
+  }
+
   /// Fallback : si le focus primaire devient null après une navigation
-  /// D-pad, on le restaure au prochain frame. Erreur (anime null) ->
-  /// Réessayer (A3), contenu -> Regarder. Pas de FocusScope interne
-  /// (TVWrapper/TVRemoteNavigator gèrent la racine).
+  /// D-pad (y compris pendant le loading), on le restaure au prochain
+  /// frame selon l'état courant. Se re-déclenche à chaque perte.
+  /// Pas de FocusScope interne (TVWrapper/TVRemoteNavigator gèrent la racine).
   void _handleFocusLoss() {
-    if (!mounted || _isLoading) return;
+    if (!mounted) return;
     if (FocusManager.instance.primaryFocus != null) return;
     if (ModalRoute.of(context)?.isCurrent != true) return;
+    final target = _focusTargetForState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (FocusManager.instance.primaryFocus == null &&
           ModalRoute.of(context)?.isCurrent == true) {
-        if (_errorMessage != null || _anime == null) {
-          _retryFocusNode.requestFocus();
-        } else {
-          _watchFocusNode.requestFocus();
+        if (target.canRequestFocus && !target.hasFocus) {
+          target.requestFocus();
         }
       }
     });
   }
 
+  /// Focus contenu forcé à chaque arrivée (premier chargement, retry,
+  /// retour player). `_didInitialAutofocus` ne sert qu'au param `autoFocus`
+  /// du widget — jamais de garde bloquant le restore.
   void _requestInitialFocus() {
-    if (_didInitialAutofocus) return;
     _didInitialAutofocus = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      if (FocusManager.instance.primaryFocus == null) {
-        _watchFocusNode.requestFocus();
-      }
-    });
+    _forceFocus(_watchFocusNode);
   }
 
   Future<void> _loadAnime() async {
@@ -89,6 +124,8 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
       _isLoading = true;
       _errorMessage = null;
     });
+    // Transition -> loading : refocus Retour d'attente (jamais de D-pad mort).
+    _forceFocus(_loadingBackFocusNode);
     try {
       final data = await _api.getAnimeDetail(widget.animeId);
       if (!mounted) return;
@@ -119,13 +156,9 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
         _errorMessage = error.toString();
         _isLoading = false;
       });
-      // A3 : focus mort en erreur -> autofocus Réessayer au prochain frame.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        if (FocusManager.instance.primaryFocus == null) {
-          _retryFocusNode.requestFocus();
-        }
-      });
+      // A3 : focus mort en erreur -> Réessayer inconditionnel au prochain
+      // frame (même si un focus résiduel/racine existe).
+      _forceFocus(_retryFocusNode);
     }
   }
 
@@ -148,14 +181,47 @@ class _TVAnimeDetailScreenState extends State<TVAnimeDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // autofocusRoot: false — sinon TVRemoteNavigator vole le focus vers un
+    // nœud racine invisible (primaryFocus != null) et ni Regarder ni
+    // Réessayer ne reçoivent le focus (D-pad mort). Miroir tv_detail_screen.
     return TVWrapper(
       showBackButton: true,
+      autofocusRoot: false,
       onBack: () => Navigator.pop(context),
       child: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: TVTheme.accentRed))
+          ? _buildLoading()
           : _errorMessage != null
               ? _buildError()
               : _buildContent(),
+    );
+  }
+
+  /// Loading : spinner display-only + bouton Retour focusable avec
+  /// autofocus. Garantit une cible D-pad pendant le chargement (avant :
+  /// aucun widget focusable -> D-pad mort sur tout le fetch réseau).
+  Widget _buildLoading() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const CircularProgressIndicator(color: TVTheme.accentRed),
+          const SizedBox(height: 24),
+          TVFocusableCard(
+            focusNode: _loadingBackFocusNode,
+            autoFocus: true,
+            onTap: () => Navigator.pop(context),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.arrow_back, color: TVTheme.textPrimary),
+                SizedBox(width: 8),
+                Text('Retour', style: TextStyle(color: TVTheme.textPrimary)),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
