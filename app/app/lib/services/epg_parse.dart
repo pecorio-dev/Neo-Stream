@@ -160,8 +160,10 @@ class EpgParser {
   /// Normalise un nom (ou slug, ou ID XMLTV) de chaîne pour le mapping :
   /// minuscules, accents retirés, ponctuation → espaces, tokens de bruit
   /// retirés. Ex. `France2.fr` → `france 2`, `TF1 HD` → `tf1`.
+  /// Ne lève jamais (retourne '' en cas d'entrée inattendue).
   static String normalizeName(String raw) {
-    var s = raw.toLowerCase().trim();
+    try {
+      var s = raw.toLowerCase().trim();
     final buf = StringBuffer();
     for (var i = 0; i < s.length; i++) {
       final ch = s[i];
@@ -192,10 +194,20 @@ class EpgParser {
       kept.removeAt(0);
     }
     return kept.join(' ');
+    } catch (_) {
+      return '';
+    }
   }
 
   /// Variante sans espaces pour les collages type `France2` vs `France 2`.
-  static String spaceless(String normalized) => normalized.replaceAll(' ', '');
+  /// Ne lève jamais.
+  static String spaceless(String normalized) {
+    try {
+      return normalized.replaceAll(' ', '');
+    } catch (_) {
+      return '';
+    }
+  }
 
   // RegExp précompilées (petites sections uniquement : display-names,
   // champs d'un programme retenu — jamais de balayage global).
@@ -227,52 +239,74 @@ class EpgParser {
   };
 
   static String _unescape(String s) {
-    // Chemin rapide : la plupart des titres n'ont aucune entité.
-    if (!s.contains('&')) return s.replaceAll(_wsRe, ' ').trim();
-    var out = s;
-    _entities.forEach((k, v) => out = out.replaceAll(k, v));
-    out = out.replaceAllMapped(
-      _numEntityRe,
-      (m) => String.fromCharCode(int.parse(m.group(1)!)),
-    );
-    return out.replaceAll(_wsRe, ' ').trim();
+    try {
+      // Chemin rapide : la plupart des titres n'ont aucune entité.
+      if (!s.contains('&')) return s.replaceAll(_wsRe, ' ').trim();
+      var out = s;
+      _entities.forEach((k, v) => out = out.replaceAll(k, v));
+      out = out.replaceAllMapped(
+        _numEntityRe,
+        (m) {
+          try {
+            return String.fromCharCode(int.parse(m.group(1)!));
+          } catch (_) {
+            return '';
+          }
+        },
+      );
+      return out.replaceAll(_wsRe, ' ').trim();
+    } catch (_) {
+      return '';
+    }
   }
 
   static RegExp _tagRe(String tag) =>
       _tagRes.putIfAbsent(tag, () => RegExp('<$tag[^>]*>(.*?)</$tag>', dotAll: true));
 
   static String _tagText(String body, String tag) {
-    final m = _tagRe(tag).firstMatch(body);
-    if (m == null) return '';
-    return _unescape(m.group(1) ?? '');
+    try {
+      final m = _tagRe(tag).firstMatch(body);
+      if (m == null) return '';
+      return _unescape(m.group(1) ?? '');
+    } catch (_) {
+      return '';
+    }
   }
 
   static String? _iconSrc(String body) {
-    final m = _iconRe.firstMatch(body);
-    final src = m?.group(1)?.trim();
-    return (src == null || src.isEmpty) ? null : src;
+    try {
+      final m = _iconRe.firstMatch(body);
+      final src = m?.group(1)?.trim();
+      return (src == null || src.isEmpty) ? null : src;
+    } catch (_) {
+      return null;
+    }
   }
 
-  /// `20260918000000 +0200` → instant UTC.
+  /// `20260918000000 +0200` → instant UTC. Ne lève jamais (null si invalide).
   static DateTime? parseXmltvDate(String raw) {
-    final m = _dateRe.firstMatch(raw.trim());
-    if (m == null) return null;
-    final dt = DateTime.utc(
-      int.parse(m.group(1)!),
-      int.parse(m.group(2)!),
-      int.parse(m.group(3)!),
-      int.parse(m.group(4)!),
-      int.parse(m.group(5)!),
-      int.parse(m.group(6)!),
-    );
-    final tz = m.group(7);
-    if (tz == null || tz.isEmpty || tz == 'Z') return dt;
-    final sign = tz[0] == '-' ? -1 : 1;
-    final off = Duration(
-      hours: int.parse(tz.substring(1, 3)),
-      minutes: int.parse(tz.substring(3, 5)),
-    );
-    return dt.subtract(off * sign);
+    try {
+      final m = _dateRe.firstMatch(raw.trim());
+      if (m == null) return null;
+      final dt = DateTime.utc(
+        int.parse(m.group(1)!),
+        int.parse(m.group(2)!),
+        int.parse(m.group(3)!),
+        int.parse(m.group(4)!),
+        int.parse(m.group(5)!),
+        int.parse(m.group(6)!),
+      );
+      final tz = m.group(7);
+      if (tz == null || tz.isEmpty || tz == 'Z') return dt;
+      final sign = tz[0] == '-' ? -1 : 1;
+      final off = Duration(
+        hours: int.parse(tz.substring(1, 3)),
+        minutes: int.parse(tz.substring(3, 5)),
+      );
+      return dt.subtract(off * sign);
+    } catch (_) {
+      return null;
+    }
   }
 
   // ── Index léger des chaînes ──────────────────────────────────────────
@@ -283,63 +317,75 @@ class EpgParser {
 
   /// Remplit [nameToId] (nom normalisé → ID) et [channelIds] depuis la
   /// section `<channel>` de [xml]. Léger : quelques centaines d'entrées.
+  /// Ne lève jamais.
   static void indexChannels(
     String xml,
     Map<String, String> nameToId,
     Set<String> channelIds,
   ) {
-    final cut = xml.indexOf('<programme');
-    final head = cut < 0 ? xml : xml.substring(0, cut);
-    for (final m in _channelRe.allMatches(head)) {
-      final id = _unescape((m.group(1) ?? '').trim());
-      if (id.isEmpty) continue;
-      channelIds.add(id);
-      final names = _displayNameRe
-          .allMatches(m.group(2) ?? '')
-          .map((n) => _unescape(n.group(1) ?? ''))
-          .where((n) => n.isNotEmpty)
-          .toList();
-      for (final c in <String>{id, ...names}) {
-        final norm = normalizeName(c);
-        if (norm.isEmpty) continue;
-        nameToId.putIfAbsent(norm, () => id);
-        final flat = spaceless(norm);
-        if (flat.isNotEmpty && flat != norm) {
-          nameToId.putIfAbsent(flat, () => id);
+    try {
+      final cut = xml.indexOf('<programme');
+      final head = cut < 0 ? xml : xml.substring(0, cut);
+      for (final m in _channelRe.allMatches(head)) {
+        try {
+          final id = _unescape((m.group(1) ?? '').trim());
+          if (id.isEmpty) continue;
+          channelIds.add(id);
+          final names = _displayNameRe
+              .allMatches(m.group(2) ?? '')
+              .map((n) => _unescape(n.group(1) ?? ''))
+              .where((n) => n.isNotEmpty)
+              .toList();
+          for (final c in <String>{id, ...names}) {
+            final norm = normalizeName(c);
+            if (norm.isEmpty) continue;
+            nameToId.putIfAbsent(norm, () => id);
+            final flat = spaceless(norm);
+            if (flat.isNotEmpty && flat != norm) {
+              nameToId.putIfAbsent(flat, () => id);
+            }
+          }
+        } catch (_) {
+          continue;
         }
       }
-    }
+    } catch (_) {}
   }
 
   /// Résout une requête (slug FSTV ou titre) vers le set d'IDs XMLTV
   /// candidats dans l'index fourni (en général UN seul ID ; plusieurs si
   /// des alias pointent vers des IDs distincts). Ensemble vide = inconnue.
+  /// Ne lève jamais.
   static Set<String> resolveIds(
     Map<String, String> nameToId,
     Set<String> channelIds,
     String query,
   ) {
-    final q = query.trim();
-    if (q.isEmpty || channelIds.isEmpty) return const {};
-    // 1) ID exact (insensible à la casse).
-    for (final id in channelIds) {
-      if (id.toLowerCase() == q.toLowerCase()) return {id};
+    try {
+      final q = query.trim();
+      if (q.isEmpty || channelIds.isEmpty) return const {};
+      // 1) ID exact (insensible à la casse).
+      for (final id in channelIds) {
+        if (id.toLowerCase() == q.toLowerCase()) return {id};
+      }
+      // 2) Nom normalisé (avec puis sans espaces), alias inclus.
+      final out = <String>{};
+      final norm = normalizeName(q);
+      if (norm.isNotEmpty) {
+        final aliased = queryAliases[norm] ?? norm;
+        final hit =
+            nameToId[aliased] ?? nameToId[spaceless(aliased)];
+        if (hit != null) out.add(hit);
+      }
+      if (out.isNotEmpty) return out;
+      // 3) Repli : IDs dont la forme normalisée colle à la requête.
+      for (final id in channelIds) {
+        if (normalizeName(id) == norm) out.add(id);
+      }
+      return out;
+    } catch (_) {
+      return const {};
     }
-    // 2) Nom normalisé (avec puis sans espaces), alias inclus.
-    final out = <String>{};
-    final norm = normalizeName(q);
-    if (norm.isNotEmpty) {
-      final aliased = queryAliases[norm] ?? norm;
-      final hit =
-          nameToId[aliased] ?? nameToId[spaceless(aliased)];
-      if (hit != null) out.add(hit);
-    }
-    if (out.isNotEmpty) return out;
-    // 3) Repli : IDs dont la forme normalisée colle à la requête.
-    for (final id in channelIds) {
-      if (normalizeName(id) == norm) out.add(id);
-    }
-    return out;
   }
 
   // ── Parse filtrant en streaming ──────────────────────────────────────
@@ -354,20 +400,26 @@ class EpgParser {
   /// Valeur d'un attribut XML dans un fragment de balise ouvrante
   /// (ex. `channel="TF1.fr"` dans `<programme channel="..." ...>`).
   /// Retourne null si absent. Rapide : deux indexOf, pas de RegExp.
+  /// Ne lève jamais.
   static String? _attrValue(String tagFragment, String name) {
-    final key = '$name="';
-    final s = tagFragment.indexOf(key);
-    if (s < 0) return null;
-    final vStart = s + key.length;
-    final vEnd = tagFragment.indexOf('"', vStart);
-    if (vEnd < 0) return null;
-    return tagFragment.substring(vStart, vEnd);
+    try {
+      final key = '$name="';
+      final s = tagFragment.indexOf(key);
+      if (s < 0) return null;
+      final vStart = s + key.length;
+      final vEnd = tagFragment.indexOf('"', vStart);
+      if (vEnd < 0) return null;
+      return tagFragment.substring(vStart, vEnd);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Parse [xml] en ne gardant que les programmes de [wanted] chevauchant
   /// [from, to]. Ajoute à [into] (ou nouvelle liste). Pic mémoire : la
   /// chaîne XML (incompressible sans parser SAX) + une poignée de
-  /// programmes retenus (fenêtre courte : typiquement < 20).
+  /// programmes retenus (fenêtre -30 min → +12 h : typiquement < 15).
+  /// Ne lève JAMAIS : tout échec → retourne ce qui a été retenu.
   static Future<List<EpgProgram>> parseFiltered(
     String xml,
     Set<String> wanted,
@@ -378,71 +430,93 @@ class EpgParser {
     int maxDescLength = 280,
   }) async {
     final out = into ?? <EpgProgram>[];
-    if (wanted.isEmpty) return out;
-    var pos = 0;
-    var scanned = 0;
-    while (true) {
-      final tagStart = xml.indexOf('<programme', pos);
-      if (tagStart < 0) break;
-      final attrEnd = xml.indexOf('>', tagStart);
-      if (attrEnd < 0) break;
-      scanned++;
-      // Respiration : 1 frame tous les ~1024 balayés (skip ou retenu).
-      if ((scanned & 1023) == 0) {
-        await Future<void>.delayed(Duration.zero);
+    try {
+      if (wanted.isEmpty) return out;
+      var pos = 0;
+      var scanned = 0;
+      while (true) {
+        int tagStart;
+        int attrEnd;
+        try {
+          tagStart = xml.indexOf('<programme', pos);
+          if (tagStart < 0) break;
+          attrEnd = xml.indexOf('>', tagStart);
+          if (attrEnd < 0) break;
+        } catch (_) {
+          break;
+        }
+        scanned++;
+        // Respiration : 1 frame tous les ~1024 balayés (skip ou retenu).
+        if ((scanned & 1023) == 0) {
+          await Future<void>.delayed(Duration.zero);
+        }
+        try {
+          // Filtre canal AVANT toute allocation : extrait juste l'attribut.
+          final rawChannel = _attrValue(
+            xml.substring(tagStart, attrEnd),
+            'channel',
+          );
+          final channel =
+              rawChannel == null ? '' : _unescape(rawChannel.trim());
+          if (channel.isEmpty || !wanted.contains(channel)) {
+            final close = xml.indexOf('</programme>', attrEnd);
+            if (close < 0) break;
+            pos = close + 12; // '</programme>'.length
+            continue;
+          }
+          // Canal voulu : dates (toujours dans la balise ouvrante).
+          final openTag = xml.substring(tagStart, attrEnd);
+          final start = parseXmltvDate(_attrValue(openTag, 'start') ?? '');
+          final stop = parseXmltvDate(_attrValue(openTag, 'stop') ?? '');
+          final bodyEnd = xml.indexOf('</programme>', attrEnd);
+          if (bodyEnd < 0) break;
+          if (start == null || stop == null || !stop.isAfter(start)) {
+            pos = bodyEnd + 12;
+            continue;
+          }
+          // Fenêtre réduite avec recouvrement (capte le direct à cheval
+          // qui a démarré avant [from]).
+          if (stop.isBefore(from) || start.isAfter(to)) {
+            pos = bodyEnd + 12;
+            continue;
+          }
+          final body = xml.substring(attrEnd + 1, bodyEnd);
+          final title = _tagText(body, 'title');
+          if (title.isEmpty) {
+            pos = bodyEnd + 12;
+            continue;
+          }
+          final desc = _tagText(body, 'desc');
+          out.add(
+            EpgProgram(
+              channelId: channel,
+              sourceRank: rank,
+              title: title,
+              subTitle: _tagText(body, 'sub-title').nullIfEmpty,
+              desc: desc.nullIfEmpty?.truncate(maxDescLength),
+              category: _tagText(body, 'category').nullIfEmpty,
+              icon: _iconSrc(body),
+              start: start,
+              end: stop,
+            ),
+          );
+          pos = bodyEnd + 12;
+        } catch (_) {
+          // Entrée corrompue : on avance sans jamais propager.
+          try {
+            final bodyEnd = xml.indexOf('</programme>', attrEnd);
+            if (bodyEnd < 0) break;
+            pos = bodyEnd + 12;
+          } catch (_) {
+            break;
+          }
+          continue;
+        }
       }
-      // Filtre canal AVANT toute allocation : extrait juste l'attribut.
-      final rawChannel = _attrValue(
-        xml.substring(tagStart, attrEnd),
-        'channel',
-      );
-      final channel =
-          rawChannel == null ? '' : _unescape(rawChannel.trim());
-      if (channel.isEmpty || !wanted.contains(channel)) {
-        final close = xml.indexOf('</programme>', attrEnd);
-        if (close < 0) break;
-        pos = close + 12; // '</programme>'.length
-        continue;
-      }
-      // Canal voulu : dates (toujours dans la balise ouvrante).
-      final openTag = xml.substring(tagStart, attrEnd);
-      final start = parseXmltvDate(_attrValue(openTag, 'start') ?? '');
-      final stop = parseXmltvDate(_attrValue(openTag, 'stop') ?? '');
-      final bodyEnd = xml.indexOf('</programme>', attrEnd);
-      if (bodyEnd < 0) break;
-      if (start == null || stop == null || !stop.isAfter(start)) {
-        pos = bodyEnd + 12;
-        continue;
-      }
-      // Fenêtre courte avec recouvrement (capte le direct à cheval qui a
-      // démarré avant [from]).
-      if (stop.isBefore(from) || start.isAfter(to)) {
-        pos = bodyEnd + 12;
-        continue;
-      }
-      final body = xml.substring(attrEnd + 1, bodyEnd);
-      final title = _tagText(body, 'title');
-      if (title.isEmpty) {
-        pos = bodyEnd + 12;
-        continue;
-      }
-      final desc = _tagText(body, 'desc');
-      out.add(
-        EpgProgram(
-          channelId: channel,
-          sourceRank: rank,
-          title: title,
-          subTitle: _tagText(body, 'sub-title').nullIfEmpty,
-          desc: desc.nullIfEmpty?.truncate(maxDescLength),
-          category: _tagText(body, 'category').nullIfEmpty,
-          icon: _iconSrc(body),
-          start: start,
-          end: stop,
-        ),
-      );
-      pos = bodyEnd + 12;
+      return out;
+    } catch (_) {
+      return out;
     }
-    return out;
   }
 }
 

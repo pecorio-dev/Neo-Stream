@@ -25,35 +25,37 @@ class _EpgSource {
 
 /// Guide des programmes TV (EPG) — version anti-crash TV.
 ///
-/// Principe radical : on ne charge/parse JAMAIS le guide entier
-/// (~6,7 Mo gzip, ~58k programmes sur 5 jours → OOM sur TV low-end).
+/// Principe radical : on ne charge/parse JAMAIS le guide entier.
 /// Quand le popup d'UNE chaîne s'ouvre :
-///  1. les fichiers gzip en cache (12 h) sont réutilisés ou téléchargés
-///     (téléchargement séquentiel, jamais les deux sources décodées en
-///     même temps en RAM),
-///  2. la petite section `<channel>` (592 entrées) est indexée pour
-///     résoudre slug/nom → ID XMLTV,
+///  1. UNE SEULE source est utilisée : dès que la 1re source résout la
+///     chaîne (IDs trouvés), la 2e n'est NI téléchargée NI parsée,
+///  2. la petite section `<channel>` est indexée pour résoudre
+///     slug/nom → ID XMLTV,
 ///  3. `<programme>` est balayé en streaming filtrant
 ///     ([EpgParser.parseFiltered]) : seuls les programmes du canal résolu
-///     dans la fenêtre courte (6 h avant → 24 h après) sont matérialisés
-///     (typiquement < 20 objets),
+///     dans la fenêtre courte (-30 min → +12 h) sont matérialisés
+///     (typiquement < 15 objets),
 ///  4. à la fermeture du popup, [releaseMemory] vide la mémoire (les
 ///     fichiers gzip restent sur disque).
 ///
 /// Zéro scan global : ni grille, ni spotlight, ni pré-chauffe ne touchent
 /// le guide. Seul le popup appelle [loadChannel] puis [getNowAndNext].
+/// Tout échec → null (section "Programmes indisponibles"), JAMAIS
+/// d'exception propagée, JAMAIS de crash.
 /// Ni le proxy `iptv.mine.bz`, ni le lecteur ne sont touchés.
 class EpgService {
   EpgService._();
   static final EpgService instance = EpgService._();
 
   static const Duration cacheMaxAge = Duration(hours: 12);
-  static const Duration _httpTimeout = Duration(seconds: 30);
 
-  /// Fenêtre courte mono-chaîne : 6 h de passé (capte le direct à cheval)
-  /// → 24 h de futur (largement de quoi fournir Maintenant / À suivre).
-  static const Duration windowPast = Duration(hours: 6);
-  static const Duration windowFuture = Duration(hours: 24);
+  /// Timeout STRICT du download EPG : 15 s max, jamais plus.
+  static const Duration _httpTimeout = Duration(seconds: 15);
+
+  /// Fenêtre réduite mono-chaîne : -30 min (juste de quoi déterminer
+  /// l'émission en cours à cheval) → +12 h. Zéro passé inutile.
+  static const Duration windowPast = Duration(minutes: 30);
+  static const Duration windowFuture = Duration(hours: 12);
 
   static const List<_EpgSource> _sources = [
     _EpgSource(
@@ -100,34 +102,53 @@ class EpgService {
 
   // ── Chargement mono-chaîne ──────────────────────────────────────────
 
-  /// Charge (fichiers → réseau si périmés) puis parse EN FILTRANT les
-  /// programmes de la chaîne [slug]/[name] dans la fenêtre courte.
-  /// Appels concurrents même chaîne fusionnés (single-flight). Ne lève
-  /// jamais : retourne null si le guide est indisponible pour la chaîne.
+  /// Charge puis parse EN FILTRANT les programmes de la chaîne
+  /// [slug]/[name] dans la fenêtre courte (-30 min → +12 h).
+  /// UNE SEULE source : dès que la 1re source résout la chaîne, la 2e
+  /// n'est ni téléchargée ni parsée. Appels concurrents même chaîne
+  /// fusionnés (single-flight). Ne lève JAMAIS : retourne null si le
+  /// guide est indisponible pour la chaîne.
   Future<EpgNowNext?> loadChannel(String slug, String name,
       {bool forceRefresh = false, DateTime? now}) {
-    final key = _keyOf(slug, name);
-    if (key == '|' || (!forceRefresh && _loadedAt != null && key == _loadedKey)) {
-      if (_loadedAt != null &&
-          DateTime.now().difference(_loadedAt!) < cacheMaxAge &&
-          _programs.isNotEmpty) {
-        return Future.value(getNowAndNext(slug, at: now));
+    try {
+      final key = _keyOf(slug, name);
+      if (key == '|' ||
+          (!forceRefresh && _loadedAt != null && key == _loadedKey)) {
+        if (_loadedAt != null &&
+            DateTime.now().difference(_loadedAt!) < cacheMaxAge &&
+            _programs.isNotEmpty) {
+          try {
+            return Future.value(getNowAndNext(slug, at: now));
+          } catch (_) {
+            return Future.value(null);
+          }
+        }
       }
-    }
-    final inFlight = _loadingFuture;
-    if (inFlight != null && _loadingKey == key && !forceRefresh) {
-      return inFlight;
-    }
-    final fut = _loadChannel(slug, name, key, now: now, forceRefresh: forceRefresh);
-    _loadingFuture = fut;
-    _loadingKey = key;
-    fut.whenComplete(() {
-      if (_loadingKey == key) {
-        _loadingFuture = null;
-        _loadingKey = '';
+      final inFlight = _loadingFuture;
+      if (inFlight != null && _loadingKey == key && !forceRefresh) {
+        return inFlight;
       }
-    });
-    return fut;
+      // Garde absolue : _loadChannel ne lève jamais, mais on verrouille
+      // quand même la propagation (le popup n'a aucun catch à faire).
+      final fut = _loadChannel(slug, name, key,
+              now: now, forceRefresh: forceRefresh)
+          .then<EpgNowNext?>((v) => v, onError: (_) {
+        lastError = 'Guide TV indisponible.';
+        return null;
+      });
+      _loadingFuture = fut;
+      _loadingKey = key;
+      fut.whenComplete(() {
+        if (_loadingKey == key) {
+          _loadingFuture = null;
+          _loadingKey = '';
+        }
+      });
+      return fut;
+    } catch (_) {
+      lastError = 'Guide TV indisponible.';
+      return Future.value(null);
+    }
   }
 
   Future<EpgNowNext?> _loadChannel(
@@ -142,19 +163,23 @@ class EpgService {
       final from = ref.subtract(windowPast);
       final to = ref.add(windowFuture);
 
-      // 1) Fichiers frais ? Sinon téléchargement séquentiel (jamais les
-      //    deux flux décodés simultanément en RAM).
-      await _ensureFiles(forceRefresh: forceRefresh);
-
-      // 2) Source par source : lit le fichier, décode, indexe les 592
-      //    `<channel>`, résout les IDs de CETTE chaîne, parse filtrant.
-      //    La chaîne XML est jetée avant la source suivante (pic RAM =
-      //    1 seul flux + une poignée de programmes).
+      // Source par source, ARRÊT dès que la 1re source résout la chaîne :
+      // la 2e n'est ni téléchargée ni parsée (pic RAM = 1 seul flux +
+      // une poignée de programmes). Chaque étape est en try/catch absolu.
       final kept = <EpgProgram>[];
       final ids = <String>{};
       var anyFile = false;
+      var resolved = false;
       for (final src in _sources) {
-        final xml = await _readXml(src.cacheFile);
+        String? xml;
+        try {
+          // Fichier frais ? Sinon download de CETTE source uniquement
+          // (15 s max, best-effort).
+          await _ensureSourceFile(src, forceRefresh: forceRefresh);
+          xml = await _readXml(src.cacheFile);
+        } catch (_) {
+          xml = null;
+        }
         if (xml == null || xml.isEmpty) continue;
         anyFile = true;
         try {
@@ -165,14 +190,17 @@ class EpgService {
           var wanted = EpgParser.resolveIds(nameToId, channelIds, slug);
           wanted = {...wanted, ...EpgParser.resolveIds(nameToId, channelIds, name)};
           if (wanted.isEmpty) continue; // Chaîne absente de cette source.
+          // 1re source qui résout → on parse PUIS ON S'ARRÊTE.
+          resolved = true;
           ids.addAll(wanted);
-          await EpgParser.parseFiltered(xml, wanted, src.rank, from, to, into: kept);
+          await EpgParser.parseFiltered(xml, wanted, src.rank, from, to,
+              into: kept);
         } catch (_) {
-          // Flux corrompu : on continue avec l'autre source.
+          // Flux corrompu : si déjà résolu on garde, sinon on tente l'autre.
+          if (resolved) break;
           continue;
         }
-        // Respiration entre les deux sources.
-        await Future<void>.delayed(Duration.zero);
+        if (resolved) break;
       }
       if (!anyFile) {
         lastError = 'Guide TV indisponible (réseau + cache vides).';
@@ -207,34 +235,46 @@ class EpgService {
   /// (le popup essaie slug puis nom) — la mémoire ne contient de toute
   /// façon que la chaîne chargée, aucun scan global n'a lieu.
   EpgNowNext? getNowAndNext(String slugOrTitle, {DateTime? at}) {
-    final list = _programs;
-    if (list.isEmpty) return null;
-    final moment = (at ?? DateTime.now()).toUtc();
-    EpgProgram? now;
-    for (final p in list) {
-      if (!p.start.isAfter(moment) && p.end.isAfter(moment)) {
-        if (now == null || p.sourceRank < now.sourceRank) now = p;
+    try {
+      final list = _programs;
+      if (list.isEmpty) return null;
+      final moment = (at ?? DateTime.now()).toUtc();
+      EpgProgram? now;
+      for (final p in list) {
+        try {
+          if (!p.start.isAfter(moment) && p.end.isAfter(moment)) {
+            if (now == null || p.sourceRank < now.sourceRank) now = p;
+          }
+        } catch (_) {
+          continue;
+        }
       }
-    }
-    if (now == null) return null;
-    final current = now;
-    // "À suivre" : le plus tôt à partir de la fin du direct, en
-    // privilégiant la même source (évite d'afficher le doublon
-    // inter-sources du même programme avec un horaire décalé).
-    EpgProgram? next;
-    bool better(EpgProgram p, EpgProgram? cur) {
-      if (cur == null) return true;
-      final sameSrc = p.sourceRank == current.sourceRank;
-      final curSameSrc = cur.sourceRank == current.sourceRank;
-      if (sameSrc != curSameSrc) return sameSrc;
-      if (p.start != cur.start) return p.start.isBefore(cur.start);
-      return p.sourceRank < cur.sourceRank;
-    }
+      if (now == null) return null;
+      final current = now;
+      // "À suivre" : le plus tôt à partir de la fin du direct, en
+      // privilégiant la même source (évite d'afficher le doublon
+      // inter-sources du même programme avec un horaire décalé).
+      EpgProgram? next;
+      bool better(EpgProgram p, EpgProgram? cur) {
+        if (cur == null) return true;
+        final sameSrc = p.sourceRank == current.sourceRank;
+        final curSameSrc = cur.sourceRank == current.sourceRank;
+        if (sameSrc != curSameSrc) return sameSrc;
+        if (p.start != cur.start) return p.start.isBefore(cur.start);
+        return p.sourceRank < cur.sourceRank;
+      }
 
-    for (final p in list) {
-      if (!p.start.isBefore(current.end) && better(p, next)) next = p;
+      for (final p in list) {
+        try {
+          if (!p.start.isBefore(current.end) && better(p, next)) next = p;
+        } catch (_) {
+          continue;
+        }
+      }
+      return EpgNowNext(now: current, next: next);
+    } catch (_) {
+      return null;
     }
-    return EpgNowNext(now: current, next: next);
   }
 
   /// Vide le cache mémoire des programmes (appelé à la fermeture du
@@ -250,45 +290,49 @@ class EpgService {
 
   Future<Directory> _dir() => getApplicationSupportDirectory();
 
-  /// Garantit des fichiers présents et frais (téléchargement séquentiel
-  /// si périmés/absents). Ne lève jamais.
-  Future<void> _ensureFiles({bool forceRefresh = false}) async {
-    try {
-      if (!forceRefresh) {
-        final saved = await _metaTime();
-        if (saved != null &&
-            DateTime.now().difference(saved) < cacheMaxAge &&
-            await _allFilesExist()) {
-          return;
-        }
-      }
-      // Réseau : sources EN SÉQUENCE (avant : Future.wait en parallèle
-      // qui tenait les deux flux décompressés en RAM simultanément).
-      var anyOk = false;
-      for (final src in _sources) {
-        try {
-          final bytes = await _fetchSource(src);
-          if (bytes == null || bytes.isEmpty) continue;
-          await _writeCacheFile(src.cacheFile, bytes);
-          anyOk = true;
-        } catch (_) {
-          continue;
-        }
-        await Future<void>.delayed(Duration.zero);
-      }
-      if (anyOk || await _allFilesExist()) {
-        await _writeMeta();
-      }
-    } catch (_) {}
-  }
-
-  Future<bool> _allFilesExist() async {
+  /// Garantit le fichier d'UNE source : cache frais réutilisé, sinon
+  /// download de CETTE source uniquement (15 s max). Ne lève jamais.
+  /// Retourne true si le fichier est présent après coup.
+  Future<bool> _ensureSourceFile(_EpgSource src,
+      {bool forceRefresh = false}) async {
     try {
       final dir = (await _dir()).path;
-      for (final src in _sources) {
-        if (!await File('$dir/${src.cacheFile}').exists()) return false;
+      final f = File('$dir/${src.cacheFile}');
+      if (!forceRefresh) {
+        try {
+          final saved = await _metaTime();
+          final freshMeta = saved != null &&
+              DateTime.now().difference(saved) < cacheMaxAge;
+          if (freshMeta && await f.exists()) return true;
+          // Sans méta mais fichier présent : on le garde (évite un
+          // download inutile quand seule la 1re source est nécessaire).
+          if (!freshMeta && await f.exists()) {
+            try {
+              if (await f.length() > 0) return true;
+            } catch (_) {}
+          }
+        } catch (_) {}
       }
-      return true;
+      // Réseau : CETTE source uniquement, 15 s max, best-effort.
+      try {
+        final bytes = await _fetchSource(src);
+        if (bytes == null || bytes.isEmpty) {
+          try {
+            return await f.exists();
+          } catch (_) {
+            return false;
+          }
+        }
+        await _writeCacheFile(src.cacheFile, bytes);
+        await _writeMeta();
+        return true;
+      } catch (_) {
+        try {
+          return await f.exists();
+        } catch (_) {
+          return false;
+        }
+      }
     } catch (_) {
       return false;
     }
@@ -316,15 +360,22 @@ class EpgService {
 
   /// Télécharge une source et retourne les octets BRUTS (gzip conservé
   /// tel quel pour le cache disque ; la décompression a lieu à la
-  /// lecture, source par source).
+  /// lecture, source par source). Timeout STRICT 15 s max. Ne lève
+  /// jamais : tout échec → null.
   Future<List<int>?> _fetchSource(_EpgSource src) async {
-    final uri = Uri.parse(src.url);
-    final resp = await ResilientHttp.get(uri, headers: const {
-      'Accept': 'application/gzip, application/xml, */*',
-      'User-Agent': 'NEO-Stream/4.0 (EPG)',
-    }).timeout(_httpTimeout);
-    if (resp.statusCode != 200 || resp.bodyBytes.isEmpty) return null;
-    return resp.bodyBytes;
+    try {
+      final uri = Uri.parse(src.url);
+      final resp = await ResilientHttp.get(uri, headers: const {
+        'Accept': 'application/gzip, application/xml, */*',
+        'User-Agent': 'NEO-Stream/4.0 (EPG)',
+      }).timeout(_httpTimeout);
+      if (resp.statusCode != 200 || resp.bodyBytes.isEmpty) return null;
+      return resp.bodyBytes;
+    } on TimeoutException {
+      return null;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _writeCacheFile(String name, List<int> bytes) async {

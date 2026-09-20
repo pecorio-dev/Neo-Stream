@@ -89,7 +89,12 @@ class _TVDetailScreenState extends State<TVDetailScreen> {
     _didInitialAutofocus = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _isNavigating) return;
-      if (FocusManager.instance.primaryFocus == null) {
+      if (ModalRoute.of(context)?.isCurrent != true) return;
+      // Focus garanti sur Regarder quel que soit le chemin d'ouverture :
+      // le nœud racine (TVWrapper/TVRemoteNavigator, autofocus désactivé
+      // ci-dessous) ou un focus résiduel de l'écran précédent ne doit
+      // jamais laisser la fiche sans focus visible.
+      if (!_watchFocusNode.hasFocus) {
         _watchFocusNode.requestFocus();
       }
     });
@@ -122,10 +127,12 @@ class _TVDetailScreenState extends State<TVDetailScreen> {
         _error = 'Impossible de charger le contenu';
         _isLoading = false;
       });
-      // B1 : focus mort en erreur -> autofocus Réessayer au prochain frame.
+      // B1 : focus garanti sur Réessayer en erreur, quel que soit le focus
+      // courant (racine, résiduel) — jamais de fiche sans focus D-pad.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        if (FocusManager.instance.primaryFocus == null) {
+        if (ModalRoute.of(context)?.isCurrent != true) return;
+        if (!_retryFocusNode.hasFocus) {
           _retryFocusNode.requestFocus();
         }
       });
@@ -165,8 +172,14 @@ class _TVDetailScreenState extends State<TVDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // autofocusRoot: false — le nœud racine TVRemoteNavigator ne doit pas
+    // voler le focus à l'arrivée (sinon primaryFocus != null sur un nœud
+    // invisible et ni Regarder ni Réessayer ne reçoivent le focus).
+    // La navigation D-pad/Retour remonte toujours jusqu'à lui en tant
+    // qu'ancêtre, même sans focus propre.
     return TVWrapper(
       showBackButton: true,
+      autofocusRoot: false,
       onBack: () => Navigator.pop(context),
       child: _isLoading
           ? _buildLoading()

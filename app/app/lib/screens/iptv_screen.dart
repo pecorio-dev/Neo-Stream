@@ -60,14 +60,17 @@ bool _isFavKey(LogicalKeyboardKey key) =>
     key == LogicalKeyboardKey.keyF;
 
 /// Navigation directionnelle explicite (B1) : tente le déplacement vers
-/// [dir] depuis [node] et consomme l'événement si le focus a bougé, sinon
-/// laisse le traversal par défaut s'en charger (filet : navbar, rangées
-/// voisines). Évite que Gauche/Droite ne remonte en haut via la politique
-/// géométrique [ReadingOrderTraversalPolicy].
-KeyEventResult _moveFocus(FocusNode node, TraversalDirection dir) =>
-    node.focusInDirection(dir)
-        ? KeyEventResult.handled
-        : KeyEventResult.ignored;
+/// [dir] depuis [node] et consomme TOUJOURS l'événement — rester sur place
+/// si aucun voisin, plutôt que remonter en ignored vers le traversal
+/// géométrique [ReadingOrderTraversalPolicy] qui résout vers le haut
+/// (ex. avant-dernière carte d'une ligne -> Dernière éjectée en haut quand
+/// la voisine n'est pas encore construite/visible au scroll). Le bord
+/// gauche (retour navbar via onLeftEdge) est géré par l'appelant AVANT cet
+/// appel et n'est pas concerné.
+KeyEventResult _moveFocus(FocusNode node, TraversalDirection dir) {
+  node.focusInDirection(dir);
+  return KeyEventResult.handled;
+}
 
 /// Depuis un handler racine (le [node] attaché n'est PAS le focus courant,
 /// cas du player plein écran) : déplace le focus actuel vers [dir], consommé
@@ -493,8 +496,8 @@ class _IptvScreenState extends State<IptvScreen> {
             if (!_loading) _load(forceRefresh: true);
             return KeyEventResult.handled;
           }
-          // Navigation latérale explicite (B1) : Gauche/Droite vers le
-          // voisin, Haut/Bas vers la rangée voisine, sinon traversal.
+          // Navigation explicite (B1) : Gauche/Droite/ Haut/Bas vers le
+          // voisin (handled même sans voisin : rester sur place).
           if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
             return _moveFocus(node, TraversalDirection.left);
           }
@@ -656,12 +659,14 @@ class _IptvScreenState extends State<IptvScreen> {
             return KeyEventResult.ignored; // filet : handler shell
           }
           // Navigation latérale explicite (B1) : Gauche/Droite vers le chip
-          // voisin (jamais de remontée en haut via le traversal géométrique).
+          // voisin (handled même sans voisin : rester sur place, jamais de
+          // remontée en haut via le traversal géométrique).
           if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
             return _moveFocus(node, TraversalDirection.left);
           }
           if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-            if (isLast) return KeyEventResult.ignored;
+            // Dernier chip : rester sur place (handled), pas d'éjection.
+            if (isLast) return KeyEventResult.handled;
             return _moveFocus(node, TraversalDirection.right);
           }
           // Haut/Bas : vers la rangée voisine (header/grille) quand
@@ -1557,12 +1562,14 @@ class _SpotlightCard extends StatelessWidget {
             return KeyEventResult.ignored;
           }
           // Navigation latérale explicite (B1) : Gauche/Droite vers la carte
-          // voisine du rail, jamais de remontée en haut.
+          // voisine du rail (handled même sans voisin : rester sur place,
+          // jamais de remontée en haut).
           if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
             return _moveFocus(node, TraversalDirection.left);
           }
           if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-            if (isLast) return KeyEventResult.ignored;
+            // Dernière carte : rester sur place (handled), pas d'éjection.
+            if (isLast) return KeyEventResult.handled;
             return _moveFocus(node, TraversalDirection.right);
           }
           // Haut/Bas : vers la rangée voisine (catégories/grille) quand
@@ -1797,17 +1804,22 @@ class _ChannelCardState extends State<_ChannelCard> {
               }
               return KeyEventResult.ignored; // filet : handler shell
             }
-            // Gauche/Droite explicites (B1) : vers la carte voisine, jamais
-            // de remontée en haut via le traversal géométrique.
+            // Gauche/Droite explicites (B1) : vers la carte voisine (handled
+            // même sans voisin : rester sur place, jamais de remontée en
+            // haut via le traversal géométrique).
             if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
               return _moveFocus(node, TraversalDirection.left);
             }
             if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-              if (widget.isRightEdge) return KeyEventResult.ignored;
+              // Bord droit visuel (dernière colonne calculée avec le
+              // crossCount réel, ou dernier élément d'une ligne incomplète) :
+              // rester sur place (handled), pas d'éjection vers le haut.
+              if (widget.isRightEdge) return KeyEventResult.handled;
               return _moveFocus(node, TraversalDirection.right);
             }
             // Haut/Bas : vers la carte de la rangée voisine quand prévisible
-            // (première ligne → spotlight/catégories), sinon traversal.
+            // (première ligne → spotlight/catégories), sinon rester sur
+            // place (handled, jamais d'éjection vers le haut).
             if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
               return _moveFocus(node, TraversalDirection.up);
             }
@@ -2111,9 +2123,14 @@ class _ChannelCardState extends State<_ChannelCard> {
 // d'abord, nom en repli (la mémoire ne contient QUE la chaîne chargée par
 // loadChannel à l'ouverture du popup — aucun scan global).
 // Grille + spotlight ne lisent JAMAIS le guide (zéro EPG hors popup).
+// Ne lève jamais : tout échec → null (section "Programmes indisponibles").
 EpgNowNext? _nowNextOf(FstvChannel channel) {
-  final epg = EpgService.instance;
-  return epg.getNowAndNext(channel.slug) ?? epg.getNowAndNext(channel.name);
+  try {
+    final epg = EpgService.instance;
+    return epg.getNowAndNext(channel.slug) ?? epg.getNowAndNext(channel.name);
+  } catch (_) {
+    return null;
+  }
 }
 
 // ── Pastille "Reprendre" phone (direct = récence, pas de timeline) ───────
@@ -2295,6 +2312,13 @@ class _ChannelDetailsDialog extends StatefulWidget {
 class _ChannelDetailsDialogState extends State<_ChannelDetailsDialog> {
   bool _epgReady = false;
 
+  /// Token d'annulation simple : chaque chargement EPG capture [_epgGen] ;
+  /// si le popup est fermé avant la fin ([dispose] incrémente le token et
+  /// lève [_disposed]), le résultat tardif est ignoré (jamais de setState
+  /// après dispose, jamais de crash).
+  bool _disposed = false;
+  int _epgGen = 0;
+
   /// Scroll interne de la zone sources (la seule zone scrollable du popup :
   /// l'en-tête + EPG + "Lancer" restent fixes et toujours visibles).
   late final ScrollController _sourcesCtrl = ScrollController();
@@ -2316,10 +2340,14 @@ class _ChannelDetailsDialogState extends State<_ChannelDetailsDialog> {
 
   @override
   void dispose() {
+    _disposed = true;
+    _epgGen++; // Invalide tout chargement EPG encore en vol.
     IptvFavorites.instance.removeListener(_onFavsChanged);
     // Libère les programmes de la chaîne (garde les fichiers gzip 12 h) :
     // pic mémoire retombe à zéro dès la fermeture du popup.
-    EpgService.instance.releaseMemory();
+    try {
+      EpgService.instance.releaseMemory();
+    } catch (_) {}
     _sourcesCtrl.dispose();
     _lancerNode.dispose();
     _favNode.dispose();
@@ -2342,15 +2370,33 @@ class _ChannelDetailsDialogState extends State<_ChannelDetailsDialog> {
     IptvFavorites.instance.addListener(_onFavsChanged);
     // EPG chargé UNIQUEMENT à l'ouverture du popup (nulle part ailleurs :
     // ni à l'ouverture de l'onglet, ni dans la grille/spotlight).
-    // Ne parse QUE cette chaîne, fenêtre courte (6 h avant → 24 h après) :
-    // fichiers gzip en cache 12 h, parse filtrant en streaming, mémoire
-    // libérée à la fermeture (releaseMemory dans dispose).
+    // Ne parse QUE cette chaîne, fenêtre réduite (-30 min → +12 h) :
+    // fichiers gzip en cache 12 h, UNE SEULE source (la 2e ni téléchargée
+    // ni parsée dès que la 1re résout), parse filtrant en streaming,
+    // mémoire libérée à la fermeture (releaseMemory dans dispose).
     // Single-flight + cache côté service (réouverture rapide = hit).
-    EpgService.instance
-        .loadChannel(widget.channel.slug, widget.channel.name)
-        .then((_) {
-      if (mounted) setState(() => _epgReady = true);
-    });
+    // ANNULÉ si popup fermé avant la fin : token [_epgGen] + [_disposed] +
+    // mounted — le résultat tardif est ignoré, jamais de setState tardif.
+    // TOUT échec → _epgReady = true quand même pour afficher
+    // "Programmes indisponibles" (jamais de spinner infini, jamais
+    // d'exception propagée).
+    final gen = ++_epgGen;
+    try {
+      EpgService.instance
+          .loadChannel(widget.channel.slug, widget.channel.name)
+          .then((_) {
+        if (_disposed || !mounted || gen != _epgGen) return;
+        setState(() => _epgReady = true);
+      }).catchError((_, __) {
+        if (_disposed || !mounted || gen != _epgGen) return null;
+        setState(() => _epgReady = true);
+        return null;
+      });
+    } catch (_) {
+      if (!_disposed && mounted && gen == _epgGen) {
+        setState(() => _epgReady = true);
+      }
+    }
   }
 
   @override
@@ -2696,37 +2742,38 @@ class _ChannelDetailsDialogState extends State<_ChannelDetailsDialog> {
 
   /// Section "Maintenant / À suivre" du guide TV (display-only, jamais
   /// focusable au D-pad). Silencieuse en cas d'échec : le direct reste
-  /// utilisable sans le guide.
+  /// utilisable sans le guide. Ne lève jamais.
   Widget _buildEpgSection() {
-    final channel = widget.channel;
-    if (!_epgReady) {
-      return Row(
-        children: [
-          const SizedBox(
-            width: 14,
-            height: 14,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            'Chargement du guide…',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).hintColor,
-                ),
-          ),
-        ],
-      );
-    }
-    final nn = _nowNextOf(channel);
-    if (nn == null) {
-      return Text(
-        'Guide TV non disponible pour cette chaîne.',
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).hintColor,
-              fontStyle: FontStyle.italic,
+    try {
+      final channel = widget.channel;
+      if (!_epgReady) {
+        return Row(
+          children: [
+            const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2),
             ),
-      );
-    }
+            const SizedBox(width: 8),
+            Text(
+              'Chargement du guide…',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).hintColor,
+                  ),
+            ),
+          ],
+        );
+      }
+      final nn = _nowNextOf(channel);
+      if (nn == null) {
+        return Text(
+          'Programmes indisponibles pour cette chaîne.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).hintColor,
+                fontStyle: FontStyle.italic,
+              ),
+        );
+      }
     final at = DateTime.now();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2783,6 +2830,15 @@ class _ChannelDetailsDialogState extends State<_ChannelDetailsDialog> {
         ],
       ],
     );
+    } catch (_) {
+      return Text(
+        'Programmes indisponibles pour cette chaîne.',
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).hintColor,
+              fontStyle: FontStyle.italic,
+            ),
+      );
+    }
   }
 }
 
