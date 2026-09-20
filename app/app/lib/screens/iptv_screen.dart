@@ -2107,11 +2107,10 @@ class _ChannelCardState extends State<_ChannelCard> {
 }
 
 // ── Lecture EPG réservée au popup détails ─────────────────────────────────
-// Un seul point d'accès synchrone : slug d'abord, nom en repli (le mapping
-// se fait par nom normalisé côté EpgService, avec cache de résolution).
-// Grille + spotlight ne lisent JAMAIS le guide (zéro EPG hors popup) :
-// seul [_ChannelDetailsDialogState] appelle [_nowNextOf], après un
-// ensureLoaded() déclenché à l'ouverture du popup.
+// Un seul point d'accès synchrone sur la mémoire mono-chaîne : slug
+// d'abord, nom en repli (la mémoire ne contient QUE la chaîne chargée par
+// loadChannel à l'ouverture du popup — aucun scan global).
+// Grille + spotlight ne lisent JAMAIS le guide (zéro EPG hors popup).
 EpgNowNext? _nowNextOf(FstvChannel channel) {
   final epg = EpgService.instance;
   return epg.getNowAndNext(channel.slug) ?? epg.getNowAndNext(channel.name);
@@ -2318,6 +2317,9 @@ class _ChannelDetailsDialogState extends State<_ChannelDetailsDialog> {
   @override
   void dispose() {
     IptvFavorites.instance.removeListener(_onFavsChanged);
+    // Libère les programmes de la chaîne (garde les fichiers gzip 12 h) :
+    // pic mémoire retombe à zéro dès la fermeture du popup.
+    EpgService.instance.releaseMemory();
     _sourcesCtrl.dispose();
     _lancerNode.dispose();
     _favNode.dispose();
@@ -2340,14 +2342,13 @@ class _ChannelDetailsDialogState extends State<_ChannelDetailsDialog> {
     IptvFavorites.instance.addListener(_onFavsChanged);
     // EPG chargé UNIQUEMENT à l'ouverture du popup (nulle part ailleurs :
     // ni à l'ouverture de l'onglet, ni dans la grille/spotlight).
-    // Single-flight + cache 12 h côté service. Court-circuit synchrone :
-    // pas de spinner si le guide est déjà prêt, sinon spinner discret
-    // puis contenu ("Maintenant / À suivre" + progression).
-    if (EpgService.instance.isLoaded) {
-      _epgReady = true;
-      return;
-    }
-    EpgService.instance.ensureLoaded().then((_) {
+    // Ne parse QUE cette chaîne, fenêtre courte (6 h avant → 24 h après) :
+    // fichiers gzip en cache 12 h, parse filtrant en streaming, mémoire
+    // libérée à la fermeture (releaseMemory dans dispose).
+    // Single-flight + cache côté service (réouverture rapide = hit).
+    EpgService.instance
+        .loadChannel(widget.channel.slug, widget.channel.name)
+        .then((_) {
       if (mounted) setState(() => _epgReady = true);
     });
   }
