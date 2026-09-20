@@ -112,7 +112,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   void _navigateToDetail(Content content) {
     final Widget destination = content.contentType == 'anime'
         ? AnimeDetailScreen(animeId: content.id)
-        : DetailScreen(contentId: content.id);
+        : DetailScreen(contentId: content.id, titleHint: content.title);
     Navigator.of(context).push(
       PageRouteBuilder(
         pageBuilder: (_1, animation, _2) => destination,

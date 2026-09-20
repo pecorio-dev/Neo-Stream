@@ -17,7 +17,11 @@ import 'player_screen.dart';
 class DetailScreen extends StatefulWidget {
   final int contentId;
 
-  DetailScreen({super.key, required this.contentId});
+  /// Titre connu par l'appelant (carte/search) : sert de `titleHint` au
+  /// fallback `content/search` quand `content/detail/$id` est en 500.
+  final String? titleHint;
+
+  DetailScreen({super.key, required this.contentId, this.titleHint});
 
   @override
   State<DetailScreen> createState() => _DetailScreenState();
@@ -51,7 +55,10 @@ class _DetailScreenState extends State<DetailScreen>
 
   Future<void> _loadDetail() async {
     try {
-      final content = await _api.getContentDetail(widget.contentId);
+      final content = await _api.getContentDetail(
+        widget.contentId,
+        titleHint: widget.titleHint,
+      );
       final seasons = content.seasons.keys.toList()..sort();
 
       if (!mounted) return;
@@ -184,6 +191,15 @@ class _DetailScreenState extends State<DetailScreen>
                               context, content, seasonNumbers, selectedEpisodes),
                         ],
 
+                        // Fallback search : série sans saisons/épisodes
+                        // (détail serveur en erreur) → bandeau explicite ;
+                        // infos + lecture directe éventuelle restent affichées.
+                        if (content.isSerie &&
+                            content.seasons.isEmpty) ...[
+                          _buildNoSeasonBanner(context),
+                          SizedBox(height: 24),
+                        ],
+
                         // Similar
                         if (content.similar.isNotEmpty) ...[
                           Text('Vous aimerez aussi',
@@ -203,7 +219,9 @@ class _DetailScreenState extends State<DetailScreen>
                                     context,
                                     MaterialPageRoute(
                                       builder: (_) => DetailScreen(
-                                          contentId: content.similar[i].id),
+                                          contentId: content.similar[i].id,
+                                          titleHint:
+                                              content.similar[i].title),
                                     ),
                                   ),
                                 ),
@@ -729,6 +747,35 @@ class _DetailScreenState extends State<DetailScreen>
   }
 
   // ── EPISODES SECTION ─────────────────────────────────────────────────────
+
+  /// Bandeau affiché quand une série n'a aucune saison (fallback search) :
+  /// simple information, pas d'erreur bloquante.
+  Widget _buildNoSeasonBanner(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Neo.bgElevated(context),
+        borderRadius: BorderRadius.circular(NeoTheme.radiusMd),
+        border: Border.all(
+          color: Neo.bgBorder(context).withValues(alpha: 0.2),
+          width: 0.8,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline_rounded,
+              size: 18, color: Neo.textSecondary(context)),
+          SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Aucune saison disponible pour cette série pour le moment.',
+              style: Neo.bodySmall(context),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildEpisodesSection(
     BuildContext context,

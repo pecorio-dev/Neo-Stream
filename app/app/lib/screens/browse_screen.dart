@@ -193,7 +193,9 @@ class _BrowseScreenState extends State<BrowseScreen> {
 
   void _navigateToDetail(Content content) {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => DetailScreen(contentId: content.id)),
+      MaterialPageRoute(
+          builder: (_) =>
+              DetailScreen(contentId: content.id, titleHint: content.title)),
     );
   }
 

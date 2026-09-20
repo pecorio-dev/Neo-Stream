@@ -13,7 +13,11 @@ import '../player_screen.dart';
 class TVDetailScreen extends StatefulWidget {
   final int contentId;
 
-  const TVDetailScreen({super.key, required this.contentId});
+  /// Titre connu par l'appelant (carte/search) : sert de `titleHint` au
+  /// fallback `content/search` quand `content/detail/$id` est en 500.
+  final String? titleHint;
+
+  const TVDetailScreen({super.key, required this.contentId, this.titleHint});
 
   @override
   State<TVDetailScreen> createState() => _TVDetailScreenState();
@@ -99,7 +103,10 @@ class _TVDetailScreenState extends State<TVDetailScreen> {
       });
     }
     try {
-      final content = await _api.getContentDetail(widget.contentId);
+      final content = await _api.getContentDetail(
+        widget.contentId,
+        titleHint: widget.titleHint,
+      );
       if (!mounted) return;
       final seasons = content.seasons.keys.toList()..sort();
       setState(() {
@@ -591,7 +598,9 @@ class _TVDetailScreenState extends State<TVDetailScreen> {
                         // atteignable via chaque fiche (bouton + header).
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (_) => TVDetailScreen(contentId: item.id)),
+                           MaterialPageRoute(builder: (_) => TVDetailScreen(
+                                 contentId: item.id,
+                                 titleHint: item.title)),
                         );
                       },
                       child: Column(

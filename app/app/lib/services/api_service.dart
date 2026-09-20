@@ -636,9 +636,131 @@ class ApiService {
     }
   }
 
-  Future<Content> getContentDetail(int id) async {
-    final data = await _get('content/detail/$id');
-    return Content.fromJson(data as Map<String, dynamic>);
+  Future<Content> getContentDetail(int id, {String? titleHint}) async {
+    Object? originalError;
+    try {
+      final data = await _get('content/detail/$id');
+      return Content.fromJson(data as Map<String, dynamic>);
+    } catch (e) {
+      originalError = e;
+      // Pas de fallback pour les erreurs d'auth/session : inutile (le search
+      // échouerait pareil) et bruyant (double refresh). De même pour premium
+      // (l'écran détail gère le paywall) et rate-limit.
+      if (e is AuthException ||
+          e is PremiumRequiredException ||
+          e is RateLimitException) {
+        rethrow;
+      }
+      final hint = titleHint?.trim();
+      // Sans titre, impossible de reconstruire via `content/search` (200) :
+      // on propage l'erreur d'origine.
+      if (hint == null || hint.isEmpty) rethrow;
+      try {
+        final res = await searchContentPaged(hint, perPage: 20);
+        if (res.items.isEmpty) throw originalError;
+        final best = _pickBestSearchMatch(id, hint, res.items);
+        if (best == null) throw originalError;
+        // Les items `content/search` portent déjà watch_links/description/
+        // genres/rating/poster. Pour les séries, seasons/épisodes sont
+        // indisponibles via search → fiche dégradée (infos + note) au lieu
+        // d'une erreur systématique.
+        if (best.isSerie && best.seasons.isEmpty) {
+          return _withFallbackNote(best);
+        }
+        return best;
+      } catch (_) {
+        throw originalError;
+      }
+    }
+  }
+
+  /// Choisit le meilleur candidat search pour [id]/[hint] :
+  /// 1. id exact, 2. égalité de titre normalisé (insensible casse/accents),
+  /// 3. inclusion normalisée, 4. premier résultat.
+  Content? _pickBestSearchMatch(
+      int id, String hint, List<Content> candidates) {
+    for (final c in candidates) {
+      if (c.id == id) return c;
+    }
+    final want = _normalizeTitle(hint);
+    if (want.isNotEmpty) {
+      for (final c in candidates) {
+        if (_normalizeTitle(c.displayTitle) == want ||
+            _normalizeTitle(c.title) == want) {
+          return c;
+        }
+      }
+      for (final c in candidates) {
+        final got = _normalizeTitle(c.displayTitle);
+        if (got.contains(want) || want.contains(got)) return c;
+      }
+    }
+    return candidates.first;
+  }
+
+  /// Copie [source] en ajoutant une note de dégradation à la description
+  /// (les saisons/épisodes sont indisponibles via le fallback search).
+  Content _withFallbackNote(Content source) {
+    const note =
+        'Liste des épisodes indisponible pour le moment (détail serveur en erreur).';
+    final base = source.description?.trim() ?? '';
+    final description =
+        base.isEmpty ? note : '$base\n\n$note';
+    return Content(
+      id: source.id,
+      cpasmieuxId: source.cpasmieuxId,
+      title: source.title,
+      description: description,
+      contentType: source.contentType,
+      genres: source.genres,
+      rating: source.rating,
+      releaseDate: source.releaseDate,
+      poster: source.poster,
+      posterUrl: source.posterUrl,
+      watchLinks: source.watchLinks,
+      episodes: source.episodes,
+      seasons: source.seasons,
+      seasonCount: source.seasonCount,
+      episodeCount: source.episodeCount,
+      urlSite: source.urlSite,
+      keywords: source.keywords,
+      createdAt: source.createdAt,
+      updatedAt: source.updatedAt,
+      rank: source.rank,
+      todayViews: source.todayViews,
+      trend: source.trend,
+      matchPercent: source.matchPercent,
+      progressPercent: source.progressPercent,
+      currentEpisodeId: source.currentEpisodeId,
+      seriesBaseTitle: source.seriesBaseTitle,
+      availableSeasons: source.availableSeasons,
+      missingSeasons: source.missingSeasons,
+      mergedVariantCount: source.mergedVariantCount,
+      hasDetachedSeasons: source.hasDetachedSeasons,
+      autoMerged: source.autoMerged,
+      inLibrary: source.inLibrary,
+      isPremiumContent: source.isPremiumContent,
+      similar: source.similar,
+      userProgress: source.userProgress,
+      allProgress: source.allProgress,
+    );
+  }
+
+  /// Normalisation titre : minuscules + suppression des accents FR courants
+  /// + suppression de tout ce qui n'est pas [a-z0-9].
+  static String _normalizeTitle(String input) {
+    var s = input.toLowerCase().trim();
+    const accents = <String, String>{
+      'à': 'a', 'á': 'a', 'â': 'a', 'ã': 'a', 'ä': 'a', 'å': 'a',
+      'è': 'e', 'é': 'e', 'ê': 'e', 'ë': 'e',
+      'ì': 'i', 'í': 'i', 'î': 'i', 'ï': 'i',
+      'ò': 'o', 'ó': 'o', 'ô': 'o', 'õ': 'o', 'ö': 'o',
+      'ù': 'u', 'ú': 'u', 'û': 'u', 'ü': 'u',
+      'ý': 'y', 'ÿ': 'y',
+      'ç': 'c', 'ñ': 'n', 'æ': 'ae', 'œ': 'oe',
+    };
+    accents.forEach((k, v) => s = s.replaceAll(k, v));
+    return s.replaceAll(RegExp(r'[^a-z0-9]'), '');
   }
 
   Future<Map<String, dynamic>> getSeriesMergePreview(int id) async {

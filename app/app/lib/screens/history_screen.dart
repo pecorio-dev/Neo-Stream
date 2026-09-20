@@ -167,12 +167,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
   }
 
-  void _openDetail(int contentId) {
+  void _openDetail(int contentId, [String? titleHint]) {
     if (contentId <= 0) {
       return;
     }
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => DetailScreen(contentId: contentId)),
+      MaterialPageRoute(
+          builder: (_) =>
+              DetailScreen(contentId: contentId, titleHint: titleHint)),
     );
   }
 
@@ -410,7 +412,7 @@ class _HistoryListCard extends StatelessWidget {
   final String Function(dynamic seconds) formatDuration;
   final double Function(dynamic value) safeDouble;
   final int Function(dynamic value, [int fallback]) safeInt;
-  final void Function(int contentId) onTap;
+  final void Function(int contentId, String? titleHint) onTap;
 
   _HistoryListCard({
     required this.item,
@@ -449,7 +451,7 @@ class _HistoryListCard extends StatelessWidget {
                       event.logicalKey == LogicalKeyboardKey.space ||
                       event.logicalKey == LogicalKeyboardKey.numpadEnter ||
                       event.logicalKey == LogicalKeyboardKey.gameButtonA)) {
-                onTap(contentId);
+                onTap(contentId, title);
                 return KeyEventResult.handled;
               }
               return KeyEventResult.ignored;
@@ -459,7 +461,7 @@ class _HistoryListCard extends StatelessWidget {
         builder: (ctx) {
           final focused = Focus.of(ctx).hasFocus;
           return GestureDetector(
-            onTap: () => onTap(contentId),
+            onTap: () => onTap(contentId, title),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 150),
               height: NeoTheme.searchCardHeight(context),
@@ -601,7 +603,7 @@ class _HistoryGridCard extends StatelessWidget {
   final String Function(dynamic seconds) formatDuration;
   final double Function(dynamic value) safeDouble;
   final int Function(dynamic value, [int fallback]) safeInt;
-  final void Function(int contentId) onTap;
+  final void Function(int contentId, String? titleHint) onTap;
 
   _HistoryGridCard({
     required this.item,
@@ -637,7 +639,7 @@ class _HistoryGridCard extends StatelessWidget {
                       event.logicalKey == LogicalKeyboardKey.space ||
                       event.logicalKey == LogicalKeyboardKey.numpadEnter ||
                       event.logicalKey == LogicalKeyboardKey.gameButtonA)) {
-                onTap(contentId);
+                onTap(contentId, title);
                 return KeyEventResult.handled;
               }
               return KeyEventResult.ignored;
@@ -647,7 +649,7 @@ class _HistoryGridCard extends StatelessWidget {
         builder: (ctx) {
           final focused = Focus.of(ctx).hasFocus;
           return GestureDetector(
-            onTap: () => onTap(contentId),
+            onTap: () => onTap(contentId, title),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 150),
               decoration: BoxDecoration(

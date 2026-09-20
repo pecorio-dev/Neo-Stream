@@ -355,7 +355,7 @@ class _TVHistoryScreenState extends State<TVHistoryScreen> {
             setState(() => _focusedIndex = index);
             final contentId = _safeInt(item['content_id']);
             if (contentId > 0) {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => TVDetailScreen(contentId: contentId)));
+              Navigator.push(context, MaterialPageRoute(builder: (_) => TVDetailScreen(contentId: contentId, titleHint: item['title']?.toString())));
             }
           },
           onFocus: () => setState(() => _focusedIndex = index),

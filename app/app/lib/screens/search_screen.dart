@@ -344,8 +344,11 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
-  void _openDetail(Content c) => Navigator.push(context,
-      MaterialPageRoute(builder: (_) => DetailScreen(contentId: c.id)));
+  void _openDetail(Content c) => Navigator.push(
+      context,
+      MaterialPageRoute(
+          builder: (_) =>
+              DetailScreen(contentId: c.id, titleHint: c.title)));
 
   void _openAnime(Anime a) => Navigator.push(context,
       MaterialPageRoute(builder: (_) => AnimeDetailScreen(animeId: a.id)));

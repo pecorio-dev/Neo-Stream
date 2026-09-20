@@ -1172,7 +1172,8 @@ class _PremiumHubScreenState extends State<PremiumHubScreen>
                       index: index,
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute(
-                          builder: (_) => DetailScreen(contentId: item.id),
+                          builder: (_) => DetailScreen(
+                              contentId: item.id, titleHint: item.title),
                         ),
                       ),
                     ),
@@ -1264,7 +1265,8 @@ class _PremiumHubScreenState extends State<PremiumHubScreen>
         onTap: contentId > 0
             ? () => Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (_) => DetailScreen(contentId: contentId),
+                    builder: (_) => DetailScreen(
+                        contentId: contentId, titleHint: title),
                   ),
                 )
             : null,

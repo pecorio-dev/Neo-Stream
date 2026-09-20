@@ -538,7 +538,7 @@ class _TVSearchScreenState extends State<TVSearchScreen> {
                                 key: ValueKey('tv_${c.contentType}_${c.id}'),
                                 content: c,
                                 onFocus: () => _focusedIndex = index,
-                                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TVDetailScreen(contentId: c.id))),
+                                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TVDetailScreen(contentId: c.id, titleHint: c.title))),
                               );
                             } else {
                               final anime = animes[index - contents.length];

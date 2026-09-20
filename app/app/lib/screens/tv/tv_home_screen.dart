@@ -65,8 +65,22 @@ class _TVHomeScreenState extends State<TVHomeScreen> with TickerProviderStateMix
       );
     } else {
       Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => TVDetailScreen(contentId: item.id)),
+        MaterialPageRoute(
+            builder: (_) => TVDetailScreen(
+                contentId: item.id, titleHint: _titleOf(item))),
       );
+    }
+  }
+
+  /// Titre pour le fallback `content/search` : les items sont des [Content]
+  /// (`.title`), avec garde pour les Maps (`['title']`).
+  static String? _titleOf(dynamic item) {
+    if (item is Map) return item['title']?.toString();
+    try {
+      final t = (item as dynamic).title;
+      return t?.toString();
+    } catch (_) {
+      return null;
     }
   }
 

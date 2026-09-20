@@ -220,7 +220,7 @@ class _AISearchScreenState extends State<AISearchScreen> {
                 MaterialPageRoute(
                   builder: (_) => item.type == 'anime'
                       ? AnimeDetailScreen(animeId: item.id)
-                      : DetailScreen(contentId: item.id),
+                      : DetailScreen(contentId: item.id, titleHint: item.title),
                 ),
               );
             },
