@@ -1,0 +1,41 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.neovideoquality'
+version = '1.0.0'
+
+android {
+  namespace 'expo.modules.neovideoquality'
+  defaultConfig {
+    // Expo SDK 57 reads the library version from the Android DSL for its local publication.
+    versionName project.version.toString()
+  }
+}
+
+def videoProject = findProject(':expo-video')
+if (videoProject != null) evaluationDependsOn(':expo-video')
+
+def media3Version
+dependencies {
+  if (videoProject != null) {
+    implementation project(':expo-video')
+    media3Version = videoProject.configurations.implementation.dependencies.find {
+      it.group == 'androidx.media3' && it.name == 'media3-exoplayer'
+    }?.version
+  } else {
+    // SDK 57 can autolink expo-video as a Maven publication instead of a project.
+    def video = gradle.extensions.getByName('expoGradle').config.allProjects.find { it.name == 'expo-video' }
+    def publication = video.publication
+    def artifact = "${publication.artifactId}-${publication.version}"
+    implementation "${publication.groupId}:${publication.artifactId}:${publication.version}"
+    def path = "../${publication.repository}/${publication.groupId.replace('.', '/')}/${publication.artifactId}/${publication.version}/${artifact}.module"
+    def metadata = new groovy.json.JsonSlurper().parse(new File(video.sourceDir, path))
+    media3Version = metadata.variants.collectMany { it.dependencies ?: [] }.find {
+      it.group == 'androidx.media3' && it.module == 'media3-exoplayer'
+    }?.version?.requires
+  }
+  if (!media3Version) throw new GradleException('Could not determine the Media3 version used by expo-video')
+  implementation "androidx.media3:media3-exoplayer:${media3Version}"
+}
