@@ -14,6 +14,7 @@ import { CATALOGUE_BATCH, isCanonicalTitle } from "./catalogueLookup";
 import { parseGenres, withGenres } from './genres';
 import { decodeProgressSnapshot, type ProgressEvent, type ProgressIdentity, type ProgressSnapshot } from "./progress";
 import { directReader, isDeclaredStartupMs, isReaderKey, nextReaderTickets, readerTickets } from './readerStartup';
+import { relayLiveUrl } from './streamProxy';
 
 // The service URL is supplied by the operator; no private Neo-stream endpoints are assumed.
 export const API_BASE = (process.env.EXPO_PUBLIC_NEO_API_URL || "")
@@ -221,7 +222,13 @@ export async function apiChannelSources(slug: string, signal?: AbortSignal): Pro
   // Keep accepting items-only replies. If an echo is present, it must identify
   // the exact channel, not just a name or a case-insensitive slug.
   if (!Array.isArray(data?.items) || (data.slug !== undefined && data.slug !== slug)) throw new Error("Réponse de lecture invalide.");
-  return { items: validSources(data.items).filter(source => source.type !== 'external') };
+  // The live host sends no usable CORS header: in a browser, play it through our own
+  // relay. Native keeps the original URL, and unknown hosts are never relayed.
+  return {
+    items: validSources(data.items)
+      .filter(source => source.type !== 'external')
+      .map(source => ({ ...source, url: relayLiveUrl(source.url, source.type === 'video' ? 'video' : 'hls', API_BASE) })),
+  };
 }
 export function sourceFailure(error: unknown, web: boolean, live = false) {
   const status = error instanceof ApiHttpError ? error.status : 0;

@@ -4,16 +4,15 @@
 
 Parcourez les films et les séries sur votre téléphone, retrouvez une lecture en cours ou passez au direct sur Android TV. Sur le grand écran, l’interface se pilote à la télécommande.
 
-**[Téléchargements Android ↓](../../releases)** · [Notes de la v1.0.0](docs/v1.0.0.md)
+**[↓ Télécharger Neo-stream.apk](https://github.com/pecorio-dev/Neo-Stream/releases/latest/download/Neo-stream.apk)** · [Toutes les versions](https://github.com/pecorio-dev/Neo-Stream/releases) · [Notes de la v1.0.0](docs/v1.0.0.md)
 
-L’APK officiel sera proposé dans **Releases**, sous le nom `Neo-stream-Android.apk`. Si aucune version n’y apparaît, le téléchargement n’est pas encore ouvert.
-<!-- Une fois l’APK officiel publié, le bouton peut pointer directement vers ../../releases/latest/download/Neo-stream-Android.apk. -->
+**Version 1.0.0 :** un seul APK pour téléphone et Android TV · Android 7.0 ou ultérieur · ARM 32/64 bits · 72 Mio.
 
 ### Installer sur Android
 
-1. Sur votre téléphone, ouvrez **Téléchargements Android** puis sélectionnez `Neo-stream-Android.apk` dans les fichiers de la version. Pour une TV, transférez le même fichier sur le téléviseur et ouvrez-le depuis son gestionnaire de fichiers.
+1. Sur votre téléphone, appuyez sur **Télécharger Neo-stream.apk**, puis ouvrez le fichier. Pour une TV, transférez le même fichier sur le téléviseur et ouvrez-le depuis son gestionnaire de fichiers.
 2. Si Android demande une autorisation, accordez-la uniquement à l’application qui ouvre l’APK. Vous pouvez la retirer après l’installation.
-3. Pour vérifier le fichier, téléchargez aussi `SHA256SUMS.txt` depuis la même release. Dans le dossier contenant les deux fichiers, exécutez `sha256sum -c SHA256SUMS.txt` (Linux) ou `shasum -a 256 -c SHA256SUMS.txt` (macOS).
+3. Pour vérifier le fichier, téléchargez aussi [SHA256SUMS.txt](https://github.com/pecorio-dev/Neo-Stream/releases/latest/download/SHA256SUMS.txt) depuis la même version. Dans le dossier contenant les deux fichiers, exécutez `sha256sum -c SHA256SUMS.txt` (Linux) ou `shasum -a 256 -c SHA256SUMS.txt` (macOS).
 
 ## L’application en images
 
